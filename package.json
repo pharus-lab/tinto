@@ -1,0 +1,39 @@
+{
+  "name": "tinto-editor",
+  "productName": "Tinto",
+  "description": "A local writing editor for exploring alternative wordings.",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "package": "node scripts/package.mjs"
+  },
+  "dependencies": {
+    "dictionary-en": "^4.0.0",
+    "dictionary-es": "^4.0.0",
+    "fflate": "^0.8.3",
+    "nspell": "^2.1.5",
+    "pdfjs-dist": "^6.5.438",
+    "prosemirror-commands": "^1.7.2",
+    "prosemirror-history": "^1.5.2",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.13",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-transform": "^1.12.7",
+    "prosemirror-view": "^1.43.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "@types/node": "^26.6.6",
+    "@types/nspell": "^2.1.6",
+    "electron": "^45.4.1",
+    "esbuild": "^0.28.2",
+    "playwright": "^1.65.1",
+    "typescript": "^7.0.2"
+  }
+}

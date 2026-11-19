@@ -1,0 +1,41 @@
+# Tinto
+
+A local manuscript editor for macOS and Linux. Each project is a portable SQLite file with the extension `.tinto`. It contains the manuscripts, hidden wordings, draft comparison baselines, document languages, and version history.
+
+## Open the editor
+
+- **macOS on Apple silicon** — Open `out/Tinto-darwin-arm64/Tinto.app`.
+- **Ubuntu or Debian** — Open the matching `.deb` from `out` in the software installer, then launch **Tinto** from the applications menu. Choose `amd64` for Intel or AMD processors and `arm64` for ARM processors. From a terminal, install with `sudo apt install ./tinto_0.1.0_amd64.deb` or the corresponding ARM64 filename.
+- **From source** — With Node.js 24.13 or later and npm, run `npm ci` and `npm start`. The first run downloads Electron. Subsequent writing sessions work offline.
+
+## Try a wording
+
+The first launch opens **The long way home** with the alternatives panel open. Switch to “I want to eat a cat.” and back. Under **Within this passage**, choose “ice cream” or “cake”. **Edit wording** selects the active text in the manuscript. Type to replace it and use the ordinary Undo shortcut to bring it back.
+
+Select text in one paragraph and click **Add alternative** to start a new group. **Add option** makes another copy in the same group. Select text around a whole group to nest it. Use **Option+Right** on macOS or **Alt+Right** on Linux to leave an alternative before starting a new paragraph.
+
+## Writing and projects
+
+- **Settings** in the title bar controls font size, line spacing, appearance, and the default spelling language. The footer language selector belongs to the current document.
+- **Home** creates and opens projects, adds documents, imports files, and opens linked sections by heading. Settings shows the current project file path. The first sample project lives in Tinto’s application-data directory.
+- **Create draft** copies the current document or linked section. **Review draft** compares each changed paragraph. Applying a choice updates both copies and their common baseline. A conflict needs an explicit decision.
+- **History** lets you name, preview, restore, and delete versions. Tinto autosaves after 450 ms of idle typing and flushes on close. Changed work gets an automatic version after five minutes. Automatic versions stay for 30 days. Named versions stay until deleted.
+- **Import file** accepts TXT, DOCX, and text-based PDFs. PDF import reports pages requiring OCR. **Export** writes the open document, section, or draft as DOCX or PDF, with its chosen wording and author formatting.
+- English and Spanish dictionaries ship with the app. In **Settings**, download French or UK English and then select it as the document language. Right-click an underlined word or press **Shift+F10** to choose a correction.
+
+## Optional Google Drive backup
+
+Enable the Google Drive API for a Google Cloud project and create a desktop OAuth client. In **Settings**, choose **Connect Google Drive**, select the downloaded client JSON, and authorize Tinto in your system browser. Tinto requests the `drive.file` scope. Store the client file outside manuscript projects. [Google desktop OAuth setup](https://developers.google.com/identity/protocols/oauth2/native-app)
+
+Automatic backups are opt-in per local project. While Tinto is open it checks for changes every 15 minutes. **Back up now** takes an immediate snapshot. The **Tinto Backups** folder holds the five most recent completed backups per project. **Restore backup** downloads and verifies a whole project into a new local file. Use the same OAuth client on another computer to access the app’s backups. Tokens use Electron safeStorage with the operating system credential service. Linux backup connection requires a supported keyring.
+
+## Build and check
+
+- `npm run typecheck` checks the TypeScript.
+- `npm test` runs the editor, desktop, storage, drafts, file exchange and backup checks. Browser tests use system Chrome on macOS. On Linux install Playwright Chromium with `npx playwright install chromium` or set `CHROME_PATH` to an existing Chromium executable. Desktop tests need a graphical session or Xvfb.
+- `TINTO_DICTIONARY_NETWORK_TEST=1 npm test` also downloads a pinned French pack and checks it in an offline process.
+- `npm run package` builds the app for the current machine. Use `npm run package -- linux x64` or `npm run package -- linux arm64` for a Linux folder. On Linux, run `sh scripts/linux-deb.sh amd64` or `sh scripts/linux-deb.sh arm64` to generate its installer.
+
+## License
+
+Original Tinto code is released under the MIT license. Packaged applications include dependency licenses and the notices supplied with each dictionary.

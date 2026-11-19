@@ -1,0 +1,190 @@
+import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import test from 'node:test'
+import { _electron as electron } from 'playwright'
+
+const root = fileURLToPath(new URL('../', import.meta.url))
+const button = (page, name) => page.getByRole('button', { name, exact: true })
+
+async function desktopFixture(t) {
+  const executablePath = process.env.TINTO_PACKAGED_EXECUTABLE
+  if (!executablePath) await import('../scripts/build.mjs')
+  const directory = await mkdtemp(join(tmpdir(), 'tinto-desktop-proof-'))
+  let app
+  t.after(async () => {
+    if (app) await app.close()
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  async function open() {
+    app = await electron.launch({ executablePath, args: executablePath ? [] : [root], cwd: root, env: { ...process.env, TINTO_USER_DATA: directory } })
+    const page = await app.firstWindow()
+    page.setDefaultTimeout(8000)
+    await page.locator('.ProseMirror:visible').waitFor()
+    return page
+  }
+  async function close() {
+    await app.close()
+    app = undefined
+  }
+  return { open, close }
+}
+
+test('the desktop editor preserves nested options on close and restores a named version', async t => {
+  const { open, close } = await desktopFixture(t)
+  let page = await open()
+  await button(page, 'History').click()
+  const modal = page.getByRole('dialog')
+  await modal.getByRole('textbox', { name: 'Version name' }).fill('Kitchen before revision')
+  await button(modal, 'Name current version').click()
+  await modal.getByText('Version saved.', { exact: true }).waitFor()
+  await modal.locator('summary').first().click()
+  assert.match(await modal.locator('details[open]').innerText(), /ice cream/)
+  await button(modal, 'Close history').click()
+
+  const nested = page.getByRole('region', { name: 'Within this passage' })
+  await button(nested, 'Edit wording').click()
+  await page.keyboard.type('custard')
+  await button(page, 'I want to eat a cat.').click()
+  await button(page, 'I want to eat custard.').click()
+  assert.equal(await button(page, 'custard').getAttribute('aria-pressed'), 'true')
+  await close()
+
+  page = await open()
+  const editor = page.locator('.ProseMirror:visible')
+  assert.match(await editor.innerText(), /I want to eat custard\./)
+  await button(page, 'History').click()
+  const history = page.getByRole('dialog')
+  await button(history, 'Restore version').click()
+  await button(history, 'Restore').click()
+  await history.waitFor({ state: 'hidden' })
+  assert.match(await editor.innerText(), /I want to eat cake\./)
+  await button(page, 'History').click()
+  await history.locator('.version-entry').first().waitFor()
+  assert.match(await history.locator('.version-entry').first().innerText(), /Automatic version/)
+  assert.match(await history.locator('.version-text').innerText(), /I want to eat custard\./)
+  await history.locator('.version-entry').filter({ hasText: 'Kitchen before revision' }).click()
+  await button(history, 'Delete version').click()
+  await button(history, 'Cancel').click()
+  assert.equal(await history.locator('.version-entry').count(), 2)
+  await button(history, 'Delete version').click()
+  await button(history, 'Delete').click()
+  await history.locator('.version-entry').filter({ hasText: 'Kitchen before revision' }).waitFor({ state: 'hidden' })
+  await page.keyboard.press('Escape')
+  await history.waitFor({ state: 'hidden' })
+})
+
+test('English and Spanish spelling correct only the chosen wording and survive restart', async t => {
+  const { open, close } = await desktopFixture(t)
+  let page = await open()
+  const nested = page.getByRole('region', { name: 'Within this passage' })
+  await button(nested, 'Edit wording').click()
+  await page.keyboard.insertText('quisiéramos creem')
+  assert.equal(await page.locator('[data-choice-id="kitchen-food"]').count(), 1, 'inserting text retains the nested choice')
+  await page.locator('[data-word="quisiéramos"]').waitFor()
+  await page.locator('[data-word="creem"]').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'cream', exact: true }).click()
+  assert.equal(await page.locator('[data-choice-id="kitchen-food"]').count(), 1, 'correcting spelling retains the nested choice')
+  await button(page, 'Undo').click()
+  await page.locator('[data-word="creem"]').waitFor()
+  const language = page.getByRole('combobox', { name: 'Document spelling language' })
+  await language.selectOption('es')
+  await page.locator('[data-word="quisiéramos"]').waitFor({ state: 'detached' })
+  await page.locator('[data-word="creem"]').click()
+  await button(nested, 'Edit wording').click()
+  await page.keyboard.insertText('quisiéramos pasttel')
+  await page.locator('[data-word="pasttel"]').click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'pastel', exact: true }).click()
+  assert.match(await page.locator('.ProseMirror:visible').innerText(), /quisiéramos pastel/)
+  await button(page, 'Undo').click()
+  await page.locator('[data-word="pasttel"]').waitFor()
+  await button(nested, 'ice cream').click()
+  assert.match(await page.locator('.ProseMirror:visible').innerText(), /I want to eat ice cream/)
+  await button(nested, 'quisiéramos pasttel').click()
+  await close()
+  page = await open()
+  assert.equal(await page.getByRole('combobox', { name: 'Document spelling language' }).inputValue(), 'es')
+  await page.locator('[data-word="pasttel"]').waitFor()
+  assert.equal(await page.locator('[data-word="quisiéramos"]').count(), 0)
+})
+
+async function appendToParagraph(page, paragraph, text) {
+  await paragraph.evaluate(node => {
+    node.closest('.ProseMirror').focus()
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    range.collapse(false)
+    const selection = getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await page.keyboard.type(text)
+}
+
+test('a chapter draft applies a hidden change and leaves a conflict for review after reopening', async t => {
+  const { open, close } = await desktopFixture(t)
+  let page = await open()
+  await button(page, 'Home').click()
+  await button(page.locator('#home'), 'The kitchen').click()
+  await button(page, 'Create draft').click()
+  const creation = page.getByRole('dialog', { name: 'Create independent draft' })
+  await creation.getByRole('textbox', { name: 'Draft name' }).fill('Kitchen revision')
+  await button(creation, 'Create draft').click()
+  await button(page, 'Review draft').waitFor()
+  assert.equal(await page.locator('.ProseMirror:visible h1:visible').allTextContents().then(x => x.join()), 'The kitchen')
+
+  const food = page.locator('.ProseMirror:visible [data-choice-id="kitchen-food"]')
+  await food.click()
+  const nested = page.getByRole('region', { name: 'Within this passage' })
+  await button(nested, 'ice cream').click()
+  await button(nested, 'Edit wording').click()
+  await page.keyboard.insertText('sorbet')
+  await button(nested, 'cake').click()
+
+  const opening = () => page.locator('#editors .ProseMirror:visible p:visible').first()
+  await appendToParagraph(page, opening(), ' In the draft.')
+  await button(page.locator('#tabs'), 'The kitchen').click()
+  await appendToParagraph(page, opening(), ' In the original.')
+  await button(page.locator('#tabs'), 'Kitchen revision · Draft').click()
+  await button(page, 'Review draft').click()
+
+  let dialog = page.getByRole('dialog', { name: 'Review draft' })
+  const hidden = dialog.locator('.draft-change').filter({ hasText: 'Hidden option 1 differs' })
+  await hidden.waitFor()
+  assert.match(await hidden.innerText(), /sorbet/)
+  assert.match(await hidden.innerText(), /ice cream/)
+  await button(dialog, 'Apply all').click()
+  await dialog.getByText('Choose a result for each included conflict.').waitFor()
+  assert.equal(await dialog.locator('.draft-change').count(), 2)
+  await hidden.getByRole('checkbox').check()
+  await button(dialog, 'Apply selected (1)').click()
+  await dialog.getByText('Applied 1 change.').waitFor()
+  assert.equal(await dialog.locator('.draft-change').count(), 1)
+  await close()
+
+  page = await open()
+  await button(page, 'Review draft').click()
+  dialog = page.getByRole('dialog', { name: 'Review draft' })
+  const conflict = dialog.locator('.draft-change')
+  await conflict.getByText('Conflict', { exact: true }).waitFor()
+  assert.equal(await conflict.count(), 1)
+  await conflict.getByLabel('Result', { exact: true }).selectOption('edit-original')
+  await appendToParagraph(page, conflict.getByRole('textbox', { name: 'Edited result' }).locator('p'), ' Resolved.')
+  await button(dialog, 'Apply all').click()
+  await dialog.getByText('No pending changes.').waitFor()
+  await button(dialog, 'Close review draft').click()
+  assert.match(await opening().innerText(), /In the original\. Resolved\.$/)
+  await button(page.locator('#tabs'), 'The kitchen').click()
+  assert.match(await opening().innerText(), /In the original\. Resolved\.$/)
+  await page.locator('.ProseMirror:visible [data-choice-id="kitchen-food"]').click()
+  await button(page.getByRole('region', { name: 'Within this passage' }), 'sorbet').waitFor()
+  await button(page.locator('#tabs'), 'Kitchen revision · Draft').click()
+  await appendToParagraph(page, opening(), ' Later.')
+  await button(page, 'Review draft').click()
+  await dialog.locator('.draft-origin').filter({ hasText: /^Draft$/ }).waitFor()
+  assert.equal(await dialog.locator('.draft-change').count(), 1)
+})
