@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Tinto</title>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0.75" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#FFFEFB"/>
+      <stop offset=".55" stop-color="#FAF6F0"/>
+      <stop offset="1" stop-color="#ECE4DA"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="135%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+    <path id="tile" d="M322 100H702C786 100 825 111 866 151C908 191 924 236 924 322V702C924 786 912 830 872 870C831 912 787 924 702 924H322C236 924 192 911 152 871C111 830 100 786 100 702V322C100 236 111 192 152 152C192 111 236 100 322 100Z"/>
+  </defs>
+  <use href="#tile" fill="#21191A" opacity=".22" transform="translate(0 10)" filter="url(#shadow)"/>
+  <use href="#tile" fill="url(#paper)" stroke="#D9D1CA" stroke-width="3"/>
+  <!-- The T and period from the editor’s Iowan Old Style Bold Italic wordmark. -->
+  <g transform="translate(247 751) scale(.364 -.364)">
+    <path fill="#262123" d="M227 84H276Q395 84 450 403L455 428L594 1229H420Q309 1229 258 1183.5Q207 1138 184 1018L92 1030Q117 1120 133.5 1204Q150 1288 158 1366Q236 1358 303 1354Q370 1350 430 1350Q475 1350 517 1351.5Q559 1353 601 1356H907Q934 1356 990.5 1355Q1047 1354 1077 1354Q1155 1354 1215 1357Q1275 1360 1331 1366Q1315 1289 1304 1205Q1293 1121 1286 1030L1194 1024Q1195 1034 1195.5 1047Q1196 1060 1196 1092Q1196 1159 1154.5 1190.5Q1113 1222 1012 1229H850L688 260Q685 244 683.5 227Q682 210 682 190Q682 132 709 108Q736 84 803 84H831L815 0Q668 9 606 11.5Q544 14 502 14Q467 14 411.5 11.5Q356 9 209 0Z"/>
+    <path transform="translate(1050 0)" fill="#963C46" d="M254 350 324 281Q353 253 366 228.5Q379 204 379 176Q379 138 357 111.5Q335 85 281 57L186 0L115 78Q80 112 69.5 133Q59 154 59 178Q59 216 82 245Q105 274 154 299Z"/>
+  </g>
+</svg>
