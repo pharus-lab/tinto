@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, protocol } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -9,55 +9,16 @@ import { pickInputFile, exportFile } from './file-dialogs'
 import type { ExportFormat } from './exchange'
 import type { Manuscript } from './model'
 import { ProjectStore } from './storage'
+import { ProjectLibrary } from './library'
 import { newBlock, sampleManuscript } from './model'
-import type { DocumentRecord, RecentProject, Workspace, DraftResolution } from './project-types'
+import type { DocumentRecord, DraftResolution } from './project-types'
 
 app.setName('Tinto')
 if (process.env.TINTO_USER_DATA) app.setPath('userData', process.env.TINTO_USER_DATA)
 protocol.registerSchemesAsPrivileged([{ scheme: 'tinto', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 const entry = 'tinto://app/index.html'
-let store: ProjectStore
-let projectPath: string
-let currentProjectId: string
-let recent: RecentProject[] = []
+let library: ProjectLibrary
 let window: BrowserWindow | null = null
-const libraryFile = () => join(app.getPath('userData'), 'projects.json')
-
-function workspace(): Workspace {
-  return { project: store.read(), path: projectPath, recent }
-}
-
-function activate(path: string, project: ProjectStore): Workspace {
-  const data = project.read()
-  const next = [{ path, title: data.title }, ...recent.filter(item => item.path !== path)]
-  try {
-    mkdirSync(dirname(libraryFile()), { recursive: true })
-    writeFileSync(libraryFile() + '.tmp', JSON.stringify(next), 'utf8')
-    renameSync(libraryFile() + '.tmp', libraryFile())
-  } catch (error) {
-    project.close()
-    throw error
-  }
-  store?.close()
-  store = project
-  projectPath = path
-  currentProjectId = data.id
-  recent = next
-  return { project: data, path, recent }
-}
-
-function loadLibrary() {
-  if (existsSync(libraryFile())) recent = JSON.parse(readFileSync(libraryFile(), 'utf8'))
-  const last = recent.find(item => existsSync(item.path))
-  if (last) return activate(last.path, new ProjectStore(last.path))
-  const directory = join(app.getPath('userData'), 'Projects')
-  mkdirSync(directory, { recursive: true })
-  const path = join(directory, 'The long way home.tinto')
-  if (existsSync(path)) return activate(path, new ProjectStore(path))
-  const title = 'The long way home'
-  const document = { id: randomUUID(), title, language: 'en', manuscript: sampleManuscript() }
-  return activate(path, ProjectStore.create(path, title, document))
-}
 
 function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   if (event.senderFrame?.url !== entry || event.sender !== window?.webContents) throw Error('Unknown editor window.')
@@ -71,52 +32,70 @@ function registerProjectActions() {
   })
   ipcMain.handle('draft:create', (event, id: string, heading: string | null, title: string) => {
     trusted(event)
-    return store.createDraft(id, heading, title)
+    return library.store.createDraft(id, heading, title)
   })
-  ipcMain.handle('draft:review', (event, id: string) => { trusted(event); return store.reviewDraft(id) })
-  ipcMain.handle('draft:apply', (event, id: string, resolutions: DraftResolution[]) => { trusted(event); return store.applyDraft(id, resolutions) })
+  ipcMain.handle('draft:review', (event, id: string) => { trusted(event); return library.store.reviewDraft(id) })
+  ipcMain.handle('draft:apply', (event, id: string, resolutions: DraftResolution[]) => { trusted(event); return library.store.applyDraft(id, resolutions) })
   ipcMain.handle('packs:list', event => { trusted(event); return listPacks(app.getPath('userData')) })
   ipcMain.handle('packs:read', (event, code: string) => { trusted(event); return readPack(app.getPath('userData'), code) })
   ipcMain.handle('packs:install', (event, code: string) => { trusted(event); return installPack(app.getPath('userData'), code) })
-  ipcMain.handle('workspace', event => { trusted(event); return workspace() })
-  ipcMain.handle('project:open', async (event, index?: number) => {
+  ipcMain.handle('library', event => { trusted(event); return library.state() })
+  ipcMain.handle('library:choose', async (event, folder?: string) => {
     trusted(event)
-    let path = index === undefined ? undefined : recent[index]?.path
-    if (!path) {
-      const choice = await dialog.showOpenDialog(window!, { title: 'Open a Tinto project', properties: ['openFile'], filters: [{ name: 'Tinto project', extensions: ['tinto'] }] })
-      if (choice.canceled) return null
-      path = choice.filePaths[0]
-    }
-    return path === projectPath ? workspace() : activate(path, new ProjectStore(path))
+    if (folder !== undefined) return library.selectFolder(folder, true)
+    const result = await dialog.showOpenDialog(window!, {
+      title: 'Choose a Tinto folder', buttonLabel: 'Choose folder',
+      defaultPath: library.folder ?? app.getPath('documents'), properties: ['openDirectory', 'createDirectory']
+    })
+    return result.canceled ? null : library.selectFolder(result.filePaths[0])
+  })
+  ipcMain.handle('library:create', async event => {
+    trusted(event)
+    const parent = library.folder
+    const result = await dialog.showSaveDialog(window!, {
+      title: 'Create a Tinto folder', buttonLabel: 'Create folder', nameFieldLabel: 'Folder name:',
+      defaultPath: join(parent ? dirname(parent) : app.getPath('documents'), 'Tinto')
+    })
+    if (result.canceled || !result.filePath) return null
+    if (existsSync(result.filePath)) throw Error('This name is already in use. Choose an existing folder or enter a new name.')
+    mkdirSync(result.filePath)
+    return library.selectFolder(result.filePath)
+  })
+  ipcMain.handle('project:sample', event => {
+    trusted(event)
+    const title = 'The long way home'
+    const path = join(library.activeFolder, title + '.tinto')
+    if (existsSync(path)) return library.open(path)
+    const document = { id: randomUUID(), title, language: 'en', manuscript: sampleManuscript() }
+    return library.activate(path, ProjectStore.create(path, title, document))
+  })
+  ipcMain.handle('workspace', event => { trusted(event); return library.workspace() })
+  ipcMain.handle('project:open', async (event, item?: number | string) => {
+    trusted(event)
+    if (item !== undefined) return library.openListed(item)
+    const choice = await dialog.showOpenDialog(window!, { title: 'Open a Tinto project', defaultPath: library.activeFolder, properties: ['openFile'], filters: [{ name: 'Tinto project', extensions: ['tinto'] }] })
+    return choice.canceled ? null : library.open(choice.filePaths[0])
   })
   ipcMain.handle('project:create', async (event, language: string) => {
     trusted(event)
-    const choice = await dialog.showSaveDialog(window!, { title: 'Create a Tinto project', defaultPath: 'Untitled.tinto', filters: [{ name: 'Tinto project', extensions: ['tinto'] }], buttonLabel: 'Create project' })
+    const choice = await dialog.showSaveDialog(window!, { title: 'Create a Tinto project', defaultPath: join(library.activeFolder, 'Untitled.tinto'), filters: [{ name: 'Tinto project', extensions: ['tinto'] }], buttonLabel: 'Create project' })
     if (!choice.filePath || choice.canceled) return null
     const path = choice.filePath
     const title = basename(path, extname(path))
     const document: DocumentRecord = { id: randomUUID(), title, language, manuscript: { type: 'doc', content: [newBlock()] } }
-    return activate(path, ProjectStore.create(path, title, document))
+    return library.activate(path, ProjectStore.create(path, title, document))
   })
   ipcMain.on('document:save', (event, path: string, id: string, document: DocumentRecord) => {
-    let previous: ProjectStore | undefined
     try {
       trusted(event)
-      if (path === projectPath && id === currentProjectId) store.save(document)
-      else {
-        if (!recent.some(item => item.path === path)) throw Error('The original project is unavailable.')
-        previous = new ProjectStore(path)
-        if (previous.read().id !== id) throw Error('The original project file has changed.')
-        previous.save(document)
-      }
+      library.save(path, id, document)
       event.returnValue = null
     } catch (error) { event.returnValue = String(error) }
-    finally { previous?.close() }
   })
-  ipcMain.handle('version:list', (e, id: string) => { trusted(e); return store.versions(id) })
-  ipcMain.handle('version:name', (e, id: string, name: string) => { trusted(e); store.snapshot(id, name) })
-  ipcMain.handle('version:restore', (e, id: string, v: string) => { trusted(e); return store.restore(id, v) })
-  ipcMain.handle('version:delete', (e, id: string, v: string) => { trusted(e); store.deleteVersion(id, v) })
+  ipcMain.handle('version:list', (e, id: string) => { trusted(e); return library.store.versions(id) })
+  ipcMain.handle('version:name', (e, id: string, name: string) => { trusted(e); library.store.snapshot(id, name) })
+  ipcMain.handle('version:restore', (e, id: string, v: string) => { trusted(e); return library.store.restore(id, v) })
+  ipcMain.handle('version:delete', (e, id: string, v: string) => { trusted(e); library.store.deleteVersion(id, v) })
 }
 
 async function openWindow() {
@@ -151,16 +130,16 @@ if (primaryWindow) app.whenReady().then(async () => {
     const bytes = await readFile(join(__dirname, path))
     return new Response(bytes, { headers: { 'Content-Type': mime[extname(path).slice(1)] + '; charset=utf-8' } })
   })
-  loadLibrary()
+  library = new ProjectLibrary(join(app.getPath('userData'), 'projects.json'))
   registerProjectActions()
-  registerBackups({ window: () => window!, project: () => ({ path: projectPath, id: currentProjectId }), open: path => activate(path, new ProjectStore(path)), trusted })
+  registerBackups({ window: () => window!, project: () => library.activeProject, open: path => library.open(path), trusted })
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }
   ]))
   await openWindow()
   const timer = setInterval(() => {
-    try { store.tick() }
+    try { library.tick() }
     catch (error) { dialog.showErrorBox('Tinto could not save a history snapshot', String(error)) }
   }, 30_000)
   timer.unref()
@@ -168,4 +147,4 @@ if (primaryWindow) app.whenReady().then(async () => {
 }).catch(error => { dialog.showErrorBox('Tinto could not open the project', String(error)); app.quit() })
 
 app.on('window-all-closed', () => app.quit())
-app.on('will-quit', () => store?.close())
+app.on('will-quit', () => library?.close())

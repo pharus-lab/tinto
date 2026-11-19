@@ -41,3 +41,10 @@ export interface Version {
 
 export interface RecentProject { path: string; title: string }
 export interface Workspace { project: Project; path: string; recent: RecentProject[] }
+
+export interface LibraryState {
+  folder: string | null
+  folders: string[]
+  projects: RecentProject[]
+  workspace: Workspace | null
+}

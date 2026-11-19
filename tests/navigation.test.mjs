@@ -1,17 +1,12 @@
 import assert from 'node:assert/strict'
-import { copyFile, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { copyFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
-import { _electron as electron } from 'playwright'
+import { desktopFixture } from './desktop-fixture.mjs'
 
 test('linked sections share edits, the trail follows scrolling, and keyboard review works in both appearances', async t => {
-  const executablePath = process.env.TINTO_PACKAGED_EXECUTABLE
-  if (!executablePath) await import('../scripts/build.mjs')
-  const directory = await mkdtemp(join(tmpdir(), 'tinto-navigation-'))
-  const app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env: { ...process.env, TINTO_USER_DATA: directory } })
-  t.after(async () => { await app.close(); await rm(directory, { recursive: true, force: true }) })
-  const page = await app.firstWindow()
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
   const button = name => page.getByRole('button', { name, exact: true })
   await button('I want to eat cake.').waitFor()
   for (const scheme of ['light','dark']) {
@@ -65,12 +60,9 @@ test('linked sections share edits, the trail follows scrolling, and keyboard rev
 })
 
 test('a delayed save after opening a restored copy stays in its originating project file', async t => {
-  const executablePath = process.env.TINTO_PACKAGED_EXECUTABLE
-  if (!executablePath) await import('../scripts/build.mjs')
-  const directory = await mkdtemp(join(tmpdir(), 'tinto-restored-copy-'))
-  const app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env: { ...process.env, TINTO_USER_DATA: directory } })
-  t.after(async () => { await app.close(); await rm(directory, { recursive: true, force: true }) })
-  const page = await app.firstWindow()
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const { app, directory } = fixture
   await page.locator('.ProseMirror:visible').waitFor()
   const original = await page.evaluate(() => window.tinto.workspace())
   const restoredPath = join(directory, 'Restored.tinto')
@@ -89,4 +81,97 @@ test('a delayed save after opening a restored copy stays in its originating proj
   assert.equal(after.project.documents[0].title, originalDoc.title)
   const reopened = await page.evaluate(index => window.tinto.open(index), after.recent.findIndex(item => item.path === original.path))
   assert.equal(reopened.project.documents[0].title, pending.title)
+})
+
+test('first launch lets the writer choose, create and revisit local project folders', async t => {
+  const fixture = await desktopFixture(t)
+  let page = await fixture.launch()
+  const { folder, profile, directory } = fixture
+  const button = name => page.getByRole('button', { name, exact: true })
+  const welcome = () => page.getByRole('heading', { name: 'Choose your Tinto folder' })
+  const library = () => page.evaluate(() => window.tinto.library())
+  const editor = () => page.locator('.ProseMirror:visible')
+  const chooser = () => page.getByRole('combobox', { name: 'Tinto folder' })
+  async function openDialog(path) {
+    await fixture.app.evaluate(({ dialog }, target) => {
+      dialog.showOpenDialog = async () => ({ canceled: !target, filePaths: target ? [target] : [] })
+    }, path)
+  }
+  async function saveDialog(path) {
+    await fixture.app.evaluate(({ dialog }, target) => {
+      dialog.showSaveDialog = async (_window, options) => {
+        globalThis.lastDefaultPath = options.defaultPath
+        return { canceled: !target, filePath: target || '' }
+      }
+    }, path)
+  }
+
+  await welcome().waitFor()
+  await openDialog(null)
+  await button('Choose folder').click()
+  assert.equal((await library()).folder, null)
+  assert.equal(await editor().count(), 0)
+  assert.ok(!(await readdir(profile)).includes('Projects'))
+  await fixture.close()
+  page = await fixture.launch()
+  await welcome().waitFor()
+
+  await openDialog(folder)
+  await button('Choose folder').click()
+  await button('Open sample project').waitFor()
+  assert.deepEqual(await readdir(folder), [])
+  assert.equal((await library()).workspace, null)
+  const firstFile = join(folder, 'First.tinto')
+  await saveDialog(firstFile)
+  await button('New project').click()
+  await editor().waitFor()
+  assert.equal(await fixture.app.evaluate(() => globalThis.lastDefaultPath), join(folder, 'Untitled.tinto'))
+  await editor().click()
+  await page.keyboard.insertText('Words in the first project.')
+  await button('Home').click()
+
+  await saveDialog(null)
+  await button('New folder').click()
+  assert.equal((await library()).workspace.path, firstFile)
+  const second = join(directory, 'My other folder')
+  await saveDialog(second)
+  await button('New folder').click()
+  await button('Open sample project').waitFor()
+  assert.ok((await stat(second)).isDirectory())
+  assert.equal(await chooser().inputValue(), second)
+  assert.deepEqual(await readdir(second), [])
+
+  const secondFile = join(second, 'Second.tinto')
+  await saveDialog(secondFile)
+  await button('New project').click()
+  await editor().waitFor()
+  assert.equal(await fixture.app.evaluate(() => globalThis.lastDefaultPath), join(second, 'Untitled.tinto'))
+  await editor().click()
+  await page.keyboard.insertText('Words in the second project.')
+  await button('Home').click()
+  await chooser().selectOption(folder)
+  await page.waitForFunction(async path => (await window.tinto.library()).workspace?.path === path, firstFile)
+  assert.match(JSON.stringify((await library()).workspace.project.documents[0].manuscript), /Words in the first project/)
+
+  const discovered = join(directory, 'Previously created folder')
+  await mkdir(discovered)
+  const discoveredFile = join(discovered, 'An existing manuscript.tinto')
+  await copyFile(firstFile, discoveredFile)
+  await openDialog(discovered)
+  await button('Choose folder').click()
+  await page.getByTitle(discoveredFile, { exact: true }).click()
+  await page.locator('#home .document-list').getByRole('button', { name: 'First', exact: true }).click()
+  await editor().waitFor()
+  assert.match(await editor().innerText(), /Words in the first project/)
+  await fixture.close()
+  page = await fixture.launch()
+  await editor().waitFor()
+  const reopened = await library()
+  assert.equal(reopened.folder, discovered)
+  assert.equal(reopened.workspace.path, discoveredFile)
+  assert.deepEqual([...reopened.folders].sort(), [folder, second, discovered].sort())
+  await button('Home').click()
+  await chooser().selectOption(second)
+  await page.waitForFunction(async path => (await window.tinto.library()).workspace?.path === path, secondFile)
+  assert.match(JSON.stringify((await library()).workspace.project.documents[0].manuscript), /Words in the second project/)
 })

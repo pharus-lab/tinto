@@ -48,7 +48,7 @@ export function newDocumentDialog(dialog: HTMLDialogElement, create: (title: str
   name.focus()
 }
 
-export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, projectPath: string, packs: DictionaryPack[], install: (language: string) => Promise<void>) {
+export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, projectPath: string | null, packs: DictionaryPack[], install: (language: string) => Promise<void>) {
   const content = element('div')
   function field(label: string, options: [string, string][], current: string, change: (value: string) => void) {
     const row = element('label', 'field', label)
@@ -78,8 +78,8 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
     row.append(download, select)
     content.append(row)
   }
-  content.append(element('h3', 'group-label', 'Project file'), element('p', 'path', projectPath),
-    element('h3', 'group-label', 'Version history'), element('p', '', 'Tinto snapshots changed work every five minutes. Automatic versions are kept for 30 days. Named versions stay until you delete them.'))
+  if (projectPath) content.append(element('h3', 'group-label', 'Project file'), element('p', 'path', projectPath))
+  content.append(element('h3', 'group-label', 'Version history'), element('p', '', 'Tinto snapshots changed work every five minutes. Automatic versions are kept for 30 days. Named versions stay until you delete them.'))
   dialog.replaceChildren(dialogHeader(dialog, 'Settings'), content)
   if (!dialog.open) dialog.showModal()
 }

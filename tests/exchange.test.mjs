@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
-import { _electron as electron } from 'playwright'
+import { desktopFixture } from './desktop-fixture.mjs'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
 const word = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -22,15 +21,11 @@ function representativeDocx(template) {
 }
 
 test('local import and export preserve active prose, headings and author formatting', async t => {
-  const executablePath = process.env.TINTO_PACKAGED_EXECUTABLE
-  if (!executablePath) await import('../scripts/build.mjs')
-  const directory = await mkdtemp(join(tmpdir(), 'tinto-exchange-'))
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const { app, directory } = fixture
   const output = process.env.TINTO_EXCHANGE_OUTPUT ?? directory
   await mkdir(output, { recursive: true })
-  const app = await electron.launch({ executablePath, args: executablePath ? [] : ['.'], env: { ...process.env, TINTO_USER_DATA: directory } })
-  t.after(async () => { await app.close(); await rm(directory, { recursive: true, force: true }) })
-  const page = await app.firstWindow()
-  page.setDefaultTimeout(8000)
   const prose = page.locator('#editors .ProseMirror:visible')
   await button(page, 'Home').click()
   await button(page.locator('#home'), 'The kitchen').click()

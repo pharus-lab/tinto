@@ -2,7 +2,7 @@ import { backupSettings } from './backup-settings'
 import { importFile, type ExportFormat } from './exchange'
 import { WritingEditor, type Format } from './editor'
 import { newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
-import type { DocumentRecord, Workspace } from './project-types'
+import type { DocumentRecord, LibraryState, Workspace } from './project-types'
 import type { DictionaryPack } from './dictionary-packs'
 import './desktop'
 import { loadSpelling, setSpellingLanguage, spellingPlugin } from './spelling'
@@ -23,7 +23,7 @@ const blockStyle = $('block-style') as HTMLSelectElement
 const scroll = $('scroll')
 const editors = new Map<string, WritingEditor>()
 const pending = new Map<string, { projectId: string; path: string; doc: DocumentRecord }>()
-let workspace: Workspace
+let library: LibraryState = { folder: null, folders: [], projects: [], workspace: null }
 let tabs: Tab[] = []
 let current: Tab | null = null
 let editor: WritingEditor | null = null
@@ -34,7 +34,7 @@ let switching = 0
 let inspecting = false
 let packs: DictionaryPack[] = []
 
-function record(id: string) { return workspace.project.documents.find(doc => doc.id === id)! }
+function record(id: string) { return library.workspace!.project.documents.find(doc => doc.id === id)! }
 function activeDocument() { return current ? record(current.documentId) : null }
 function notice(text: string) {
   $('notice').textContent = text
@@ -48,9 +48,9 @@ function status(text: string, saved = false) {
   if (saved) $('save-status').prepend(icon('check'))
 }
 function saveSession() {
-  if (!workspace) return
+  if (!library.workspace) return
   if (current) current.scroll = scroll.scrollTop
-  localStorage.setItem('tabs:' + workspace.project.id, JSON.stringify({ tabs, current: current ? tabs.indexOf(current) : -1, panel: panelOpen }))
+  localStorage.setItem('tabs:' + library.workspace.project.id, JSON.stringify({ tabs, current: current ? tabs.indexOf(current) : -1, panel: panelOpen }))
 }
 function flush(): boolean {
   clearTimeout(timer)
@@ -63,10 +63,12 @@ function flush(): boolean {
     }
     pending.delete(key)
   }
-  status('Saved locally', true)
+  if (library.workspace) status('Saved locally', true)
   return true
 }
 function changed(doc: DocumentRecord) {
+  const workspace = library.workspace
+  if (!workspace) return
   pending.set(JSON.stringify([workspace.path, doc.id]), { projectId: workspace.project.id, path: workspace.path, doc })
   status('Saving…')
   clearTimeout(timer)
@@ -85,7 +87,7 @@ function drawTabs() {
     const key = tab ? tab.documentId + '/' + (tab.headingId ?? '') : 'home'
     const wrap = element('div', 'tab' + (tab === current ? ' current' : ''))
     const title = tab ? label(tab) : 'Home'
-    const select = button('', () => void switchTab(tab).catch(report), '', !tab ? 'home' : tab.headingId ? 'link' : 'book')
+    const select = button('', () => void selectTab(tab).catch(report), '', !tab ? 'home' : tab.headingId ? 'link' : 'book')
     select.dataset.tabKey = key
     select.append(element('span', 'tab-label', title))
     if (tab === current) select.setAttribute('aria-current', 'page')
@@ -182,6 +184,14 @@ function updateSelection() {
 function checker(language: string) {
   return loadSpelling(language, ['en','es'].includes(language) ? undefined : code => api.readPack(code))
 }
+async function selectTab(tab: Tab | null) {
+  if (!tab && library.folder) {
+    const next = await api.library()
+    library.projects = next.projects
+    library.folders = next.folders
+  }
+  await switchTab(tab)
+}
 async function switchTab(tab: Tab | null) {
   const epoch = ++switching
   if (current) current.scroll = scroll.scrollTop
@@ -195,8 +205,13 @@ async function switchTab(tab: Tab | null) {
   $('panel').hidden = !tab || !panelOpen
   drawTabs()
   if (!tab) {
-    renderHome($('home'), workspace, {
-      openDocument, openProject: index => void changeProject('open', index), createProject: () => void changeProject('create'), createDocument, importFile: () => void importDocument().catch(report)
+    renderHome($('home'), library, {
+      openDocument, createDocument, importFile: () => void importDocument().catch(report),
+      chooseFolder: path => void changeFolder('choose', path).catch(report),
+      newFolder: () => void changeFolder('new').catch(report),
+      openProject: path => void changeProject('open', path).catch(report),
+      createProject: () => void changeProject('create').catch(report),
+      openSample: () => void changeProject('sample').catch(report)
     })
   } else {
     const doc = record(tab.documentId)
@@ -267,28 +282,52 @@ function closeTab(tab: Tab) {
   else { drawTabs(); saveSession() }
 }
 
-async function loadWorkspace(next: Workspace) {
+async function loadLibrary(next: LibraryState, showHome = false) {
   for (const instance of editors.values()) instance.destroy()
   editors.clear()
   $('editors').replaceChildren()
-  workspace = next
   current = null
+  library = next
+  const workspace = library.workspace
+  document.body.classList.toggle('welcome', !library.folder)
+  $('settings').hidden = !library.folder
+  if (!workspace) {
+    tabs = []
+    status('')
+    await switchTab(null)
+    return
+  }
   const doc = workspace.project.documents[0]
   const saved: Session | null = JSON.parse(localStorage.getItem('tabs:' + workspace.project.id) ?? 'null')
   tabs = saved?.tabs.filter(item => workspace.project.documents.some(doc => doc.id === item.documentId)) ?? [{ documentId: doc.id, headingId: null, scroll: 0, review: SAMPLE_SENTENCE }]
   panelOpen = saved?.panel ?? true
-  await switchTab(saved ? tabs[saved.current] ?? null : tabs[0])
+  const selected = saved ? tabs[saved.current] ?? null : tabs[0]
+  await switchTab(showHome ? null : selected)
   status('Saved locally', true)
 }
-async function changeProject(action: 'open'|'create', index?: number) {
+async function changeFolder(action: 'choose'|'new', path?: string) {
   if (!flush()) return
   saveSession()
-  try {
-    const next = action === 'open' ? await api.open(index) : await api.create(prefs.defaultLanguage)
-    if (next && next.path !== workspace.path) await loadWorkspace(next)
-  } catch (error) { report(error) }
+  const next = action === 'new' ? await api.newFolder() : await api.chooseFolder(path)
+  if (!next) return
+  if (next.folder === library.folder && next.workspace?.path === library.workspace?.path) {
+    library.projects = next.projects
+    library.folders = next.folders
+    await switchTab(null)
+  } else await loadLibrary(next, true)
+}
+async function changeProject(action: 'open'|'create'|'sample', path?: string) {
+  if (!flush()) return
+  saveSession()
+  let next: Workspace | null
+  if (action === 'open') next = await api.open(path)
+  else if (action === 'create') next = await api.create(prefs.defaultLanguage)
+  else next = await api.sample()
+  if (next && next.path !== library.workspace?.path) await loadLibrary(await api.library())
 }
 function createDocument() {
+  const workspace = library.workspace
+  if (!workspace) return
   newDocumentDialog(modal, title => {
     const doc: DocumentRecord = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: { type: 'doc', content: [newBlock()] } }
     const error = api.save(workspace.path, workspace.project.id, doc)
@@ -309,7 +348,7 @@ async function updateLanguages() {
   language.value = activeDocument()?.language ?? prefs.defaultLanguage
 }
 function settings() {
-  showSettings(modal, prefs, workspace.path, packs, async code => {
+  showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
     try {
       await api.installPack(code)
       await updateLanguages()
@@ -319,14 +358,20 @@ function settings() {
       settings()
     } catch (error) { report(error) }
   })
-  backupSettings(modal, flush, next => { modal.close(); saveSession(); void loadWorkspace(next).catch(report) })
+  if (library.workspace) backupSettings(modal, flush, () => {
+    modal.close()
+    saveSession()
+    void api.library().then(next => loadLibrary(next)).catch(report)
+  })
 }
 async function importDocument() {
+  const workspace = library.workspace
+  if (!workspace) return
   const projectPath = workspace.path
   const file = await api.pickFile()
   if (!file) return
   const imported = await importFile(file)
-  if (workspace.path !== projectPath) { notice('The project changed during import. Open the intended project and import the file again.'); return }
+  if (library.workspace?.path !== projectPath) { notice('The project changed during import. Open the intended project and import the file again.'); return }
   const title = file.name.replace(/\.[^.]+$/, '')
   const doc = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: imported.manuscript }
   const error = api.save(workspace.path, workspace.project.id, doc)
@@ -385,7 +430,7 @@ async function drafts() {
   const title = await createDraftDialog(label(current) + ' — draft')
   if (!title) return
   const draft = await api.createDraft(doc.id, current.headingId, title)
-  workspace.project.documents.push(draft)
+  library.workspace!.project.documents.push(draft)
   openDocument(draft.id)
 }
 
@@ -441,6 +486,6 @@ async function start() {
   applyPreferences(prefs)
   wire()
   await updateLanguages()
-  await loadWorkspace(await api.workspace())
+  await loadLibrary(await api.library())
 }
 void start().catch(error => { status('Could not open editor'); report(error) })

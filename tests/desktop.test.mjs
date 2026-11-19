@@ -1,37 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import { _electron as electron } from 'playwright'
+import { desktopFixture } from './desktop-fixture.mjs'
 
-const root = fileURLToPath(new URL('../', import.meta.url))
 const button = (page, name) => page.getByRole('button', { name, exact: true })
-
-async function desktopFixture(t) {
-  const executablePath = process.env.TINTO_PACKAGED_EXECUTABLE
-  if (!executablePath) await import('../scripts/build.mjs')
-  const directory = await mkdtemp(join(tmpdir(), 'tinto-desktop-proof-'))
-  let app
-  t.after(async () => {
-    if (app) await app.close()
-    await rm(directory, { recursive: true, force: true })
-  })
-
-  async function open() {
-    app = await electron.launch({ executablePath, args: executablePath ? [] : [root], cwd: root, env: { ...process.env, TINTO_USER_DATA: directory } })
-    const page = await app.firstWindow()
-    page.setDefaultTimeout(8000)
-    await page.locator('.ProseMirror:visible').waitFor()
-    return page
-  }
-  async function close() {
-    await app.close()
-    app = undefined
-  }
-  return { open, close }
-}
 
 test('the desktop editor preserves nested options on close and restores a named version', async t => {
   const { open, close } = await desktopFixture(t)

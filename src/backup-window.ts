@@ -8,7 +8,7 @@ import type { Workspace } from './project-types'
 
 interface BackupContext {
   window(): BrowserWindow
-  project(): { id: string; path: string }
+  project(): { id: string; path: string } | null
   open(path: string): Workspace
   trusted(event: Electron.IpcMainInvokeEvent): void
 }
@@ -31,8 +31,14 @@ export function registerBackups(context: BackupContext) {
   }
   let error: string | null = null
   let running: Promise<void> | null = null
+  function currentProject() {
+    const active = context.project()
+    if (!active) throw Error('Open a project first.')
+    return active
+  }
   function status(): BackupStatus {
-    return { connected: auth.connected, enabled: optedIn.includes(context.project().path), lastSuccess: backups.lastSuccess(context.project().id), error }
+    const active = context.project()
+    return { connected: auth.connected, enabled: !!active && optedIn.includes(active.path), lastSuccess: active ? backups.lastSuccess(active.id) : null, error }
   }
   async function run(automatic: boolean) {
     if (!auth.connected) return
@@ -41,10 +47,9 @@ export function registerBackups(context: BackupContext) {
       await running.catch(() => {})
     }
     if (!auth.connected) return
-    const active = context.project()
     // A temporary read connection keeps a background upload independent of tab
     // and project navigation. Previously opened projects can finish pending work.
-    const paths = automatic ? [...optedIn] : [active.path]
+    const paths = automatic ? [...optedIn] : [currentProject().path]
     running = (async () => {
       const failures: string[] = []
       for (const path of paths) {
@@ -71,7 +76,7 @@ export function registerBackups(context: BackupContext) {
       if (result.canceled) return status()
       credentials = result.filePaths[0]
     }
-    const path = context.project().path
+    const path = currentProject().path
     await auth.connect(credentials)
     enable(path, true)
     void run(true)
@@ -79,7 +84,7 @@ export function registerBackups(context: BackupContext) {
   })
   ipcMain.handle('backup:enable', (event, enabled: boolean) => {
     context.trusted(event)
-    enable(context.project().path, enabled)
+    enable(currentProject().path, enabled)
     if (enabled) void run(true)
     return status()
   })

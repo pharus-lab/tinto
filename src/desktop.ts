@@ -1,4 +1,4 @@
-import type { DocumentRecord, Version, Workspace, DraftChange, DraftResolution } from './project-types'
+import type { DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution } from './project-types'
 
 import type { DictionaryPack } from './dictionary-packs'
 import type { DictionaryData } from './spelling'
@@ -28,8 +28,12 @@ export interface Desktop {
   reviewDraft(id: string): Promise<DraftChange[]>
   applyDraft(id: string, resolutions: DraftResolution[]): Promise<{ source: DocumentRecord; draft: DocumentRecord }>
   platform: string
+  library(): Promise<LibraryState>
+  chooseFolder(folder?: string): Promise<LibraryState | null>
+  newFolder(): Promise<LibraryState | null>
+  sample(): Promise<Workspace>
   workspace(): Promise<Workspace>
-  open(recentIndex?: number): Promise<Workspace | null>
+  open(item?: number | string): Promise<Workspace | null>
   create(language: string): Promise<Workspace | null>
   save(path: string, projectId: string, document: DocumentRecord): string | null
   versions(documentId: string): Promise<Version[]>
