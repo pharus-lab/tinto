@@ -22,7 +22,7 @@ const language = $('language') as HTMLSelectElement
 const blockStyle = $('block-style') as HTMLSelectElement
 const scroll = $('scroll')
 const editors = new Map<string, WritingEditor>()
-const pending = new Map<string, DocumentRecord>()
+const pending = new Map<string, { projectId: string; path: string; doc: DocumentRecord }>()
 let workspace: Workspace
 let tabs: Tab[] = []
 let current: Tab | null = null
@@ -54,20 +54,20 @@ function saveSession() {
 }
 function flush(): boolean {
   clearTimeout(timer)
-  for (const [id, doc] of pending) {
-    const problem = api.save(workspace.project.id, doc)
+  for (const [key, entry] of pending) {
+    const problem = api.save(entry.path, entry.projectId, entry.doc)
     if (problem) {
       status('Save failed')
       notice(problem)
       return false
     }
-    pending.delete(id)
+    pending.delete(key)
   }
   status('Saved locally', true)
   return true
 }
 function changed(doc: DocumentRecord) {
-  pending.set(doc.id, doc)
+  pending.set(JSON.stringify([workspace.path, doc.id]), { projectId: workspace.project.id, path: workspace.path, doc })
   status('Saving…')
   clearTimeout(timer)
   timer = setTimeout(flush, 450)
@@ -80,21 +80,29 @@ function label(tab: Tab) {
 }
 function drawTabs() {
   const host = $('tabs')
+  const focused = host.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.tabKey : undefined
   function item(tab: Tab | null) {
+    const key = tab ? tab.documentId + '/' + (tab.headingId ?? '') : 'home'
     const wrap = element('div', 'tab' + (tab === current ? ' current' : ''))
     const title = tab ? label(tab) : 'Home'
     const select = button('', () => void switchTab(tab).catch(report), '', !tab ? 'home' : tab.headingId ? 'link' : 'book')
+    select.dataset.tabKey = key
     select.append(element('span', 'tab-label', title))
     if (tab === current) select.setAttribute('aria-current', 'page')
     wrap.append(select)
     if (tab) {
       const close = button('', () => closeTab(tab), 'close-tab', 'close')
+      close.dataset.tabKey = 'close:' + key
       close.setAttribute('aria-label', 'Close ' + title)
       wrap.append(close)
     }
     return wrap
   }
   host.replaceChildren(item(null), ...tabs.map(item))
+  if (focused) {
+    const next = host.querySelector<HTMLElement>('[data-tab-key="' + CSS.escape(focused) + '"]') ?? host.querySelector<HTMLElement>('[aria-current=page]')
+    next?.focus({ preventScroll: true })
+  }
 }
 function drawTrail() {
   const doc = activeDocument()
@@ -152,7 +160,7 @@ function drawPanel() {
   editor.review(visible ? current.review : null)
   if (visible) renderAlternatives($('choices'), editor, current.review, review)
 }
-function updateSelection() {
+function updateToolbar() {
   if (!editor || !current || inspecting) return
   const { state } = editor.view
   const { $from } = state.selection
@@ -164,6 +172,10 @@ function updateSelection() {
     const enabled = state.selection.empty ? !!mark.isInSet(state.storedMarks ?? $from.marks()) : state.doc.rangeHasMark(state.selection.from, state.selection.to, mark)
     el.setAttribute('aria-pressed', String(enabled))
   }
+}
+function updateSelection() {
+  if (!editor || !current || inspecting) return
+  updateToolbar()
   current.review = editor.context()?.id ?? null
   drawPanel()
 }
@@ -232,9 +244,7 @@ async function switchTab(tab: Tab | null) {
     language.value = doc.language
     $('draft-action').replaceChildren(icon('branch'), document.createTextNode(doc.source ? 'Review draft' : 'Create draft'))
     scroll.scrollTop = tab.scroll
-    const reviewId = tab.review
-    updateSelection()
-    tab.review = reviewId
+    updateToolbar()
   }
   drawCount()
   drawTrail()
@@ -281,7 +291,7 @@ async function changeProject(action: 'open'|'create', index?: number) {
 function createDocument() {
   newDocumentDialog(modal, title => {
     const doc: DocumentRecord = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: { type: 'doc', content: [newBlock()] } }
-    const error = api.save(workspace.project.id, doc)
+    const error = api.save(workspace.path, workspace.project.id, doc)
     if (error) return notice(error)
     workspace.project.documents.push(doc)
     openDocument(doc.id)
@@ -312,12 +322,14 @@ function settings() {
   backupSettings(modal, flush, next => { modal.close(); saveSession(); void loadWorkspace(next).catch(report) })
 }
 async function importDocument() {
+  const projectPath = workspace.path
   const file = await api.pickFile()
   if (!file) return
   const imported = await importFile(file)
+  if (workspace.path !== projectPath) { notice('The project changed during import. Open the intended project and import the file again.'); return }
   const title = file.name.replace(/\.[^.]+$/, '')
   const doc = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: imported.manuscript }
-  const error = api.save(workspace.project.id, doc)
+  const error = api.save(workspace.path, workspace.project.id, doc)
   if (error) return notice(error)
   workspace.project.documents.push(doc)
   openDocument(doc.id)

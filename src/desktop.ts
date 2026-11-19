@@ -16,7 +16,8 @@ export interface Desktop {
   enableBackup(enabled: boolean): Promise<BackupStatus>
   backUp(): Promise<BackupStatus>
   backupList(): Promise<DriveBackup[]>
-  restoreBackup(id: string): Promise<Workspace | null>
+  restoreBackup(id: string): Promise<string | null>
+  openRestored(path: string): Promise<Workspace>
   online(): Promise<void>
   pickFile(): Promise<InputFile | null>
   exportFile(format: ExportFormat, title: string, doc: Manuscript): Promise<boolean>
@@ -30,7 +31,7 @@ export interface Desktop {
   workspace(): Promise<Workspace>
   open(recentIndex?: number): Promise<Workspace | null>
   create(language: string): Promise<Workspace | null>
-  save(projectId: string, document: DocumentRecord): string | null
+  save(path: string, projectId: string, document: DocumentRecord): string | null
   versions(documentId: string): Promise<Version[]>
   nameVersion(documentId: string, name: string): Promise<void>
   restore(documentId: string, versionId: string): Promise<DocumentRecord>

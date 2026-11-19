@@ -4,7 +4,7 @@ A local manuscript editor for macOS and Linux. Each project is a portable SQLite
 
 ## Open the editor
 
-- **macOS on Apple silicon** — Open `out/Tinto-darwin-arm64/Tinto.app`.
+- **macOS on Apple silicon** — Open `out/Tinto-darwin-arm64/Tinto.app`. This local build uses an ad-hoc signature.
 - **Ubuntu or Debian** — Open the matching `.deb` from `out` in the software installer, then launch **Tinto** from the applications menu. Choose `amd64` for Intel or AMD processors and `arm64` for ARM processors. From a terminal, install with `sudo apt install ./tinto_0.1.0_amd64.deb` or the corresponding ARM64 filename.
 - **From source** — With Node.js 24.13 or later and npm, run `npm ci` and `npm start`. The first run downloads Electron. Subsequent writing sessions work offline.
 
@@ -39,3 +39,9 @@ Automatic backups are opt-in per local project. While Tinto is open it checks fo
 ## License
 
 Original Tinto code is released under the MIT license. Packaged applications include dependency licenses and the notices supplied with each dictionary.
+
+## Verification record
+
+- **macOS, Apple silicon.** The full 29-test suite passed. The packaged editor passed the nested-choice edit, undo, save, close, and reopen sequence. Desktop checks also covered English and Spanish spelling, linked-section renaming and scroll, reading settings, version restoration, partial draft reconciliation, and local file exchange. A downloaded French dictionary worked after relaunch offline. Pages and Preview opened the exported files. Rendered text retained the gold highlight in both formats.
+- **Ubuntu 24.04.** The ARM64 and amd64 installers were installed in separate offline Docker environments. Six installed-app checks on each architecture covered nested editing and reopening, bilingual spelling, draft review, local file exchange, tab navigation, keyboard focus, reading preferences, and saving to the correct file after a restore. ARM64 ran natively in the Linux VM. The amd64 run used emulation. The automated Chromium launcher required its test sandbox setting in Docker. A regular graphical Linux desktop launch with the distribution's sandbox and keyring still needs a device check.
+- **Drive.** A loopback authorization test exercised state, PKCE, token refresh, and disconnect against a simulated Google endpoint. Backup tests restored a complete SQLite project, including pending draft conflicts and hidden wording, and kept five previous backups after a failed upload. A live Google-account backup and restore still requires personal authorization.

@@ -159,6 +159,65 @@ test('matching edits establish a new baseline before a later original-only chang
   assert.deepEqual(proposed.baseline, block(draft, 'b'))
 })
 
+test('a new sibling chapter stays outside review and a displaced paragraph reconciles in place', t => {
+  const f = project(t)
+  const draft = f.store.createDraft(f.source.id, 'Kitchen', 'Kitchen revision')
+  block(draft, 'b').content = [text('Draft rain.')]
+  draft.manuscript.content.splice(2, 0, paragraph('draft-add', 'Something for the kitchen.'))
+  f.store.save(draft)
+  const [addition, oldEdit] = f.store.reviewDraft(draft.id)
+  f.source.manuscript.content.splice(4, 0, heading('Middle'), paragraph('sibling', 'A separate story.'))
+  f.store.save(f.source)
+  const current = f.store.reviewDraft(draft.id)
+  assert.deepEqual(current.map(change => change.id).sort(), ['b', 'draft-add'])
+  const moved = current.find(change => change.id === 'b')
+  assert.equal(moved.origin, 'conflict')
+  assert.notEqual(moved.revision, oldEdit.revision)
+  assert.throws(() => f.store.applyDraft(draft.id, [choose(oldEdit, 'draft')]), /Reopen review/)
+  const result = f.store.applyDraft(draft.id, [choose(addition, 'draft'), choose(moved, 'draft')])
+  assert.deepEqual(ids(result.source), ['Before', 'intro', 'Kitchen', 'food', 'draft-add', 'Middle', 'sibling', 'b', 'Garden', 'outside'])
+  assert.equal(block(result.source, 'sibling').content[0].text, 'A separate story.')
+  assert.equal(block(result.source, 'b').content[0].text, 'Draft rain.')
+  assert.deepEqual(f.store.reviewDraft(draft.id), [])
+})
+
+test('applying a draft heading and its paragraphs keeps them available after the section splits', t => {
+  const f = project(t)
+  const draft = f.store.createDraft(f.source.id, 'Kitchen', 'Extended kitchen')
+  draft.manuscript.content.push(heading('Dessert'), paragraph('sweet', 'Cake.'))
+  f.store.save(draft)
+  const first = f.store.applyDraft(draft.id, f.store.reviewDraft(draft.id).map(change => choose(change, 'draft')))
+  first.draft.manuscript.content.push(paragraph('last', 'Tea.'))
+  f.store.save(first.draft)
+  const [addition] = f.store.reviewDraft(draft.id)
+  const next = f.store.applyDraft(draft.id, [choose(addition, 'draft')])
+  assert.deepEqual(ids(next.source), ['Before', 'intro', 'Kitchen', 'food', 'b', 'Dessert', 'sweet', 'last', 'Garden', 'outside'])
+  assert.deepEqual(f.store.reviewDraft(draft.id), [])
+})
+
+test('equivalent DOCX text runs and mark order produce no draft changes, including hidden options', t => {
+  const f = project(t)
+  const marks = [{ type: 'em' }, { type: 'strong' }]
+  const split = ['hot ', 'tea'].map(value => ({ ...text(value), marks }))
+  block(f.source, 'b').content = split
+  block(f.source, 'food').content[0].attrs.options[0].content = split
+  f.store.save(f.source)
+  const draft = f.store.createDraft(f.source.id, 'Kitchen', 'Edited in the writing area')
+  const normalized = [{ ...text('hot tea'), marks: [...marks].reverse() }]
+  block(draft, 'b').content = normalized
+  block(draft, 'food').content[0].attrs.options[0].content = normalized
+  block(draft, 'Kitchen').content = [text('Supper')]
+  f.store.save(draft)
+  const changes = f.store.reviewDraft(draft.id)
+  assert.deepEqual(changes.map(change => change.id), ['Kitchen'])
+  f.store.applyDraft(draft.id, [choose(changes[0], 'draft')])
+  block(draft, 'food').content[0].attrs.options[0].content = [{ ...text('hot tea'), marks: [{ type: 'em' }] }]
+  f.store.save(draft)
+  const [hidden] = f.store.reviewDraft(draft.id)
+  assert.equal(hidden.id, 'food')
+  assert.equal(hidden.origin, 'draft')
+})
+
 test('accepting a deletion before its replacement keeps an empty draft editable', t => {
   const f = project(t)
   const draft = f.store.createDraft(f.source.id, 'Kitchen', 'New passage')

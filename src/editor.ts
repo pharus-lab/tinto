@@ -1,4 +1,4 @@
-import { Fragment, Schema, type Node as PMNode, type ResolvedPos } from "prosemirror-model";
+import { DOMSerializer, Fragment, Schema, Slice, type Node as PMNode, type ResolvedPos } from "prosemirror-model";
 import { EditorState, Plugin, TextSelection, type Command, type Selection, type Transaction } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { baseKeymap, toggleMark } from "prosemirror-commands";
@@ -97,6 +97,61 @@ function wordingRange(selection: Selection): { start: ResolvedPos; end: Resolved
 
 const selectionMessage = "Select wording within one paragraph. Include each alternative in full, or select text inside one option.";
 const splitMessage = "Keep this wording in one paragraph. Press Alt/Option + → to move outside the alternative, then start a new paragraph.";
+const passageMime = "application/x-tinto-passage+json";
+
+function transferRange(selection: Selection, includeWholeChoice: boolean) {
+  let start = selection.$from;
+  let end = selection.$to;
+  const shared = start.sharedDepth(end.pos);
+  while (start.depth > shared && start.parent.type === schema.nodes.choice) {
+    if (start.parentOffset !== 0) return null;
+    start = start.doc.resolve(start.before());
+  }
+  while (end.depth > shared && end.parent.type === schema.nodes.choice) {
+    if (end.parentOffset !== end.parent.content.size) return null;
+    end = end.doc.resolve(end.after());
+  }
+  while (includeWholeChoice && start.sameParent(end) && start.parent.type === schema.nodes.choice && start.parentOffset === 0 && end.parentOffset === end.parent.content.size) {
+    start = start.doc.resolve(start.before());
+    end = end.doc.resolve(end.after());
+  }
+  return { start, end };
+}
+
+function readPassage(raw: string): Slice | null {
+  if (!raw) return null;
+  try {
+    const input = Slice.fromJSON(schema, JSON.parse(raw));
+    const content: PMNode[] = [];
+    input.content.forEach(node => {
+      node.check();
+      const json = node.toJSON();
+      if (node.isInline) content.push(schema.nodeFromJSON(copyInlines([json])[0]));
+      else if (node.isTextblock) content.push(node.type.create({ ...node.attrs, id: null }, Fragment.fromJSON(schema, copyInlines(json.content ?? []))));
+      else throw Error("Unsupported clipboard content");
+    });
+    return new Slice(Fragment.from(content), input.openStart, input.openEnd);
+  } catch { return null; }
+}
+
+function writePassage(view: EditorView, event: ClipboardEvent, notice: (text: string) => void): boolean {
+  const { state } = view;
+  if (state.selection.empty || !event.clipboardData) return false;
+  event.preventDefault();
+  const range = transferRange(state.selection, true);
+  if (!range) { notice(selectionMessage); return true; }
+  const { start, end } = range;
+  const slice = state.doc.slice(start.pos, end.pos);
+  const html = document.createElement("div");
+  html.append(DOMSerializer.fromSchema(schema).serializeFragment(slice.content));
+  for (const span of html.querySelectorAll("[data-choice-id]")) span.replaceWith(...span.childNodes);
+  for (const block of html.querySelectorAll("[data-block-id]")) block.removeAttribute("data-block-id");
+  event.clipboardData.setData("text/plain", slice.content.textBetween(0, slice.content.size, "\n"));
+  event.clipboardData.setData("text/html", html.innerHTML);
+  event.clipboardData.setData(passageMime, JSON.stringify(slice.toJSON()));
+  if (event.type === "cut") view.dispatch(closeHistory(state.tr.deleteRange(start.pos, end.pos)).setMeta("uiEvent", "cut").scrollIntoView());
+  return true;
+}
 
 function blockIdentifiers(): Plugin {
   return new Plugin({
@@ -160,18 +215,33 @@ export class WritingEditor {
         return false;
       },
       handleTextInput: (view) => partialGroup(view.state.selection) && this.explain(selectionMessage),
+      transformPastedHTML: html => {
+        // Rich text from other editors may carry their own ProseMirror schema.
+        // Parse only prose/marks; Tinto groups travel in the typed clipboard entry.
+        const parsed = new DOMParser().parseFromString(html, "text/html");
+        for (const node of parsed.querySelectorAll("[data-pm-slice]")) node.removeAttribute("data-pm-slice");
+        return parsed.body.innerHTML;
+      },
       handlePaste: (view, event, slice) => {
         const selection = view.state.selection;
-        if (partialGroup(selection)) return this.explain(selectionMessage);
-        const multipleLines = slice.content.childCount > 1 || /[\r\n]/.test(event.clipboardData?.getData("text/plain") ?? "");
-        return !!enclosingChoice(selection.$from) && multipleLines && this.explain(splitMessage);
+        const range = transferRange(selection, false);
+        if (!range) return this.explain(selectionMessage);
+        const internal = readPassage(event.clipboardData?.getData(passageMime) ?? "");
+        let content = internal ?? slice;
+        const multipleLines = (content.content.firstChild?.isBlock && content.content.childCount > 1) || /[\r\n]/.test(event.clipboardData?.getData("text/plain") ?? "");
+        if (enclosingChoice(range.start)) {
+          if (multipleLines) return this.explain(splitMessage);
+          if (content.content.childCount === 1 && content.content.firstChild!.isTextblock) content = new Slice(content.content.firstChild!.content, 0, 0);
+        }
+        if (!internal && range.start.pos === selection.from && range.end.pos === selection.to) return false;
+        const tr = view.state.tr;
+        if (range.start.pos !== selection.from || range.end.pos !== selection.to) tr.setSelection(TextSelection.create(tr.doc, range.start.pos, range.end.pos));
+        view.dispatch(closeHistory(tr.replaceSelection(content)).setMeta("paste", true).setMeta("uiEvent", "paste").scrollIntoView());
+        return true;
       },
       handleDOMEvents: {
-        cut: (view, event) => {
-          if (!partialGroup(view.state.selection)) return false;
-          event.preventDefault();
-          return this.explain(selectionMessage);
-        },
+        copy: (view, event) => writePassage(view, event, message => this.explain(message)),
+        cut: (view, event) => writePassage(view, event, message => this.explain(message)),
         beforeinput: (view, event) => {
           const selection = view.state.selection;
           const split = ["insertParagraph", "insertLineBreak"].includes(event.inputType);

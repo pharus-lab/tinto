@@ -41,8 +41,16 @@ export function backupSettings(parent: HTMLElement, flush: () => boolean, restor
       message.textContent = 'Choose a backup and save it as a new project file.'
       action('Restore to file…', async () => {
         if (!flush()) return
-        const result = await api.restoreBackup(select.value)
-        if (result) restored(result)
+        const path = await api.restoreBackup(select.value)
+        if (!path) return
+        // The writer may have dismissed Settings and resumed writing while the
+        // download ran. Only an explicit Open changes the project's owner.
+        if (!section.isConnected || !section.closest('dialog[open]')) return
+        actions.replaceChildren()
+        message.textContent = 'Restored to ' + path
+        action('Open restored project', async () => {
+          if (flush()) restored(await api.openRestored(path))
+        })
       })
       action('Cancel', refresh)
     })

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { packager } from '@electron/packager'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -23,7 +24,21 @@ try {
     }
   }
   await writeFile(join(staging, 'package.json'), JSON.stringify({ name: project.name, productName: 'Tinto', version: project.version, main: project.main, license: 'MIT' }))
-  const output = await packager({ dir: staging, out: resolve('out'), name: 'Tinto', appBundleId: 'org.tinto.editor', electronVersion: runtime.version, platform, arch, asar: true, overwrite: true, prune: false })
+  const osxSign = platform === 'darwin' ? {
+    identity: '-', identityValidation: false, preAutoEntitlements: false, gatekeeperAssess: false, continueOnError: false,
+    // A local ad-hoc identity has no Developer ID team for library validation.
+    optionsForFile: () => ({ timestamp: 'none', hardenedRuntime: false })
+  } : undefined
+  const output = await packager({ osxSign, dir: staging, out: resolve('out'), name: 'Tinto', appBundleId: 'org.tinto.editor', electronVersion: runtime.version, platform, arch, asar: true, overwrite: true, prune: false })
+  if (platform === 'darwin') {
+    const bundle = join(output[0], 'Tinto.app')
+    execFileSync('/usr/bin/codesign', ['--verify', '--deep', bundle])
+    // File Provider adds FinderInfo to app bundles in a synced Documents
+    // folder. Verify the distributable payload without machine metadata.
+    const clean = join(staging, 'Tinto.app')
+    execFileSync('/usr/bin/ditto', ['--norsrc', '--noextattr', bundle, clean])
+    execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', clean])
+  }
   console.log(output.join('\n'))
 } finally {
   await rm(staging, { recursive: true, force: true })

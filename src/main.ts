@@ -98,13 +98,20 @@ function registerProjectActions() {
     const document: DocumentRecord = { id: randomUUID(), title, language, manuscript: { type: 'doc', content: [newBlock()] } }
     return activate(path, ProjectStore.create(path, title, document))
   })
-  ipcMain.on('document:save', (event, id: string, document: DocumentRecord) => {
+  ipcMain.on('document:save', (event, path: string, id: string, document: DocumentRecord) => {
+    let previous: ProjectStore | undefined
     try {
       trusted(event)
-      if (id !== currentProjectId) throw Error('This project is no longer open.')
-      store.save(document)
+      if (path === projectPath && id === currentProjectId) store.save(document)
+      else {
+        if (!recent.some(item => item.path === path)) throw Error('The original project is unavailable.')
+        previous = new ProjectStore(path)
+        if (previous.read().id !== id) throw Error('The original project file has changed.')
+        previous.save(document)
+      }
       event.returnValue = null
     } catch (error) { event.returnValue = String(error) }
+    finally { previous?.close() }
   })
   ipcMain.handle('version:list', (e, id: string) => { trusted(e); return store.versions(id) })
   ipcMain.handle('version:name', (e, id: string, name: string) => { trusted(e); store.snapshot(id, name) })
@@ -146,7 +153,7 @@ if (primaryWindow) app.whenReady().then(async () => {
   })
   loadLibrary()
   registerProjectActions()
-  registerBackups({ window: () => window!, project: () => ({ store, path: projectPath, id: currentProjectId }), open: path => activate(path, new ProjectStore(path)), trusted })
+  registerBackups({ window: () => window!, project: () => ({ path: projectPath, id: currentProjectId }), open: path => activate(path, new ProjectStore(path)), trusted })
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { sectionRange, type BlockJSON } from './model'
+import { sectionRange, type BlockJSON, type InlineJSON, type MarkJSON } from './model'
 import type { DocumentRecord, DraftChange, DraftResolution } from './project-types'
 
 export interface DraftBaseline {
@@ -30,6 +30,15 @@ export function forkDraft(source: DocumentRecord, headingId: string | null, titl
 function sourceRange(source: DocumentRecord, draft: DocumentRecord, baseline: DraftBaseline) {
   const blocks = source.manuscript.content
   if (!draft.source?.headingId) return { from: 0, to: blocks.length }
+  const live = sectionRange(source.manuscript, draft.source.headingId)
+  if (live.from < live.to) {
+    // Previously accepted draft blocks can extend the original section,
+    // including when the author added another heading to the draft itself.
+    const tracked = new Set(ids(baseline.blocks))
+    while (live.from > 0 && tracked.has(blocks[live.from - 1].attrs.id)) live.from--
+    while (live.to < blocks.length && tracked.has(blocks[live.to].attrs.id)) live.to++
+    return live
+  }
   const before = new Set(baseline.before)
   const after = new Set(baseline.after)
   const firstAfter = blocks.findIndex(block => after.has(block.attrs.id))
@@ -42,6 +51,31 @@ function sourceRange(source: DocumentRecord, draft: DocumentRecord, baseline: Dr
     while (from < start && !tracked.has(blocks[from].attrs.id)) from++
   }
   return { from, to }
+}
+
+// ProseMirror joins adjacent equally marked text and treats marks as a set.
+// Apply the same comparison recursively to the saved, inactive wording.
+function equivalentInlines(nodes: InlineJSON[] = []): InlineJSON[] {
+  const runs: InlineJSON[] = []
+  for (const node of nodes) {
+    const marked = node as InlineJSON & { marks?: MarkJSON[] }
+    const marks = [...new Set(marked.marks?.map(mark => mark.type))].sort().map(type => ({ type }))
+    if (node.type === 'choice') {
+      const options = node.attrs.options.map(option => ({ id: option.id, content: equivalentInlines(option.content) }))
+      const { id, active } = node.attrs
+      const group = { type: node.type, attrs: { id, active, options }, marks, content: equivalentInlines(node.content) }
+      runs.push(group)
+      continue
+    }
+    const previous = runs.at(-1)
+    if (previous?.type === 'text' && isDeepStrictEqual(previous.marks, marks)) previous.text += node.text
+    else runs.push({ type: 'text', text: node.text, marks })
+  }
+  return runs
+}
+
+function comparable(block: BlockJSON | null) {
+  return block && { id: block.attrs.id, type: block.type, level: block.type === 'heading' ? block.attrs.level ?? 1 : null, content: equivalentInlines(block.content) }
 }
 
 // Insert blocks missing from the primary sequence before their nearest
@@ -80,7 +114,11 @@ export function compareDraft(source: DocumentRecord, draft: DocumentRecord, base
   const actual = (block: BlockJSON) => block.attrs.id !== placeholder || block.type !== 'paragraph' || !!block.content?.length
   const sourceBlocks = source.manuscript.content.slice(range.from, range.to).filter(actual)
   const draftBlocks = draft.manuscript.content.filter(actual)
+  const tracked = new Set([...ids(baseline.blocks), ...ids(draftBlocks)])
+  const displaced = source.manuscript.content.filter((block, index) => (index < range.from || index >= range.to) && tracked.has(block.attrs.id))
+  const outside = new Set(ids(displaced))
   const original = byId(sourceBlocks)
+  for (const block of displaced) original.set(block.attrs.id, block)
   const copy = byId(draftBlocks)
   const base = byId(baseline.blocks)
   const order = unionOrder(unionOrder(ids(sourceBlocks), ids(draftBlocks)), ids(baseline.blocks))
@@ -90,20 +128,25 @@ export function compareDraft(source: DocumentRecord, draft: DocumentRecord, base
     const a = original.get(id) ?? null
     const b = copy.get(id) ?? null
     const ancestor = base.get(id) ?? null
-    if (isDeepStrictEqual(a, b)) {
-      if (!isDeepStrictEqual(a, ancestor)) {
+    const left = comparable(a)
+    const right = comparable(b)
+    const previous = comparable(ancestor)
+    if (isDeepStrictEqual(left, right)) {
+      if (!isDeepStrictEqual(left, previous)) {
         setBlock(base, id, a)
         agreed = true
       }
       continue
     }
-    const origin = isDeepStrictEqual(ancestor, a) ? 'draft' : isDeepStrictEqual(ancestor, b) ? 'original' : 'conflict'
+    // A draft edit to a paragraph now in another chapter needs an explicit
+    // decision, just like a simultaneous wording change in the original.
+    const origin = isDeepStrictEqual(previous, right) ? 'original' : !outside.has(id) && isDeepStrictEqual(previous, left) ? 'draft' : 'conflict'
     const kind = !ancestor ? 'added' : !a || !b ? 'deleted' : 'modified'
-    const revision = createHash('sha256').update(JSON.stringify([ancestor, a, b])).digest('hex')
+    const revision = createHash('sha256').update(JSON.stringify([previous, left, right, outside.has(id)])).digest('hex')
     changes.push({ id, revision, origin, kind, baseline: ancestor, original: a, draft: b })
   }
   const latest = agreed ? { ...baseline, blocks: orderedBlocks(order, base) } : baseline
-  return { changes, baseline: latest, range, order, original, copy, placeholder }
+  return { changes, baseline: latest, range, order, original, copy, placeholder, outside }
 }
 
 export function reconcileDraft(source: DocumentRecord, draft: DocumentRecord, baseline: DraftBaseline, selections: DraftResolution[]) {
@@ -125,7 +168,17 @@ export function reconcileDraft(source: DocumentRecord, draft: DocumentRecord, ba
   const sourceContent = source.manuscript.content
   const originalOrder = unionOrder(ids(sourceContent.slice(review.range.from, review.range.to)), review.order)
   const draftOrder = unionOrder(ids(draft.manuscript.content), review.order)
-  const full = [...sourceContent.slice(0, review.range.from), ...orderedBlocks(originalOrder, review.original), ...sourceContent.slice(review.range.to)]
+  // Resolve displaced IDs once at their current position. Unrelated sibling
+  // paragraphs remain in their original order and never enter the draft.
+  function surrounding(blocks: BlockJSON[]) {
+    return blocks.flatMap(block => {
+      if (!review.outside.has(block.attrs.id)) return [block]
+      const updated = review.original.get(block.attrs.id)
+      return updated ? [updated] : []
+    })
+  }
+  const inside = orderedBlocks(originalOrder.filter(id => !review.outside.has(id)), review.original)
+  const full = [...surrounding(sourceContent.slice(0, review.range.from)), ...inside, ...surrounding(sourceContent.slice(review.range.to))]
   return {
     source: { ...source, manuscript: { ...source.manuscript, content: editable(full, review.placeholder) } },
     draft: { ...draft, manuscript: { ...draft.manuscript, content: editable(orderedBlocks(draftOrder, review.copy), review.placeholder) } },

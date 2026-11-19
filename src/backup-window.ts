@@ -8,7 +8,7 @@ import type { Workspace } from './project-types'
 
 interface BackupContext {
   window(): BrowserWindow
-  project(): { store: ProjectStore; id: string; path: string }
+  project(): { id: string; path: string }
   open(path: string): Workspace
   trusted(event: Electron.IpcMainInvokeEvent): void
 }
@@ -19,12 +19,15 @@ export function registerBackups(context: BackupContext) {
   const backups = new DriveBackups(directory, new GoogleDrive(() => auth.token()))
   const choicesFile = join(directory, 'backup-projects.json')
   let optedIn: string[] = existsSync(choicesFile) ? JSON.parse(readFileSync(choicesFile, 'utf8')) : []
-  function enable(path: string, enabled: boolean) {
-    const next = optedIn.filter(item => item !== path)
-    if (enabled) next.push(path)
+  function saveChoices(next: string[]) {
     writeFileSync(choicesFile + '.tmp', JSON.stringify(next), { mode: 0o600 })
     renameSync(choicesFile + '.tmp', choicesFile)
     optedIn = next
+  }
+  function enable(path: string, enabled: boolean) {
+    const next = optedIn.filter(item => item !== path)
+    if (enabled) next.push(path)
+    saveChoices(next)
   }
   let error: string | null = null
   let running: Promise<void> | null = null
@@ -85,20 +88,28 @@ export function registerBackups(context: BackupContext) {
     await running?.catch(() => {})
     await auth.disconnect()
     backups.resetLocalState()
-    optedIn = []
-    writeFileSync(choicesFile, '[]', { mode: 0o600 })
+    saveChoices([])
     error = null
     return status()
   })
   ipcMain.handle('backup:now', async event => { context.trusted(event); await run(false); return status() })
   ipcMain.handle('backup:list', event => { context.trusted(event); return backups.list() })
   ipcMain.handle('backup:online', event => { context.trusted(event); if (error) void run(true) })
+  let restoredPath: string | null = null
   ipcMain.handle('backup:restore', async (event, id: string) => {
     context.trusted(event)
     const selected = await dialog.showSaveDialog(context.window(), { title: 'Restore backup to a new project file', defaultPath: 'Restored project.tinto', filters: [{ name: 'Tinto project', extensions: ['tinto'] }] })
     if (selected.canceled || !selected.filePath) return null
     await backups.restore(id, selected.filePath)
-    return context.open(selected.filePath)
+    restoredPath = selected.filePath
+    return selected.filePath
+  })
+  ipcMain.handle('backup:open-restored', (event, path: string) => {
+    context.trusted(event)
+    if (path !== restoredPath) throw Error('Open this project from Home.')
+    const next = context.open(path)
+    restoredPath = null
+    return next
   })
   const timer = setInterval(() => void run(true), 15 * 60_000)
   timer.unref()
