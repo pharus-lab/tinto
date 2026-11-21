@@ -26,7 +26,7 @@ svg { display: inline-block; vertical-align: middle; flex: none; width: 16px; he
 i[data-icon] { display: inline-flex; }
 .titlebar { height: 54px; flex: none; display: flex; align-items: center; gap: 16px; background: var(--panel); border-bottom: 1px solid var(--divider); padding: 0 16px; -webkit-app-region: drag; user-select: none; }
 body.mac .titlebar { padding-left: 88px; }
-.titlebar button, .titlebar nav { -webkit-app-region: no-drag; }
+.titlebar button { -webkit-app-region: no-drag; }
 .wordmark { font: italic 600 27px/1 var(--serif); letter-spacing: -1.8px; margin-right: 8px; }
 .wordmark span { color: var(--wine); }
 #tabs { display: flex; height: 100%; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; align-items: stretch; }

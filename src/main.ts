@@ -116,10 +116,12 @@ async function openWindow() {
 
 const primaryWindow = app.requestSingleInstanceLock()
 if (!primaryWindow) app.quit()
-app.on('second-instance', () => {
-  if (window?.isMinimized()) window.restore()
-  window?.focus()
-})
+
+function showWindow() {
+  if (!window) return void openWindow()
+  if (window.isMinimized()) window.restore()
+  window.show()
+}
 
 if (primaryWindow) app.whenReady().then(async () => {
   protocol.handle('tinto', async request => {
@@ -137,14 +139,15 @@ if (primaryWindow) app.whenReady().then(async () => {
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }
   ]))
+  app.on('activate', showWindow)
+  app.on('second-instance', showWindow)
   await openWindow()
   const timer = setInterval(() => {
     try { library.tick() }
     catch (error) { dialog.showErrorBox('Tinto could not save a history snapshot', String(error)) }
   }, 30_000)
   timer.unref()
-  app.on('activate', () => { if (!window) void openWindow() })
 }).catch(error => { dialog.showErrorBox('Tinto could not open the project', String(error)); app.quit() })
 
-app.on('window-all-closed', () => app.quit())
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('will-quit', () => library?.close())

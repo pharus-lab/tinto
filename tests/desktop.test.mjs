@@ -4,6 +4,37 @@ import { desktopFixture } from './desktop-fixture.mjs'
 
 const button = (page, name) => page.getByRole('button', { name, exact: true })
 
+test('the macOS title bar leaves the space beside the tabs draggable', { skip: process.platform !== 'darwin' }, async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const region = await page.locator('#tabs').evaluate(tabs => {
+    const strip = tabs.getBoundingClientRect()
+    const lastTab = tabs.lastElementChild.getBoundingClientRect()
+    let target = document.elementFromPoint((lastTab.right + strip.right) / 2, strip.top + strip.height / 2)
+    while (target && getComputedStyle(target).appRegion === 'none') target = target.parentElement
+    return target && getComputedStyle(target).appRegion
+  })
+  assert.equal(region, 'drag')
+  for (const control of await page.locator('.titlebar button').all()) {
+    assert.equal(await control.evaluate(node => getComputedStyle(node).appRegion), 'no-drag')
+  }
+})
+
+test('closing and reopening the macOS window restores the manuscript with its last edit', { skip: process.platform !== 'darwin' }, async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const editor = page.locator('.ProseMirror:visible')
+  await appendToParagraph(page, editor.locator('p:visible').first(), ' Saved on close.')
+  const closed = page.waitForEvent('close')
+  await (await fixture.app.browserWindow(page)).evaluate(win => win.close())
+  await closed
+  const reopened = fixture.app.waitForEvent('window')
+  await fixture.app.evaluate(({ app }) => app.emit('activate'))
+  const manuscript = (await reopened).locator('.ProseMirror:visible')
+  await manuscript.waitFor()
+  assert.match(await manuscript.innerText(), /Saved on close\./)
+})
+
 test('the desktop editor preserves nested options on close and restores a named version', async t => {
   const { open, close } = await desktopFixture(t)
   let page = await open()
