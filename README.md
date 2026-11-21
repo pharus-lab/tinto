@@ -31,7 +31,7 @@ Automatic backups are opt-in per local project. While Tinto is open it checks fo
 
 ## Publish to websites
 
-**Publish** sends the open document or linked section to any website that includes the Tinto blog module. One Tinto can publish to several websites. [docs/site-contract.md](docs/site-contract.md) describes the API a website implements to receive posts.
+**Publish** sends the open document or linked section to any website that includes the Tinto blog module. One Tinto can publish to several websites. [docs/site-contract.md](docs/site-contract.md) describes the API a website implements to receive posts. Sites on Cloudflare Workers can copy the ready-made module in [modules/cloudflare](modules/cloudflare/README.md), which adds the API, a feed for the site build, and the post images.
 
 Add each website in **Settings → Websites** with the two values the website gives you: its **Publishing URL** and **API key**. Tinto checks both before saving them. **Test** checks them again. **Remove** deletes the key from this computer, and the posts stay on the website. To change a key, add the same publishing URL again with the new key. Posts already published there stay linked.
 

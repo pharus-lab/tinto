@@ -5,6 +5,8 @@ A website that includes the Tinto blog module can receive posts from Tinto. The 
 - **Publishing URL**: the base address of the API, for example `https://example.com/api/tinto`.
 - **API key**: a random secret of 20 to 512 printable ASCII characters, without spaces.
 
+A site on Cloudflare Workers can copy the ready-made module in [modules/cloudflare](../modules/cloudflare/README.md) instead of implementing this API.
+
 One Tinto installation can publish to several websites, and one website can accept posts from several Tinto installations that share its key. The module stores the posts, serves the images, and updates the site in whatever way the site is built.
 
 ## Requests
