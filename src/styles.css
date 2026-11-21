@@ -59,8 +59,10 @@ select { background-color: var(--paper); border: 1px solid var(--outline); borde
 .tool-rule { height: 16px; width: 1px; background: var(--divider); margin: 0 6px; }
 .tool-fill { flex: 1; }
 #scroll, #home, #panel { overflow: auto; overscroll-behavior: contain; }
-#scroll { flex: 1; scrollbar-gutter: stable both-edges; }
-#editors { max-width: calc(65ch + 96px); padding: 38px 48px max(120px, 42vh); margin: auto; font: var(--size)/var(--leading) var(--serif); }
+#scroll { flex: 1; }
+#editors { padding-block: 38px max(120px, 42vh); font: var(--size)/var(--leading) var(--serif); }
+[data-text-width="fixed-width"] #editors { width: var(--column-width); margin-inline: auto; }
+[data-text-width="fixed-margin"] #editors { margin-inline: var(--side-margin); }
 .ProseMirror { outline: 0; white-space: pre-wrap; overflow-wrap: break-word; font-variant-ligatures: common-ligatures; caret-color: var(--wine); min-height: 180px; }
 .ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6 { line-height: 1.15; font-weight: 500; margin: 1.2em 0 .65em; text-wrap: pretty; }
 .ProseMirror h1 { font-size: 2.15em; letter-spacing: -.045em; }
@@ -125,7 +127,8 @@ dialog::backdrop { background: #1b101c45; }
 .dialog-head h2 { font-size: 29px; }
 .dialog-actions { margin-top: 20px; justify-content: flex-end; }
 .field { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; }
-.field select, input[type=text] { padding: 7px 10px; border: 1px solid var(--outline); border-radius: 4px; background: var(--paper); }
+.field select, .field input[type=number], input[type=text] { padding: 7px 10px; border: 1px solid var(--outline); border-radius: 4px; background: var(--paper); }
+.field input[type=number] { width: 8em; }
 dialog p { color: var(--secondary); }
 .history-layout { display: grid; grid-template-columns: 38% 1fr; gap: 16px; max-height: 45vh; }
 .history-layout > * { overflow: auto; min-width: 0; }
@@ -136,7 +139,7 @@ dialog p { color: var(--secondary); }
 .version-text details { font: 12px/1.5 system-ui; color: var(--secondary); }
 .version-text li { padding: 2px; }
 @media (max-width: 910px) {
-  #editors { padding: 28px 28px 42vh; }
+  #editors { padding-block: 28px 42vh; }
   #panel { width: 248px; padding: 20px 16px; }
   #toolbar { padding: 8px; }
   .titlebar { gap: 8px; }
@@ -146,4 +149,3 @@ dialog p { color: var(--secondary); }
 .alt-nested { border-left: 1px solid var(--outline); padding-left: 14px; }
 .alt-actions button { padding-left: 6px; padding-right: 6px; }
 .alt-empty, .path { color: var(--secondary); overflow-wrap: anywhere; }
-#editors { max-width: calc(60ch + 96px); }

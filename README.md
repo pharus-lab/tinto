@@ -16,7 +16,8 @@ Select text in one paragraph and click **Add alternative** to start a new group.
 
 ## Writing and projects
 
-- **Settings** in the title bar controls font size, line spacing, appearance, and the default spelling language. The footer language selector belongs to the current document.
+- **Settings** in the title bar controls font size, line spacing, text width, appearance, and the default spelling language. The footer language selector belongs to the current document.
+- Under **Text width**, **Fixed Margin** starts with 48 px on each side and lets the column resize with the window. **Fixed Width** centers a column of your chosen width (initially 680 px). Tinto remembers both measurements when you switch modes.
 - **Home** creates and opens projects, adds documents, imports files, and opens linked sections by heading. Home lists the projects in your selected folder. Use **Choose folder** to browse, **New folder** to create another folder, or the **Tinto folder** menu to return to a previous one. New projects default to the selected folder. Settings shows the current project file path.
 - **Create draft** copies the current document or linked section. **Review draft** compares each changed paragraph. Applying a choice updates both copies and their common baseline. A conflict needs an explicit decision.
 - **History** lets you name, preview, restore, and delete versions. Tinto autosaves after 450 ms of idle typing and flushes on close. Changed work gets an automatic version after five minutes. Automatic versions stay for 30 days. Named versions stay until deleted.

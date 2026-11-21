@@ -4,6 +4,64 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { desktopFixture } from './desktop-fixture.mjs'
 
+test('text width modes retain their dimensions as the writing area resizes', async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const settings = page.getByRole('button', { name: 'Reading and project settings' })
+  const mode = page.getByLabel('Text width')
+  const margin = page.getByLabel('Margin on each side (px)')
+  const column = page.getByLabel('Column width (px)')
+  async function resize(width) {
+    await fixture.app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setContentSize(width, 720), width)
+    await page.waitForFunction(width => window.innerWidth === width, width)
+  }
+  function geometry() {
+    return page.locator('.ProseMirror:visible').evaluate(editor => {
+      const pane = document.getElementById('scroll')
+      const left = editor.getBoundingClientRect().left - pane.getBoundingClientRect().left
+      const width = editor.getBoundingClientRect().width
+      return { left, width, right: pane.clientWidth - width - left }
+    })
+  }
+  await resize(1100)
+  await settings.click()
+  assert.deepEqual(await mode.locator('option').allTextContents(), ['Fixed Width', 'Fixed Margin'])
+  assert.equal(await mode.inputValue(), 'fixed-margin')
+  assert.equal(await margin.inputValue(), '48')
+  await margin.fill('62')
+  const wide = await geometry()
+  assert.deepEqual([wide.left, wide.right], [62, 62])
+  await resize(800)
+  const narrow = await geometry()
+  assert.deepEqual([narrow.left, narrow.right], [62, 62])
+  assert.ok(narrow.width < wide.width)
+
+  await mode.selectOption({ label: 'Fixed Width' })
+  assert.equal(await column.inputValue(), '680')
+  await column.fill('640')
+  assert.equal((await geometry()).width, 640)
+  assert.ok(await page.locator('#scroll').evaluate(pane => pane.scrollWidth > pane.clientWidth))
+  await resize(1100)
+  const fixed = await geometry()
+  assert.equal(fixed.width, 640)
+  assert.ok(Math.abs(fixed.left - fixed.right) <= 1)
+
+  await page.reload()
+  await settings.click()
+  assert.equal(await mode.inputValue(), 'fixed-width')
+  await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('reading'))
+    saved.textWidth = 'free'
+    localStorage.setItem('reading', JSON.stringify(saved))
+  })
+  await page.reload()
+  await settings.click()
+  assert.equal(await mode.inputValue(), 'fixed-margin')
+  assert.equal(await margin.inputValue(), '62')
+  await mode.selectOption({ label: 'Fixed Width' })
+  assert.equal(await column.inputValue(), '640')
+})
+
 test('linked sections share edits, the trail follows scrolling, and keyboard review works in both appearances', async t => {
   const fixture = await desktopFixture(t)
   const page = await fixture.open()
