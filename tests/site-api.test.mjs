@@ -86,6 +86,9 @@ test('website failures explain what to do, using the site message where it has o
     [() => Response.json({}, { status: 413 }), () => site.putFile('p', 'a.png', png, 'image/png'), /does not accept a file this large/],
     [() => Response.json({}, { status: 429 }), () => site.putPost('p', post), /limiting requests/],
     [() => Response.json({ error: 'Database offline' }, { status: 503 }), () => site.deletePost('p'), /returned HTTP 503: Database offline/],
+    [() => new Response('Not found', { status: 404 }), () => site.putPreview('p', post), /module without previews\. Update it with Settings → Websites → \?/],
+    [() => Response.json({ url: 'https://elsewhere.example/tinto/preview/p' }), () => site.putPreview('p', post), /unexpected preview address/],
+    [() => Response.json({ url: 'https://example.com/other/preview/p' }), () => site.putPreview('p', post), /unexpected preview address/],
     [() => { throw TypeError('fetch failed') }, () => site.info(), /Could not reach example\.com.*without redirects/],
     [() => { throw new DOMException('timed out', 'TimeoutError') }, () => site.putPost('p', post), /did not answer in time/]
   ]
@@ -117,6 +120,11 @@ class FakeSite {
     if (this.fail === 'post') throw Error('example.com returned HTTP 500.')
     this.posts.set(id, post)
     return { url: post.status === 'published' ? 'https://example.com/posts/' + post.slug : null }
+  }
+  async putPreview(id, post) {
+    this.log.push('preview ' + id)
+    this.previews = { ...this.previews, [id]: post }
+    return { url: 'https://example.com/tinto/preview/' + id + '?expires=1&sig=abc' }
   }
   async deletePost(id) {
     this.log.push('delete ' + id)
@@ -209,6 +217,20 @@ test('publishing uploads new files three at a time, then sends the post, then ke
   assert.notEqual(next.release.versionId, post.release.versionId)
   assert.equal(changedSinceRelease(f.store, next), false)
   assert.deepEqual(f.store.versions('story').filter(version => version.name).map(version => version.name), ['Released on Field Notes', 'Released on Field Notes'])
+})
+
+test('a preview uploads the files and sends the post beside the live one, without a local record or release', async t => {
+  const f = await fixture(t)
+  const progress = []
+  const url = await f.publisher.preview(f.store, request({ cover: { path: f.files.cover, name: 'cover.png', alt: 'Window' }, attachments: [{ path: f.files.pdf, name: 'Field notes.pdf', title: 'Notes' }] }), (done, total) => progress.push(done + '/' + total))
+  const id = postId(f.store.projectId(), 'one', 'story', 'the-kitchen')
+  assert.equal(url, 'https://example.com/tinto/preview/' + id + '?expires=1&sig=abc')
+  assert.deepEqual(f.sites.one.log.filter(entry => !entry.startsWith('file ')), ['preview ' + id])
+  assert.deepEqual(progress, ['0/2', '1/2', '2/2'])
+  assert.equal(f.sites.one.previews[id].title, 'The kitchen')
+  assert.equal(f.sites.one.posts.size, 0)
+  assert.equal(f.store.post('one', 'story', 'the-kitchen'), null)
+  assert.deepEqual(f.store.versions('story').filter(version => version.name), [])
 })
 
 test('a draft goes to the website without a release, and publishing it creates one', async t => {

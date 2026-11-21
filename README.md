@@ -51,6 +51,7 @@ Each attachment has a title that the website shows. Tinto checks every file by i
 - **Publish** makes the post public.
 - **Save draft** sends the post and its files to the website without showing them on its pages. A published post can go back to drafts in the same way.
 - **Update post** sends changes.
+- **Preview** shows the post in the website's own design before you publish it. Tinto uploads the post's files and the text as a preview, beside anything already published, then opens a private link in your browser that works for one hour. The website needs a preview page, which the guide's design prompt asks your agent to create.
 - **Unpublish** removes the post and its files from the chosen website only.
 
 The same document can be published on several websites. Each website keeps its own address, category and files. A second website starts from the text of the first, and its files are chosen again. **All posts** lists every post of the project, grouped by website and category, and marks each one as a draft, live, or changed since its release.

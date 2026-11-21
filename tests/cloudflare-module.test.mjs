@@ -9,6 +9,7 @@ import { build } from 'esbuild'
 import { createTintoBlog } from '../modules/cloudflare/worker.mjs'
 import { tintoPosts } from '../modules/cloudflare/astro.mjs'
 import exampleConfig from '../modules/cloudflare/tinto.config.mjs'
+import { renderPreview, settings as moduleSettings } from '../modules/cloudflare/shared.mjs'
 
 const bundle = await build({ stdin: { contents: "export * from './src/site-api'; export * from './src/publishing'; export * from './src/storage'; export * from './src/model'", resolveDir: process.cwd() }, platform: 'node', format: 'esm', bundle: true, write: false })
 const { SiteClient, Publisher, ProjectStore, sampleManuscript } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
@@ -84,10 +85,21 @@ const zip = Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.alloc(26)])
 const nameOf = (bytes, ext) => createHash('sha256').update(bytes).digest('hex').slice(0, 32) + '.' + ext
 const id = '6f1c2a8e-3b9d-4e57-a0c1-9d2f7b6e4a10'
 
-function site({ hook = '', settings = config } = {}) {
+// The site's static pages, including the preview page with its markers.
+const previewTemplate = '<!doctype html><title>%%title%% · Field Notes</title><body class="site"><h1 class="post-title">%%title%%</h1><p>%%category%% · %%date%%</p>'
+  + '<template data-tinto-each="cover"><img class="cover" src="%%url%%" alt="%%alt%%"></template><div class="prose">%%body%%</div>'
+  + '<ul><template data-tinto-each="attachments"><li><a href="%%url%%">%%title%%</a> (%%size%%)</li></template></ul></body>'
+const assets = (pages = { '/tinto-preview': previewTemplate }) => ({
+  async fetch(request) {
+    const page = pages[new URL(request.url).pathname]
+    return page ? new Response(page, { headers: { 'Content-Type': 'text/html' } }) : new Response('Not found', { status: 404 })
+  }
+})
+
+function site({ hook = '', settings = config, pages } = {}) {
   const clock = { time: Date.UTC(2026, 10, 21) }
   const blog = createTintoBlog(settings, { now: () => clock.time })
-  const env = { TINTO_DB: new FakeD1(), TINTO_MEDIA: new FakeR2(), TINTO_API_KEY: key, TINTO_DEPLOY_HOOK: hook }
+  const env = { TINTO_DB: new FakeD1(), TINTO_MEDIA: new FakeR2(), TINTO_API_KEY: key, TINTO_DEPLOY_HOOK: hook, ASSETS: assets(pages) }
   const call = (method, path, { body, type, auth = key, headers = {} } = {}) => blog.fetch(new Request('https://blog.example' + path, {
     method, body, headers: { ...(auth ? { Authorization: 'Bearer ' + auth } : {}), ...(type ? { 'Content-Type': type } : {}), ...headers }
   }), env)
@@ -239,6 +251,64 @@ test('a protocol 1 table is upgraded in place, keeping its posts', async () => {
   assert.equal((await call('GET', '/api/tinto/files/' + id + '/' + nameOf(png, 'png'), { auth: null })).status, 200)
 })
 
+test('the preview page is filled in one pass, with escaped fields, the post HTML and repeated items', () => {
+  const settings = moduleSettings(config)
+  const html = renderPreview(previewTemplate + '<ul><template data-tinto-each="tags"><li>%%tag%%</li></template></ul><template data-tinto-each="images"><img src="%%url%%"></template>%%unknown%%', {
+    id, slug: 'first-light', language: 'en', locale: 'en', category: 'notes', title: 'A <b> "%%summary%%" title', summary: 'Never shown', date: '2026-11-21', tags: ['rain', 'a&b'],
+    html: '<p>Some <u>underlined</u> text.</p>', cover: { file: 'c.png', type: 'image/png', alt: 'A "bench"', url: '/api/tinto/files/x/c.png' }, images: [],
+    attachments: [{ file: 'n.pdf', type: 'application/pdf', title: 'Notes', size: 2_400_000, url: '/api/tinto/files/x/n.pdf' }], updatedAt: '', url: null
+  }, settings)
+  assert.match(html, /<title>A &lt;b&gt; &quot;%%summary%%&quot; title · Field Notes<\/title>/)
+  assert.match(html, /<p>Notes · 2026-11-21<\/p>/)
+  assert.match(html, /<img class="cover" src="\/api\/tinto\/files\/x\/c\.png" alt="A &quot;bench&quot;">/)
+  assert.match(html, /<div class="prose"><p>Some <u>underlined<\/u> text\.<\/p><\/div>/)
+  assert.match(html, /<li><a href="\/api\/tinto\/files\/x\/n\.pdf">Notes<\/a> \(2\.3 MB\)<\/li>/)
+  assert.match(html, /<li>rain<\/li><li>a&amp;b<\/li>/)
+  assert.doesNotMatch(html, /<template|Never shown/)
+  assert.match(html, /%%unknown%%$/)
+})
+
+test('a preview is stored beside the live post and shown through a signed, expiring link', async t => {
+  const hooks = []
+  t.mock.method(globalThis, 'fetch', async () => { hooks.push('hook'); return new Response(null, { status: 200 }) })
+  const { clock, call, upload, send } = site({ hook: 'https://hooks.example/build' })
+  await upload(png, 'png', 'image/png')
+  const cover = { file: nameOf(png, 'png'), type: 'image/png', alt: 'A bench' }
+  assert.equal((await send(post({ title: 'Live title', cover }))).status, 200)
+  hooks.length = 0
+  const preview = await call('PUT', '/api/tinto/previews/' + id, { body: JSON.stringify(post({ title: 'Draft title', cover })), type: 'application/json' })
+  assert.equal(preview.status, 200)
+  const { url } = await preview.json()
+  assert.match(url, new RegExp('^https://blog\\.example/api/tinto/preview/' + id + '\\?expires=\\d+&sig=[0-9a-f]{64}$'))
+  assert.equal(hooks.length, 0, 'a preview starts no rebuild')
+  const feed = await (await call('GET', '/api/tinto/feed', { auth: null })).json()
+  assert.deepEqual(feed.posts.map(item => item.title), ['Live title'])
+
+  const page = await call('GET', new URL(url).pathname + new URL(url).search, { auth: null })
+  assert.deepEqual([page.status, page.headers.get('Content-Type'), page.headers.get('Cache-Control'), page.headers.get('X-Robots-Tag'), page.headers.get('Referrer-Policy')],
+    [200, 'text/html; charset=utf-8', 'no-store', 'noindex, nofollow', 'no-referrer'])
+  const html = await page.text()
+  assert.match(html, /<h1 class="post-title">Draft title<\/h1>/)
+  assert.match(html, new RegExp('<img class="cover" src="/api/tinto/files/' + id + '/' + cover.file + '" alt="A bench">'))
+  assert.match(html, /<div class="prose"><p>Some <strong>bold<\/strong>/)
+
+  const tampered = url.replace(/sig=[0-9a-f]/, match => match.slice(0, -1) + (match.endsWith('0') ? '1' : '0'))
+  assert.equal((await call('GET', new URL(tampered).pathname + new URL(tampered).search, { auth: null })).status, 404)
+  assert.equal((await call('GET', '/tinto-preview', { auth: null })).status, 404, 'the template itself stays private')
+  assert.equal((await call('GET', '/tinto-preview.html', { auth: null })).status, 404)
+  clock.time += 61 * 60 * 1000
+  const expired = await call('GET', new URL(url).pathname + new URL(url).search, { auth: null })
+  assert.equal(expired.status, 410)
+  assert.match(await expired.text(), /expired/)
+  assert.equal((await call('PUT', '/api/tinto/previews/' + id, { body: JSON.stringify(post({ cover })), type: 'application/json', auth: null })).status, 401)
+})
+
+test('a site without a preview page says so before anything is stored', async () => {
+  const { call } = site({ pages: {} })
+  const response = await call('PUT', '/api/tinto/previews/' + id, { body: JSON.stringify(post()), type: 'application/json' })
+  assert.deepEqual([response.status, (await response.json()).error], [422, 'This site has no preview page yet. Ask your agent to add one (see "Preview page" in tinto/README.md).'])
+})
+
 // The same files and posts as Tinto sends them, through its real client.
 async function tintoProject(t) {
   const dir = await mkdtemp(join(tmpdir(), 'tinto-module-'))
@@ -278,6 +348,14 @@ test('Tinto drafts, publishes, updates, translates and unpublishes through the m
   assert.deepEqual(await feed(), [])
   assert.equal(hooks.length, 0)
   assert.deepEqual([...env.TINTO_MEDIA.objects.keys()].map(item => item.split('/')[2]).sort(), ['audio', 'documents', 'images', 'images'])
+
+  // A preview through Tinto shows the draft in the site's design without changing anything.
+  const link = await publisher.preview(store, { ...base, status: 'draft', cover: { file: draft.cover.file, alt: 'Kitchen window' }, images: [], attachments: draft.attachments.map(item => ({ file: item.file, title: item.title })) })
+  const shown = await (await call('GET', new URL(link).pathname + new URL(link).search, { auth: null })).text()
+  assert.match(shown, /<h1 class="post-title">The long way home<\/h1>/)
+  assert.match(shown, /<a href="[^"]+">Rain<\/a>/)
+  assert.deepEqual(await feed(), [])
+  assert.equal(store.post('field-notes', 'story', null).status, 'draft')
 
   const live = await publisher.publish(store, { ...base, status: 'published', cover: { file: draft.cover.file, alt: 'Kitchen window' }, images: [], attachments: draft.attachments.map(item => ({ file: item.file, title: item.title })) })
   assert.equal(live.url, 'https://blog.example/en/essays/the-long-way-home')
@@ -352,6 +430,6 @@ test('the Astro loader stores the feed, waits for a first deployment and keeps l
 
 test('the example configuration is valid and a broken one fails when the module starts', () => {
   assert.doesNotThrow(() => createTintoBlog(exampleConfig))
-  const broken = [{ ...config, name: '' }, { ...config, site: 'example.com' }, { ...config, basePath: 'api' }, { ...config, languages: { english: 'en' } }, { ...config, categories: { 'Not An Id': 'Notes' } }, { ...config, categories: { notes: '' } }]
+  const broken = [{ ...config, name: '' }, { ...config, site: 'example.com' }, { ...config, basePath: 'api' }, { ...config, previewPath: 'preview' }, { ...config, previewPath: '/api/tinto' }, { ...config, languages: { english: 'en' } }, { ...config, categories: { 'Not An Id': 'Notes' } }, { ...config, categories: { notes: '' } }]
   for (const value of broken) assert.throws(() => createTintoBlog(value), /tinto\.config\.mjs/)
 })

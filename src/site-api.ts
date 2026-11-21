@@ -26,6 +26,7 @@ export interface SiteInfo { name: string; categories: { id: string; label: strin
 export interface SiteTransport {
   putFile(postId: string, file: string, bytes: Uint8Array, type: string): Promise<void>
   putPost(postId: string, post: SitePost): Promise<{ url: string | null }>
+  putPreview(postId: string, post: SitePost): Promise<{ url: string }>
   deletePost(postId: string): Promise<void>
 }
 
@@ -49,7 +50,7 @@ export function validateConnection(input: SiteConnection): SiteConnection {
 // replaces its key and keeps the posts already published there.
 export const siteId = (endpoint: string) => createHash('sha256').update(endpoint).digest('hex').slice(0, 32)
 
-type Action = 'check' | 'file' | 'post' | 'delete'
+type Action = 'check' | 'file' | 'post' | 'preview' | 'delete'
 // Text from a website is shown to the writer, so it is shortened and kept to one line.
 const clip = (value: unknown, length: number) => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, length) : ''
 
@@ -80,6 +81,7 @@ export class SiteClient implements SiteTransport {
     const site = this.host
     if (status === 401 || status === 403) return Error(site + ' rejected the API key. Copy the current key from the website and add the site again in Settings.')
     if (status === 404 && action === 'check') return Error('There is no Tinto blog module at this publishing URL. Copy the URL from the website again.')
+    if (status === 404 && action === 'preview') return Error(site + ' has a Tinto blog module without previews. Update it with Settings → Websites → ? → Save module to your site, then deploy the website.')
     if (status === 409) return Error(said || 'Another post in this language already uses this address on ' + site + '. Choose a different address.')
     if (status === 413) return Error(said || site + ' does not accept a file this large.')
     if (status === 429) return Error(site + ' is limiting requests. Wait a minute and try again.')
@@ -115,6 +117,20 @@ export class SiteClient implements SiteTransport {
     let url: URL | null = null
     try { url = typeof body?.url === 'string' && body.url.length <= 2048 ? new URL(body.url) : null } catch { /* Not a usable address. */ }
     return { url: url && /^https?:$/.test(url.protocol) ? url.href : null }
+  }
+
+  // The site answers with a signed link on its own origin, under the publishing URL.
+  async putPreview(postId: string, post: SitePost): Promise<{ url: string }> {
+    const body = await this.call('/previews/' + postId, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(post)
+    }, 'preview') as { url?: unknown } | null
+    let url: URL | null = null
+    try { url = typeof body?.url === 'string' && body.url.length <= 2048 ? new URL(body.url) : null } catch { /* Checked below. */ }
+    const base = new URL(this.connection.endpoint)
+    if (!url || url.origin !== base.origin || !url.pathname.startsWith(base.pathname.replace(/\/$/, '') + '/preview/')) {
+      throw Error(this.host + ' returned an unexpected preview address.')
+    }
+    return { url: url.href }
   }
 
   async deletePost(postId: string): Promise<void> {

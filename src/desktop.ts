@@ -30,6 +30,7 @@ export interface Desktop {
   openCloudflare(): Promise<void>
   pickFiles(kind: FilePick): Promise<PickedFile[]>
   publishPost(request: PublishRequest): Promise<PostState>
+  previewPost(request: PublishRequest): Promise<string>
   onPublishProgress(listener: (done: number, total: number) => void): () => void
   unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>
   pickFile(): Promise<InputFile | null>

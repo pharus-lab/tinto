@@ -106,72 +106,79 @@ export class Publisher {
 
   idle(): Promise<unknown> { return this.queue }
 
+  // Checks the post, reads its new files and uploads them, three at a time.
+  // Publishing and previewing share this, so a preview shows exactly what would go out.
+  private async prepare(store: ProjectStore, input: PublishInput, progress: Progress) {
+    const doc = store.readDocument(input.documentId)
+    const html = bodyHTML(doc, input.headingId)
+    if (!html) throw Error('Write some text before publishing this post.')
+    const fields = validateFields(input.fields)
+    if ((input.cover ? 1 : 0) + input.images.length + input.attachments.length > MAX_FILES) throw Error('A post can include up to ' + MAX_FILES + ' files.')
+    const site = await this.sites(input.siteId)
+    const previous = store.post(input.siteId, input.documentId, input.headingId)
+    const id = previous?.id ?? postId(store.projectId(), input.siteId, input.documentId, input.headingId)
+    const known = new Map<string, PostImage | PostAttachment>((previous ? [previous.cover, ...previous.images, ...previous.attachments] : [])
+      .filter(item => !!item).map(item => [item!.file, item!]))
+    const uploads = new Map<string, { bytes: Uint8Array; type: string }>()
+    async function load(choice: { path: string; name: string }, images: boolean) {
+      const read = await readFile(choice.path, choice.name)
+      if ((read.fileClass === 'images') !== images) {
+        throw Error(choice.name + (images ? ' is not an image. Use ' + describeTypes('images') + '.' : ' is an image. Add it to the gallery instead.'))
+      }
+      // Files named by content make a repeated upload of the same file harmless.
+      const file = sha256(read.bytes).slice(0, 32) + '.' + read.ext
+      if (!known.has(file)) uploads.set(file, { bytes: read.bytes, type: read.type })
+      return { file, type: read.type, size: read.bytes.byteLength, name: choice.name }
+    }
+    function reuse(file: string) {
+      const existing = known.get(file)
+      if (!existing) throw Error('A file is no longer part of this post. Choose it again.')
+      return existing
+    }
+    async function image(choice: ImageInput): Promise<PostImage> {
+      const alt = String(choice.alt ?? '').trim()
+      if (alt.length > 300) throw Error('Keep image descriptions to 300 characters or fewer.')
+      if ('file' in choice) return { ...(reuse(choice.file) as PostImage), alt }
+      const { file, type, name } = await load(choice, true)
+      return { file, type, alt, name }
+    }
+    async function attachment(choice: AttachmentInput): Promise<PostAttachment> {
+      const title = String(choice.title ?? '').trim()
+      if (!title || title.length > 120) throw Error('Give each attachment a title of up to 120 characters.')
+      if ('file' in choice) return { ...(reuse(choice.file) as PostAttachment), title }
+      return { ...await load(choice, false), title }
+    }
+    const cover = input.cover ? await image(input.cover) : null
+    const images: PostImage[] = []
+    for (const choice of input.images) images.push(await image(choice))
+    const attachments: PostAttachment[] = []
+    for (const choice of input.attachments) attachments.push(await attachment(choice))
+
+    // Files first, so the website never receives a post whose files it lacks.
+    const pending = [...uploads]
+    let done = 0
+    if (pending.length) progress(0, pending.length)
+    await inParallel(pending, 3, async ([file, upload]) => {
+      await site.putFile(id, file, upload.bytes, upload.type)
+      progress(++done, pending.length)
+    })
+    const time = this.now()
+    const sent: SitePost = {
+      slug: fields.slug, language: doc.language, category: fields.category, status: input.status, title: fields.title,
+      summary: fields.summary, date: fields.date, tags: fields.tags, html,
+      cover: cover ? { file: cover.file, type: cover.type, alt: cover.alt } : null,
+      images: images.map(({ file, type, alt }) => ({ file, type, alt })),
+      attachments: attachments.map(({ file, type, title, size }) => ({ file, type, title, size })),
+      updatedAt: new Date(time).toISOString()
+    }
+    return { site, doc, html, fields, previous, id, cover, images, attachments, sent, time }
+  }
+
   // The local record changes only after the website has accepted the post. A
   // publication whose text changed is kept in History as a named version.
   publish(store: ProjectStore, input: PublishInput, progress: Progress = () => {}): Promise<PostRecord> {
     return this.serial(async () => {
-      const doc = store.readDocument(input.documentId)
-      const html = bodyHTML(doc, input.headingId)
-      if (!html) throw Error('Write some text before publishing this post.')
-      const fields = validateFields(input.fields)
-      if ((input.cover ? 1 : 0) + input.images.length + input.attachments.length > MAX_FILES) throw Error('A post can include up to ' + MAX_FILES + ' files.')
-      const site = await this.sites(input.siteId)
-      const previous = store.post(input.siteId, input.documentId, input.headingId)
-      const id = previous?.id ?? postId(store.projectId(), input.siteId, input.documentId, input.headingId)
-      const known = new Map<string, PostImage | PostAttachment>((previous ? [previous.cover, ...previous.images, ...previous.attachments] : [])
-        .filter(item => !!item).map(item => [item!.file, item!]))
-      const uploads = new Map<string, { bytes: Uint8Array; type: string }>()
-      async function load(choice: { path: string; name: string }, images: boolean) {
-        const read = await readFile(choice.path, choice.name)
-        if ((read.fileClass === 'images') !== images) {
-          throw Error(choice.name + (images ? ' is not an image. Use ' + describeTypes('images') + '.' : ' is an image. Add it to the gallery instead.'))
-        }
-        // Files named by content make a repeated upload of the same file harmless.
-        const file = sha256(read.bytes).slice(0, 32) + '.' + read.ext
-        if (!known.has(file)) uploads.set(file, { bytes: read.bytes, type: read.type })
-        return { file, type: read.type, size: read.bytes.byteLength, name: choice.name }
-      }
-      function reuse(file: string) {
-        const existing = known.get(file)
-        if (!existing) throw Error('A file is no longer part of this post. Choose it again.')
-        return existing
-      }
-      async function image(choice: ImageInput): Promise<PostImage> {
-        const alt = String(choice.alt ?? '').trim()
-        if (alt.length > 300) throw Error('Keep image descriptions to 300 characters or fewer.')
-        if ('file' in choice) return { ...(reuse(choice.file) as PostImage), alt }
-        const { file, type, name } = await load(choice, true)
-        return { file, type, alt, name }
-      }
-      async function attachment(choice: AttachmentInput): Promise<PostAttachment> {
-        const title = String(choice.title ?? '').trim()
-        if (!title || title.length > 120) throw Error('Give each attachment a title of up to 120 characters.')
-        if ('file' in choice) return { ...(reuse(choice.file) as PostAttachment), title }
-        return { ...await load(choice, false), title }
-      }
-      const cover = input.cover ? await image(input.cover) : null
-      const images: PostImage[] = []
-      for (const choice of input.images) images.push(await image(choice))
-      const attachments: PostAttachment[] = []
-      for (const choice of input.attachments) attachments.push(await attachment(choice))
-
-      // Files first, so the website never receives a post whose files it lacks.
-      const pending = [...uploads]
-      let done = 0
-      if (pending.length) progress(0, pending.length)
-      await inParallel(pending, 3, async ([file, upload]) => {
-        await site.putFile(id, file, upload.bytes, upload.type)
-        progress(++done, pending.length)
-      })
-      const time = this.now()
-      const sent: SitePost = {
-        slug: fields.slug, language: doc.language, category: fields.category, status: input.status, title: fields.title,
-        summary: fields.summary, date: fields.date, tags: fields.tags, html,
-        cover: cover ? { file: cover.file, type: cover.type, alt: cover.alt } : null,
-        images: images.map(({ file, type, alt }) => ({ file, type, alt })),
-        attachments: attachments.map(({ file, type, title, size }) => ({ file, type, title, size })),
-        updatedAt: new Date(time).toISOString()
-      }
+      const { site, doc, html, fields, previous, id, cover, images, attachments, sent, time } = await this.prepare(store, input, progress)
       const { url } = await site.putPost(id, sent)
       let release: PostRelease | null = previous?.release ?? null
       if (input.status === 'published') {
@@ -186,6 +193,14 @@ export class Publisher {
       }
       store.savePost(post)
       return post
+    })
+  }
+
+  // A preview goes to the website beside the live post and leaves the local record alone.
+  preview(store: ProjectStore, input: PublishInput, progress: Progress = () => {}): Promise<string> {
+    return this.serial(async () => {
+      const { site, id, sent } = await this.prepare(store, input, progress)
+      return (await site.putPreview(id, sent)).url
     })
   }
 

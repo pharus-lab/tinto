@@ -6,12 +6,14 @@
 // affects published posts, so a static site rebuilds.
 
 import { FILE_CLASSES, FILE_NAME, FILE_TYPES, contentName } from './files.mjs'
-import { POST_ID, PROTOCOL, Rejection, checkPost, fileKey, postFiles, publicPost, settings } from './shared.mjs'
+import { POST_ID, PROTOCOL, Rejection, checkPost, fileKey, postFiles, publicPost, renderPreview, settings } from './shared.mjs'
 
 // Files a post stops using stay this long, so pages built before the change keep working.
 const TRASH_DELAY = 60 * 60 * 1000
 // Larger audio, video and documents stream into R2 instead of being held in memory.
 const STREAM_FROM = 8 * 1024 * 1024
+// A preview link works for an hour, as long as its files wait in the trash.
+const PREVIEW_LIFE = 60 * 60 * 1000
 const POSTS = `CREATE TABLE IF NOT EXISTS tinto_posts (
     id TEXT PRIMARY KEY, slug TEXT NOT NULL, language TEXT NOT NULL, locale TEXT NOT NULL, category TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'published', title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', date TEXT NOT NULL,
@@ -22,7 +24,8 @@ const POSTS = `CREATE TABLE IF NOT EXISTS tinto_posts (
 const SCHEMA = [
   POSTS,
   'CREATE INDEX IF NOT EXISTS tinto_posts_feed ON tinto_posts (status, date DESC, updated_at DESC)',
-  'CREATE TABLE IF NOT EXISTS tinto_trash (key TEXT PRIMARY KEY, after INTEGER NOT NULL)'
+  'CREATE TABLE IF NOT EXISTS tinto_trash (key TEXT PRIMARY KEY, after INTEGER NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS tinto_previews (id TEXT PRIMARY KEY, post TEXT NOT NULL, expires INTEGER NOT NULL)'
 ]
 // Protocol 1 tables have no category, status or attachments. Their posts are
 // copied into the new table, and their images, stored without a class folder,
@@ -123,12 +126,50 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
   /** @param {any} env @param {string} id @param {Set<string>} keep */
   async function tidy(env, id, keep) {
     const db = env.TINTO_DB
-    const unused = (await listKeys(env.TINTO_MEDIA, 'tinto/' + id + '/')).filter(key => !keep.has(key))
-    if (unused.length) await db.batch(unused.map(key => db.prepare('INSERT OR IGNORE INTO tinto_trash (key, after) VALUES (?1, ?2)').bind(key, now() + TRASH_DELAY)))
+    await trashUnused(env, id, keep)
+    // An expired preview's files go to the trash unless its post uses them.
+    const previews = (await db.prepare('SELECT id FROM tinto_previews WHERE expires <= ?1 LIMIT 20').bind(now()).all()).results.map((/** @type {any} */ row) => String(row.id))
+    for (const other of previews) {
+      if (other !== id) await trashUnused(env, other, new Set(postFiles(await storedPost(env, other) ?? { cover: null, images: [], attachments: [] }).map(file => fileKey(other, file))))
+      await db.prepare('DELETE FROM tinto_previews WHERE id = ?1 AND expires <= ?2').bind(other, now()).run()
+    }
     const expired = (await db.prepare('SELECT key FROM tinto_trash WHERE after <= ?1 LIMIT 100').bind(now()).all()).results.map((/** @type {any} */ row) => String(row.key))
     if (!expired.length) return
     await env.TINTO_MEDIA.delete(expired)
     await db.batch(expired.map(key => db.prepare('DELETE FROM tinto_trash WHERE key = ?1').bind(key)))
+  }
+  /** @param {any} env @param {string} id @param {Set<string>} keep */
+  async function trashUnused(env, id, keep) {
+    const db = env.TINTO_DB
+    const unused = (await listKeys(env.TINTO_MEDIA, 'tinto/' + id + '/')).filter(key => !keep.has(key))
+    if (unused.length) await db.batch(unused.map(key => db.prepare('INSERT OR IGNORE INTO tinto_trash (key, after) VALUES (?1, ?2)').bind(key, now() + TRASH_DELAY)))
+  }
+  /** @param {any} row */
+  const rowPost = row => ({
+    ...row, tags: JSON.parse(row.tags), cover: row.cover ? JSON.parse(row.cover) : null, images: JSON.parse(row.images),
+    attachments: JSON.parse(row.attachments ?? '[]'), updatedAt: row.updated_at
+  })
+  /** @param {any} env @param {string} id */
+  async function storedPost(env, id) {
+    const row = await env.TINTO_DB.prepare('SELECT * FROM tinto_posts WHERE id = ?1').bind(id).first()
+    return row ? rowPost(row) : null
+  }
+  // Preview links are signed with the site's key, so only Tinto can make them.
+  /** @param {any} env @param {string} id @param {number} expires */
+  async function signature(env, id, expires) {
+    const secret = new TextEncoder().encode(String(env.TINTO_API_KEY ?? ''))
+    const key = await crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('preview\n' + id + '\n' + expires)))
+    return [...mac].map(byte => byte.toString(16).padStart(2, '0')).join('')
+  }
+  /** @param {any} env @param {string} origin */
+  async function previewTemplate(env, origin) {
+    const response = env.ASSETS ? await env.ASSETS.fetch(new Request(origin + site.previewPath)) : null
+    if (!response?.ok) {
+      await response?.body?.cancel?.()
+      throw new Rejection(422, 'This site has no preview page yet. Ask your agent to add one (see "Preview page" in tinto/README.md).')
+    }
+    return response.text()
   }
   /** @param {any} env @param {string} id */
   async function previousStatus(env, id) {
@@ -247,10 +288,7 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     let rows = []
     try { rows = (await env.TINTO_DB.prepare(FEED).all()).results ?? [] }
     catch (error) { if (!/no such table|no such column/i.test(String(/** @type {any} */ (error)?.message))) throw error }
-    const posts = rows.map((/** @type {any} */ row) => publicPost(site, {
-      ...row, tags: JSON.parse(row.tags), cover: row.cover ? JSON.parse(row.cover) : null, images: JSON.parse(row.images),
-      attachments: JSON.parse(row.attachments ?? '[]'), updatedAt: row.updated_at
-    }))
+    const posts = rows.map((/** @type {any} */ row) => publicPost(site, rowPost(row)))
     return json(200, { tinto: PROTOCOL, name: site.name, posts }, origin, method === 'HEAD')
   }
 
@@ -294,6 +332,47 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     return response
   }
 
+  // A preview stores the post beside the live one, so nothing published changes.
+  /** @param {Request} request @param {any} env @param {string} id @param {string} origin */
+  async function putPreview(request, env, id, origin) {
+    if (!POST_ID.test(id)) throw new Rejection(400, 'The post address is not valid.')
+    let input
+    try { input = JSON.parse(await request.text()) } catch { throw new Rejection(400, 'Send the post as JSON.') }
+    const post = checkPost(input, site)
+    const keys = postFiles(post).map(file => fileKey(id, file))
+    const missing = (await Promise.all(keys.map(async key => (await env.TINTO_MEDIA.head(key)) ? null : key))).filter(Boolean)
+    if (missing.length) throw new Rejection(422, 'A file of this post has not been uploaded. Preview again.')
+    await previewTemplate(env, origin)
+    const db = env.TINTO_DB
+    await schema(db)
+    const expires = now() + PREVIEW_LIFE
+    await db.prepare('INSERT OR REPLACE INTO tinto_previews (id, post, expires) VALUES (?1, ?2, ?3)').bind(id, JSON.stringify({ ...post, id }), expires).run()
+    await db.batch(keys.map(key => db.prepare('DELETE FROM tinto_trash WHERE key = ?1').bind(key)))
+    const link = origin + site.basePath + '/preview/' + id + '?expires=' + expires + '&sig=' + await signature(env, id, expires)
+    return json(200, { url: link }, origin)
+  }
+
+  /** @param {Request} request @param {any} env @param {string} id @param {URL} url */
+  async function showPreview(request, env, id, url) {
+    allow(request.method, ['GET'])
+    bindings(env)
+    const page = (/** @type {number} */ status, /** @type {string} */ text) => new Response('<!doctype html><meta charset="utf-8"><title>Preview</title><p>' + text + '</p>', {
+      status, headers: finish({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' }, url.origin)
+    })
+    const expires = Number(url.searchParams.get('expires'))
+    const given = url.searchParams.get('sig') ?? ''
+    if (!POST_ID.test(id) || !Number.isSafeInteger(expires) || !(await sameKey(given, await signature(env, id, expires)))) return page(404, 'This preview link is not valid.')
+    if (expires <= now()) return page(410, 'This preview link has expired. Preview the post again from Tinto.')
+    const row = await env.TINTO_DB.prepare('SELECT post FROM tinto_previews WHERE id = ?1').bind(id).first().catch(() => null)
+    if (!row) return page(410, 'This preview is no longer available. Preview the post again from Tinto.')
+    let template
+    try { template = await previewTemplate(env, url.origin) } catch (error) { return page(404, error instanceof Error ? error.message : 'This site has no preview page.') }
+    const html = renderPreview(template, publicPost(site, JSON.parse(String(row.post))), site)
+    return new Response(html, {
+      headers: finish({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' }, url.origin)
+    })
+  }
+
   /** @param {Request} request @param {any} env @param {string} path @param {string} origin @param {any} ctx */
   async function route(request, env, path, origin, ctx) {
     const method = request.method
@@ -303,6 +382,7 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
       allow(method, ['GET', 'HEAD'])
       return feed(env, method, origin)
     }
+    if ((match = /^\/preview\/([^/]+)$/.exec(path))) return showPreview(request, env, match[1], new URL(request.url))
     // Everything else is for Tinto and needs the key.
     await authorize(request, env)
     if (path === '' || path === '/') {
@@ -313,6 +393,10 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     if ((match = /^\/posts\/([^/]+)\/files\/([^/]+)$/.exec(path))) {
       allow(method, ['PUT'])
       return putFile(request, env, match[1], match[2])
+    }
+    if ((match = /^\/previews\/([^/]+)$/.exec(path))) {
+      allow(method, ['PUT'])
+      return putPreview(request, env, match[1], origin)
     }
     if ((match = /^\/posts\/([^/]+)$/.exec(path))) {
       allow(method, ['PUT', 'DELETE'])
@@ -325,6 +409,10 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     // Returns null for addresses outside basePath, so the site handles them as usual.
     async fetch(request, env, ctx) {
       const url = new URL(request.url)
+      // The preview page is a template with markers; only signed previews show it.
+      if (url.pathname === site.previewPath || url.pathname.startsWith(site.previewPath + '/') || url.pathname === site.previewPath + '.html') {
+        return new Response('Not found', { status: 404, headers: finish({ 'Content-Type': 'text/plain; charset=utf-8', 'X-Robots-Tag': 'noindex' }, url.origin) })
+      }
       if (url.pathname !== site.basePath && !url.pathname.startsWith(site.basePath + '/')) return null
       try { return await route(request, env, url.pathname.slice(site.basePath.length), url.origin, ctx) }
       catch (error) {

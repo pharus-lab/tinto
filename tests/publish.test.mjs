@@ -12,13 +12,15 @@ const sites = [
 
 // The main process talks to two simulated websites and an in-memory keychain.
 async function simulateWebsites(app, files) {
-  await app.evaluate(({ safeStorage, dialog }, { files, sites }) => {
+  await app.evaluate(({ safeStorage, dialog, shell }, { files, sites }) => {
     safeStorage.isAsyncEncryptionAvailable = async () => true
     safeStorage.encryptStringAsync = async text => Buffer.from('sealed:' + text)
     safeStorage.decryptStringAsync = async bytes => ({ result: Buffer.from(bytes).toString().slice(7), shouldReEncrypt: false })
     globalThis.picks = []
     dialog.showOpenDialog = async (window, options) => ({ canceled: false, filePaths: [globalThis.picks.shift() ?? (options.title.includes('cover') ? files.cover : files.pdf)] })
     globalThis.siteRequests = []
+    globalThis.opened = []
+    shell.openExternal = async url => { globalThis.opened.push(url) }
     globalThis.fetch = async (address, init = {}) => {
       const url = String(address)
       const headers = new Headers(init.headers)
@@ -28,6 +30,7 @@ async function simulateWebsites(app, files) {
       if (init.method === 'GET') return Response.json({ tinto: 2, name: site.name, categories: site.categories })
       if (init.method === 'DELETE') return new Response(null, { status: 204 })
       if (url.includes('/files/')) return new Response(null, { status: 201 })
+      if (url.includes('/previews/')) return Response.json({ url: url.replace('/previews/', '/preview/') + '?expires=1&sig=abc' })
       const post = JSON.parse(init.body)
       return Response.json({ url: post.status === 'published' ? new URL(site.endpoint).origin + '/' + (post.category || 'posts') + '/' + post.slug : null })
     }
@@ -38,7 +41,7 @@ async function requests(app) {
   for (const request of list) assert.equal(request.redirect, 'error')
   return list.map(({ url, method, auth, type, body }) => {
     const site = sites.find(item => auth === 'Bearer ' + item.key)
-    const path = url.replace(/\/posts\/[0-9a-f-]{36}/, '/posts/<post>').replace(/[0-9a-f]{32}\.(png|pdf)$/, '<hash>.$1')
+    const path = url.replace(/\/(posts|previews)\/[0-9a-f-]{36}/, '/$1/<post>').replace(/[0-9a-f]{32}\.(png|pdf)$/, '<hash>.$1')
     return { request: method + ' ' + path, key: site?.name ?? null, type, body }
   })
 }
@@ -76,6 +79,17 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   await modal.getByLabel('Description of cover.png').fill('The kitchen window at night')
   await button(modal, 'Attach files').click()
   assert.equal(await modal.getByLabel('Title of Field notes.pdf').inputValue(), 'Field notes')
+
+  // Preview sends the post beside anything live and opens the site's link in the browser.
+  await button(modal, 'Preview').click()
+  await status.getByText('Opened the preview of Field Notes in your browser. The link works for one hour.').waitFor()
+  const opened = await fixture.app.evaluate(() => globalThis.opened)
+  assert.equal(opened.length, 1)
+  assert.match(opened[0], /^https:\/\/one\.example\/tinto\/preview\/[0-9a-f-]{36}\?expires=1&sig=abc$/)
+  const previewed = await requests(fixture.app)
+  assert.equal(previewed.at(-1).request, 'PUT https://one.example/tinto/previews/<post>')
+  assert.equal(JSON.parse(previewed.at(-1).body).title, 'El largo camino a casa')
+  assert.match(await status.innerText(), /Opened the preview/)
   await button(modal, 'Publish').click()
   await page.locator('#notice').getByText('Published “El largo camino a casa” on Field Notes.').waitFor()
   const first = await requests(fixture.app)

@@ -154,20 +154,37 @@ export function registerPublishing(context: PublishContext) {
       return { token, name, size: (await stat(path)).size }
     }))
   })
+  async function publishInput(request: PublishRequest) {
+    const target = await site(String(request.siteId))
+    return {
+      target,
+      input: {
+        siteId: target.id, siteName: target.name, documentId: request.documentId, headingId: request.headingId,
+        status: request.status === 'draft' ? 'draft' as const : 'published' as const, fields: request.fields,
+        cover: request.cover ? image(request.cover) : null, images: request.images.map(image), attachments: request.attachments.map(attachment)
+      }
+    }
+  }
+  // Upload progress goes to the window that asked, as files finish.
+  const progressTo = (event: Electron.IpcMainInvokeEvent) => (done: number, total: number) => {
+    if (!event.sender.isDestroyed()) event.sender.send('post:progress', done, total)
+  }
   ipcMain.handle('post:publish', async (event, request: PublishRequest) => {
     context.trusted(event)
     const choices = [...(request.cover ? [request.cover] : []), ...request.images, ...request.attachments]
-    const target = await site(String(request.siteId))
-    const input = {
-      siteId: target.id, siteName: target.name, documentId: request.documentId, headingId: request.headingId,
-      status: request.status === 'draft' ? 'draft' as const : 'published' as const, fields: request.fields,
-      cover: request.cover ? image(request.cover) : null, images: request.images.map(image), attachments: request.attachments.map(attachment)
-    }
-    // Upload progress goes to the window that asked, as files finish.
-    const progress = (done: number, total: number) => { if (!event.sender.isDestroyed()) event.sender.send('post:progress', done, total) }
-    const post = await withProject(store => publisher.publish(store, input, progress))
+    const { input } = await publishInput(request)
+    const post = await withProject(store => publisher.publish(store, input, progressTo(event)))
     for (const choice of choices) if ('token' in choice) picked.delete(choice.token)
     return { ...post, changed: false }
+  })
+  // The preview opens in the writer's browser, only on the website's own origin.
+  ipcMain.handle('post:preview', async (event, request: PublishRequest) => {
+    context.trusted(event)
+    const { target, input } = await publishInput(request)
+    const url = await withProject(store => publisher.preview(store, input, progressTo(event)))
+    if (new URL(url).origin !== new URL(target.endpoint).origin) throw Error('The website returned a preview address on another site.')
+    await shell.openExternal(url)
+    return url
   })
   ipcMain.handle('post:unpublish', (event, siteId: string, documentId: string, headingId: string | null) => {
     context.trusted(event)

@@ -111,15 +111,31 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
         } finally { stop() }
       }
     }
+    const request = (state: PostStatus) => ({
+      siteId: site.id, documentId: target.documentId, headingId: target.headingId, status: state,
+      fields: {
+        title: title.value, slug: slug.value, summary: summary.value, date: date.value, category: category?.value ?? '',
+        tags: tags.value.split(',').map(tag => tag.trim()).filter(Boolean)
+      },
+      ...files.values()
+    })
+    // The preview opens in the browser; the dialog stays open to keep editing.
+    async function preview() {
+      if (!form.reportValidity()) return
+      controls().forEach(el => el.disabled = true)
+      status.textContent = 'Preparing the preview…'
+      const stop = api.onPublishProgress((sent, total) => { status.textContent = 'Uploading ' + sent + ' of ' + total + ' files for the preview…' })
+      try {
+        await api.previewPost(request('draft'))
+        status.textContent = 'Opened the preview of ' + site.name + ' in your browser. The link works for one hour.'
+      } catch (error) { status.textContent = errorText(error) }
+      finally {
+        stop()
+        controls().forEach(el => el.disabled = false)
+      }
+    }
     function send(state: PostStatus) {
-      return run(() => api.publishPost({
-        siteId: site.id, documentId: target.documentId, headingId: target.headingId, status: state,
-        fields: {
-          title: title.value, slug: slug.value, summary: summary.value, date: date.value, category: category?.value ?? '',
-          tags: tags.value.split(',').map(tag => tag.trim()).filter(Boolean)
-        },
-        ...files.values()
-      }), 'Preparing the post…', () => state === 'draft'
+      return run(() => api.publishPost(request(state)), 'Preparing the post…', () => state === 'draft'
         ? 'Saved “' + title.value.trim() + '” as a draft on ' + site.name + '.'
         : 'Published “' + title.value.trim() + '” on ' + site.name + '.')
     }
@@ -138,7 +154,7 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
       }, 'outline')
       const submit = element('button', 'primary', post?.status === 'published' ? 'Update post' : 'Publish')
       submit.type = 'submit'
-      actions.append(button('Cancel', () => dialog.close(), 'outline'), draft, submit)
+      actions.append(button('Cancel', () => dialog.close(), 'outline'), button('Preview', () => void preview(), 'outline'), draft, submit)
     }
     drawActions()
     form.onsubmit = event => {

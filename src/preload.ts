@@ -23,6 +23,7 @@ const desktop: Desktop = {
   allPosts: () => ipcRenderer.invoke('post:all'),
   pickFiles: kind => ipcRenderer.invoke('post:pick-files', kind),
   publishPost: request => ipcRenderer.invoke('post:publish', request),
+  previewPost: request => ipcRenderer.invoke('post:preview', request),
   onPublishProgress: listener => {
     const forward = (_event: Electron.IpcRendererEvent, done: number, total: number) => listener(done, total)
     ipcRenderer.on('post:progress', forward)

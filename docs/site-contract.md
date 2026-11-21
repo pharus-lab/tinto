@@ -79,6 +79,14 @@ Respond to `PUT` only after the post is saved and the site update has started. W
 
 Each time Tinto publishes a post whose text changed, it saves a named version of the document in its own History (*Released on <site>*). The website therefore holds the text of that release until the next publication. Tinto shows *Changed since the release* while the writer keeps editing.
 
+## Preview (optional)
+
+A module can let the writer see a post in the site's own design before publishing it. Tinto sends `PUT <url>/previews/<id>` with the same JSON as a post. The module checks it like a post and keeps it apart from the live post.
+
+The module answers with `{ "url": "<origin><path>?…" }`, a signed link on the same origin as the publishing URL that works for a limited time. Tinto opens that link in the writer's browser. The page shows the post with the site's layout. It must not be indexed, and it must not change anything that is published or start a rebuild.
+
+A module without previews answers `404`, and Tinto then asks the writer to update the module. A module whose site has no preview page answers `422` with a message saying so.
+
 ## Errors
 
 Return a JSON body `{ "error": "message" }` with a plain-language message for the writer. Tinto shows the message for `400`, `409`, `413` and `422`, and explains the other statuses itself:

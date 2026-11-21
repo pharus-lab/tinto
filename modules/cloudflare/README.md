@@ -8,6 +8,7 @@ This folder lets a site on Cloudflare Workers receive posts from Tinto, a writin
 | `<basePath>/posts/…` | Receives posts, drafts and files from Tinto. Requires the API key. |
 | `<basePath>/feed` | Public JSON with every published post, for the site build. Drafts are not included. |
 | `<basePath>/files/<post>/<file>` | Public post files, served from R2. |
+| `<basePath>/preview/<post>?…` | A post shown in the site's own design, through a signed link that Tinto opens for one hour. |
 
 **The quickest path is Tinto's guide.** In Tinto, open **Settings → Websites** and choose **?** next to *Add a website*. The guide does three things:
 - writes this folder into your site, with the configuration filled in;
@@ -54,11 +55,12 @@ Connect this module to the site you are working in. Only change what the steps a
      }
    }
    ```
-   Then point the configuration at it, and let it run first for the module's addresses:
+   Then point the configuration at it, and let it run first for the module's addresses and the preview page:
    ```jsonc
    "main": "worker.mjs",
-   "assets": { "directory": "<your build folder>", "binding": "ASSETS", "run_worker_first": ["/api/tinto/*"] }
+   "assets": { "directory": "<your build folder>", "binding": "ASSETS", "run_worker_first": ["/api/tinto/*", "/tinto-preview*"] }
    ```
+   The module reads the preview page through the `ASSETS` binding, so keep that binding name.
 5. **Make the posts available to pages.**
    - **Astro.** Add the collection in `src/content.config.ts`:
      ```ts
@@ -89,6 +91,40 @@ Only do this when asked.
   Every `url` is on the same origin, so a strict CSP such as `default-src 'self'` keeps working.
 - When the site has categories, use `post.category` to place each post on its page or section.
 - Follow the site's language routes, and set `postPath` to match the new post page.
+- Add the preview page described below, built from the same post layout.
+
+### Preview page
+
+Tinto's **Preview** shows a post in the site's design before it is published. The site provides one page, at `previewPath` (`/tinto-preview` by default). Build it from the same layout and components as a real post page, with markers in place of the values. The module fills the markers for each preview and returns 404 to anyone who opens the page directly.
+
+- **Fields.** Use `%%title%%`, `%%summary%%`, `%%date%%`, `%%category%%` and `%%language%%` in text or attributes. They are filled in as escaped text. Use `%%body%%` inside a `div` for the post HTML.
+- **Repeated or optional parts.** Wrap the markup for one item in `<template data-tinto-each="…">`. The module repeats it for each item and removes it when there is none.
+
+| Block | Item markers |
+| --- | --- |
+| `cover` | `%%url%%`, `%%alt%%`. Used once, or removed when there is no cover. |
+| `images` | `%%url%%`, `%%alt%%` |
+| `tags` | `%%tag%%` |
+| `attachments` | `%%url%%`, `%%title%%`, `%%type%%`, `%%size%%` |
+
+- **Keep it out of search and listings.** Leave the page out of the sitemap and navigation, and add `<meta name="robots" content="noindex">`.
+
+Example in Astro, at `src/pages/tinto-preview.astro`. Use the site's own layout and classes:
+
+```astro
+---
+import PostLayout from '../layouts/PostLayout.astro'
+---
+<PostLayout title="%%title%%" noindex>
+  <article class="post">
+    <h1>%%title%%</h1>
+    <p class="summary">%%summary%%</p>
+    <template data-tinto-each="cover"><img class="cover" src="%%url%%" alt="%%alt%%"></template>
+    <div class="post-body">%%body%%</div>
+    <ul class="attachments"><template data-tinto-each="attachments"><li><a href="%%url%%">%%title%%</a> · %%size%%</li></template></ul>
+  </article>
+</PostLayout>
+```
 
 ## Secrets
 
@@ -116,6 +152,9 @@ Deploy the site after adding the module. Then add `<site><basePath>` and the key
   - Audio, video and PDFs answer `Range` requests, so players can seek.
   - ZIP and CSV are sent as downloads.
 - **Files the post stops using.** They are kept for one hour after a change, so pages built before the change still show them. Each later change removes the expired ones.
+- **Previews.** Tinto sends the post to `<basePath>/previews/<post>` and opens the signed link that comes back.
+  - The preview is stored beside the live post, so nothing published changes, and no rebuild runs.
+  - The link works for one hour. Files uploaded only for a preview go to the trash when it expires.
 - **Upgrading from protocol 1.** Update the module with Tinto's guide and deploy.
   - The build of that deploy still reads the live protocol 1 feed and keeps its posts.
   - The first change after the deploy upgrades the `tinto_posts` table in place.

@@ -15,5 +15,8 @@ export default {
   categories: null,
   // The public path of a post page, or null while the site has none. For example:
   //   postPath: post => '/' + post.locale + '/' + (post.category || 'blog') + '/' + post.slug,
-  postPath: null
+  postPath: null,
+  // The page with your post layout that Tinto's Preview fills in. It shows only
+  // through a signed preview link. See "Preview page" in README.md.
+  previewPath: '/tinto-preview'
 }

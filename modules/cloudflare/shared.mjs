@@ -26,11 +26,12 @@ const POST_TAGS = /<\/?(?:p|h[1-6]|strong|em|u|mark)>/g
  *   name: string, site: string, basePath?: string,
  *   languages?: Record<string, string> | null,
  *   categories?: Record<string, string> | null,
- *   postPath?: ((post: TintoPost) => string) | null
+ *   postPath?: ((post: TintoPost) => string) | null,
+ *   previewPath?: string
  * }} TintoConfig
  * @typedef {{
  *   name: string, site: string, basePath: string, languages: Record<string, string> | null,
- *   categories: Record<string, string> | null, postPath: ((post: TintoPost) => string) | null
+ *   categories: Record<string, string> | null, postPath: ((post: TintoPost) => string) | null, previewPath: string
  * }} TintoSettings
  */
 
@@ -63,7 +64,11 @@ export function settings(config) {
     throw Error('tinto.config.mjs: categories maps ids such as "notes" to labels such as "Notes".')
   }
   const postPath = typeof config.postPath === 'function' ? config.postPath : null
-  return { name, site: site.origin, basePath, languages, categories, postPath }
+  const previewPath = String(config.previewPath ?? '/tinto-preview').replace(/\/+$/, '')
+  if (!/^\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(previewPath) || previewPath === basePath) {
+    throw Error('tinto.config.mjs: previewPath must be a path such as /tinto-preview, outside basePath.')
+  }
+  return { name, site: site.origin, basePath, languages, categories, postPath, previewPath }
 }
 
 /** Files are grouped by class: tinto/<post>/<class>/<file>. @param {string} id @param {string} file */
@@ -207,4 +212,43 @@ export function readFeed(site, entries) {
       throw Error('Tinto post ' + (id || '(without id)') + ': ' + (error instanceof Error ? error.message : String(error)))
     }
   })
+}
+
+const ESCAPES = /** @type {Record<string, string>} */ ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })
+const escapeHTML = (/** @type {unknown} */ value) => String(value ?? '').replace(/[&<>"']/g, char => ESCAPES[char])
+const sizeText = (/** @type {number} */ bytes) => bytes < 1_048_576 ? Math.max(1, Math.round(bytes / 1024)) + ' KB' : (bytes / 1_048_576).toFixed(1) + ' MB'
+const EACH = /<template\s+data-tinto-each="(cover|images|tags|attachments)"\s*>([\s\S]*?)<\/template>/g
+
+/**
+ * Fills the site's preview page with a post. The page marks fields with
+ * %%title%%, %%summary%%, %%date%%, %%category%%, %%language%% and %%body%%, and
+ * repeats <template data-tinto-each="cover|images|tags|attachments"> once per
+ * item, with %%url%%, %%alt%%, %%title%%, %%type%%, %%size%% and %%tag%%.
+ * Everything is filled in one pass, so the author's text is never read as a marker.
+ * @param {string} template @param {TintoPost} post @param {TintoSettings} site
+ */
+export function renderPreview(template, post, site) {
+  const fields = {
+    title: post.title, summary: post.summary, date: post.date, language: post.language,
+    category: post.category ? site.categories?.[post.category] ?? post.category : ''
+  }
+  const lists = {
+    cover: post.cover ? [{ url: post.cover.url, alt: post.cover.alt }] : [],
+    images: post.images.map(image => ({ url: image.url, alt: image.alt })),
+    tags: post.tags.map(tag => ({ tag })),
+    attachments: post.attachments.map(item => ({ url: item.url, title: item.title, type: item.type, size: sizeText(item.size) }))
+  }
+  /** @param {string} text @param {Record<string, unknown>} values @param {boolean} body */
+  const fill = (text, values, body) => text.replace(/%%([a-z]+)%%/g, (whole, name) => {
+    if (name === 'body' && body) return post.html
+    return Object.hasOwn(values, name) ? escapeHTML(values[name]) : whole
+  })
+  let out = ''
+  let last = 0
+  for (const match of template.matchAll(EACH)) {
+    out += fill(template.slice(last, match.index), fields, true)
+    out += lists[/** @type {keyof typeof lists} */ (match[1])].map(item => fill(match[2], { ...fields, ...item }, false)).join('')
+    last = (match.index ?? 0) + match[0].length
+  }
+  return out + fill(template.slice(last), fields, true)
 }
