@@ -1,7 +1,7 @@
 .tinto-misspelling {
   text-decoration-line: underline;
   text-decoration-style: wavy;
-  text-decoration-color: light-dark(#963c46, #e4979d);
+  text-decoration-color: var(--wine);
   text-decoration-thickness: 1.3px;
   text-underline-offset: 0.21em;
 }
@@ -14,14 +14,14 @@
   max-height: calc(100vh - 8px);
   overflow: auto;
   padding: 4px;
-  border: 1px solid light-dark(#938487, #8b787e);
+  border: 1px solid var(--outline);
   border-radius: 8px;
-  background: light-dark(#fcfaf6, #292326);
-  color: light-dark(#262123, #f4edea);
+  background: var(--paper);
+  color: var(--ink);
   box-shadow: var(--shadow);
   font: 14px/1.4 system-ui, sans-serif;
 }
 
-.tinto-spelling-menu > div { padding: 4px 8px; font-size: 12px; color: light-dark(#695f60, #bdaeb1); }
+.tinto-spelling-menu > div { padding: 4px 8px; font-size: 12px; color: var(--secondary); }
 .tinto-spelling-menu button { padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; font: inherit; }
-.tinto-spelling-menu button:is(:hover, :focus-visible) { background: light-dark(#f4e5e6, #432e35); outline: 2px solid light-dark(#963c46, #e4979d); outline-offset: -2px; }
+.tinto-spelling-menu button:is(:hover, :focus-visible) { background: var(--wash); outline: 2px solid var(--wine); outline-offset: -2px; }

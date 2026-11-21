@@ -14,6 +14,8 @@ import { showPosts } from './posts-ui'
 import { showPublish } from './publish-ui'
 import { siteSettings } from './site-settings'
 import { authorSettings } from './author-settings'
+import { typographySettings } from './typography-settings'
+import { listCharacters, manuscriptCharacters, registerFontFaces } from './typography'
 import { trackWriting } from './writing-evidence'
 import { showHistory } from './history'
 import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks } from './settings'
@@ -345,6 +347,7 @@ async function loadLibrary(next: LibraryState, showHome = false) {
   const selected = saved ? (savedTab && tabs.includes(savedTab) ? savedTab : null) : tabs[0] ?? null
   await switchTab(showHome ? null : selected)
   status('Saved locally', true)
+  void checkManuscriptFont().catch(report)
 }
 async function changeFolder(action: 'choose'|'new', path?: string) {
   if (!flush()) return
@@ -460,6 +463,27 @@ async function updateLanguages() {
   const content = modal.querySelector<HTMLElement>('.settings-body')
   if (content) updateSettingsPacks(content, packs, prefs.defaultLanguage)
 }
+// The characters of every manuscript in the open project, to check a font against.
+function projectCharacters(): string | null {
+  return library.workspace ? manuscriptCharacters(library.workspace.project.documents.map(doc => doc.manuscript)) : null
+}
+// A font the writer added is checked once per project and session when the project opens.
+const fontChecks = new Set<string>()
+async function checkManuscriptFont() {
+  const workspace = library.workspace
+  if (!workspace || !prefs.font.startsWith('user:')) return
+  const key = workspace.project.id + ' ' + prefs.font
+  if (fontChecks.has(key)) return
+  fontChecks.add(key)
+  const check = await api.checkFont(prefs.font.slice(5), projectCharacters() ?? '')
+  if (!check) {
+    prefs.font = 'book'
+    applyPreferences(prefs)
+    notice('The manuscript font is no longer in Tinto, so the text uses Book serif.')
+  } else if (check.missing.length) {
+    notice('“' + check.family + '” cannot draw ' + check.missing.length + (check.missing.length === 1 ? ' character' : ' characters') + ' in this project: ' + listCharacters(check.missing) + '. They appear in a fallback font.')
+  }
+}
 function settings() {
   const body = showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
     await api.installPack(code)
@@ -473,6 +497,7 @@ function settings() {
     saveSession()
     void api.library().then(next => loadLibrary(next)).catch(report)
   })
+  typographySettings(body.querySelector<HTMLElement>('.field')!, prefs, projectCharacters)
   authorSettings(body)
   siteSettings(body)
 }
@@ -625,6 +650,7 @@ function wire() {
 }
 async function start() {
   applyPreferences(prefs)
+  registerFontFaces(await api.fonts().catch(() => []))
   wire()
   await updateLanguages()
   await loadLibrary(await api.library())

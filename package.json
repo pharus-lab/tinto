@@ -17,6 +17,7 @@
     "dictionary-en": "^4.0.0",
     "dictionary-es": "^4.0.0",
     "fflate": "^0.8.3",
+    "fontkit": "^2.0.4",
     "nspell": "^2.1.5",
     "pdfjs-dist": "^6.5.438",
     "prosemirror-commands": "^1.7.2",

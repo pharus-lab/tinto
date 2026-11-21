@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-21T20:15:22+00:00",
+  "generatedAt": "2026-11-21T20:24:43+00:00",
   "title": "Design System: Tinto",
   "extensions": {
     "colorMeta": {
@@ -400,6 +400,33 @@
         "name": "toolbar-wrap",
         "value": "460px (container)"
       }
+    ],
+    "themes": [
+      {
+        "name": "tinto",
+        "displayName": "Tinto",
+        "purpose": "Ivory paper, plum-black ink, wine accent (default)."
+      },
+      {
+        "name": "sepia",
+        "displayName": "Sepia",
+        "purpose": "Aged paper, umber ink, sienna accent."
+      },
+      {
+        "name": "newsprint",
+        "displayName": "Newsprint",
+        "purpose": "Grey stock, black ink, blue-pencil accent."
+      },
+      {
+        "name": "fountain",
+        "displayName": "Fountain pen",
+        "purpose": "White paper, blue-black ink, royal blue accent."
+      },
+      {
+        "name": "contrast",
+        "displayName": "High contrast",
+        "purpose": "White and black with a deep wine accent."
+      }
     ]
   },
   "components": [
@@ -491,7 +518,7 @@
       },
       {
         "name": "The Two Voices Rule",
-        "body": "Serif for the writing and for titles; sans for the tool. Never set a button, field or message in the serif, and never set manuscript text in the sans.",
+        "body": "The manuscript font for the writing and for titles; the system sans for the tool. Never set a button, field or message in the manuscript font. Setting the manuscript in a sans or monospace is the writer's choice, never a default.",
         "section": "typography"
       },
       {
@@ -507,7 +534,7 @@
     ],
     "dos": [
       "Do set the manuscript, dialog titles and Home headings in `var(--serif)`, and everything else in the system sans at 13px.",
-      "Do add every new color as a `light-dark()` token on `:root`, and check body and placeholder text at 4.5:1 on Paper in both appearances.",
+      "Do add every new color as a `light-dark()` token to every theme in `src/styles.css`, and check body and placeholder text at 4.5:1 on Paper in each theme and appearance.",
       "Do separate regions with `--divider` hairlines and tone, as the title bar, panel and footer already do.",
       "Do keep one primary (wine) action per dialog; the rest are outline or quiet buttons.",
       "Do show anything about the text as a paper tint behind the words, off by default when it is not part of writing."

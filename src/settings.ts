@@ -1,8 +1,11 @@
 import { button, element } from './ui'
+import { THEMES, fontStack } from './typography'
 import type { DictionaryPack } from './dictionary-packs'
 
 export interface Preferences {
   appearance: string
+  theme: string
+  font: string
   size: number
   leading: number
   textWidth: 'fixed-width' | 'fixed-margin'
@@ -13,7 +16,7 @@ export interface Preferences {
 export function preferences(): Preferences {
   const saved = JSON.parse(localStorage.getItem('reading') ?? '{}')
   return {
-    appearance: 'system', size: 21, leading: 1.72, defaultLanguage: 'en',
+    appearance: 'system', theme: 'tinto', font: 'book', size: 21, leading: 1.72, defaultLanguage: 'en',
     columnWidth: 680, sideMargin: 48, ...saved,
     textWidth: saved?.textWidth === 'fixed-width' ? 'fixed-width' : 'fixed-margin'
   }
@@ -21,6 +24,8 @@ export function preferences(): Preferences {
 export function applyPreferences(prefs: Preferences) {
   const style = document.documentElement.style
   style.colorScheme = prefs.appearance === 'system' ? 'light dark' : prefs.appearance
+  document.documentElement.dataset.theme = THEMES.some(([id]) => id === prefs.theme) ? prefs.theme : 'tinto'
+  style.setProperty('--serif', fontStack(prefs.font))
   style.setProperty('--size', prefs.size + 'px')
   style.setProperty('--leading', String(prefs.leading))
   document.documentElement.dataset.textWidth = prefs.textWidth

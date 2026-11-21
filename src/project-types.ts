@@ -103,5 +103,8 @@ export interface AuthorSummary { name: string; did: string }
 export interface CharacterCounts { written: number; pasted: number; imported: number; ai: number }
 // What the Publish dialog shows about a post's authorship before it is signed.
 export interface AuthorshipPreview { author: AuthorSummary | null; characters: CharacterCounts; typed: number; activeMinutes: number; intact: boolean }
+// A font the writer added for the manuscript: one family, one file per style.
+export interface FontFaceFile { file: string; weight: string; style: 'normal' | 'italic'; name: string }
+export interface ManuscriptFont { id: string; family: string; faces: FontFaceFile[] }
 // A website added in Settings. Its API key stays in the main process.
 export interface SiteSummary { id: string; name: string; endpoint: string; categories: SiteCategory[] }

@@ -38,6 +38,7 @@ Tinto is a local manuscript editor that keeps a writer's undecided wordings, dra
 - **Structure.** Linked sections by heading, and moving documents between projects.
 - **Revision.** Drafts reviewed paragraph by paragraph against their source. Version history keeps automatic versions every five minutes of changes, retained for 30 days, and named versions, retained until deleted.
 - **Formatting.** Bold, italic and the author's underline.
+- **Typography.** Five themes (Tinto, Sepia, Newsprint, Fountain pen and High contrast), each in light and dark. The manuscript font can be a font on the computer or a font the writer adds. An added font is checked against every character in the project, and Tinto names any it cannot draw.
 - **Exchange.** Import from TXT, DOCX and text-based PDF. Export to DOCX and PDF with the chosen wording.
 - **Spelling.** English and Spanish built in, with more dictionaries downloadable.
 

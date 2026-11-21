@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { listPacks, readPack, installPack } from './dictionary-packs'
 import { registerBackups } from './backup-window'
 import { registerPublishing } from './publish-window'
+import { registerFonts } from './font-window'
+import { FONT_TYPES, FontLibrary } from './fonts'
 import { pickInputFile, exportFile } from './file-dialogs'
 import type { ExportFormat } from './exchange'
 import type { Manuscript } from './model'
@@ -20,6 +22,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'tinto', privileges: { standard:
 const entry = 'tinto://app/index.html'
 let library: ProjectLibrary
 let window: BrowserWindow | null = null
+let fonts: FontLibrary
 
 function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   if (event.senderFrame?.url !== entry || event.sender !== window?.webContents) throw Error('Unknown editor window.')
@@ -161,9 +164,16 @@ function showWindow() {
 }
 
 if (primaryWindow) app.whenReady().then(async () => {
+  fonts = new FontLibrary(join(app.getPath('userData'), 'fonts'))
   protocol.handle('tinto', async request => {
     const url = new URL(request.url)
     const path = url.pathname.slice(1)
+    // Manuscript fonts the writer added, by the content name Tinto gave them.
+    const font = url.host === 'app' && /^fonts\/([0-9a-f]{32}\.(ttf|otf|woff|woff2))$/.exec(path)
+    if (font) {
+      const bytes = await fonts.bytes(font[1])
+      return bytes ? new Response(bytes as Uint8Array<ArrayBuffer>, { headers: { 'Content-Type': FONT_TYPES[font[2]], 'Cache-Control': 'max-age=31536000, immutable' } }) : new Response(null, { status: 404 })
+    }
     const mime: Record<string, string> = { html: 'text/html', css: 'text/css', js: 'application/javascript', mjs: 'application/javascript', aff: 'text/plain', dic: 'text/plain' }
     if (url.host !== 'app' || !/^(index\.html|app\.js|pdf(?:\.worker)?\.mjs|(?:styles|spelling|draft)\.css|dictionaries\/(en|es)\.(aff|dic))$/.test(path)) return new Response(null, { status: 404 })
     const bytes = await readFile(join(__dirname, path))
@@ -173,6 +183,7 @@ if (primaryWindow) app.whenReady().then(async () => {
   const updateBackupPath = registerBackups({ window: () => window!, project: () => library.activeProject, open: path => library.open(path), trusted })
   const publishing = registerPublishing({ window: () => window!, project: () => library.activeProject, trusted })
   registerProjectActions(updateBackupPath, publishing.idle)
+  registerFonts({ window: () => window!, trusted }, fonts)
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }

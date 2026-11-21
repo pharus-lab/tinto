@@ -1,4 +1,4 @@
-import type { AuthorSummary, AuthorshipPreview, DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, FilePick, PickedFile, PostOverview, PostState, PublishRequest, SiteSummary } from './project-types'
+import type { AuthorSummary, AuthorshipPreview, ManuscriptFont, DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, FilePick, PickedFile, PostOverview, PostState, PublishRequest, SiteSummary } from './project-types'
 
 import type { DictionaryPack } from './dictionary-packs'
 import type { DictionaryData } from './spelling'
@@ -26,6 +26,10 @@ export interface Desktop {
   importAuthor(passphrase: string): Promise<AuthorSummary | null>
   authorship(documentId: string, headingId: string | null): Promise<AuthorshipPreview>
   recordWriting(path: string, projectId: string, documentId: string, kind: 'typing' | 'paste' | 'import', sample: WritingSample): void
+  fonts(): Promise<ManuscriptFont[]>
+  addFonts(characters: string): Promise<{ fonts: ManuscriptFont[]; added: string[] } | null>
+  checkFont(id: string, characters: string): Promise<{ family: string; missing: string[] } | null>
+  removeFont(id: string): Promise<ManuscriptFont[]>
   sites(): Promise<SiteSummary[]>
   addSite(endpoint: string, key: string): Promise<SiteSummary>
   testSite(id: string): Promise<SiteSummary>

@@ -1,5 +1,19 @@
 :root {
   color-scheme: light dark;
+  /* Depth: a soft shadow for floating surfaces, a deeper one for dialogs, and the dialog backdrop. */
+  --shadow: 0 4px 16px light-dark(#20081622, #0000004D);
+  --shadow-dialog: 0 15px 70px light-dark(#170A1026, #00000066);
+  --scrim: light-dark(#1B101C45, #00000080);
+  --size: 21px;
+  --leading: 1.72;
+  /* The book serif is the brand's; --serif is the writer's choice of manuscript font. */
+  --book-serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  --serif: var(--book-serif);
+}
+/* Themes are papers and inks. Each one sets every color for light and dark; Appearance picks the mode.
+   Show origins uses --origin (pasted and imported) and --origin-ai. */
+/* Tinto: ivory paper, wine ink (the default). */
+:root, [data-theme="tinto"] {
   --paper: light-dark(#FCFAF6, #201C1E);
   --panel: light-dark(#F2EEE9, #292326);
   --ink: light-dark(#262123, #F4EDEA);
@@ -9,16 +23,64 @@
   --wash: light-dark(#F4E5E6, #432E35);
   --divider: light-dark(#D9D1CF, #493E42);
   --outline: light-dark(#938487, #8B787E);
-  /* Show origins: a sand tint for pasted and imported text, a cool one for AI. */
   --origin: light-dark(#EEE6D6, #3D3530);
   --origin-ai: light-dark(#E2E8F1, #2C3442);
-  /* Depth: a soft shadow for floating surfaces, a deeper one for dialogs, and the dialog backdrop. */
-  --shadow: 0 4px 16px light-dark(#20081622, #0000004D);
-  --shadow-dialog: 0 15px 70px light-dark(#170A1026, #00000066);
-  --scrim: light-dark(#1B101C45, #00000080);
-  --size: 21px;
-  --leading: 1.72;
-  --serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+}
+/* Sepia: aged paper, umber ink, sienna accent. */
+[data-theme="sepia"] {
+  --paper: light-dark(#F5EDDC, #211B14);
+  --panel: light-dark(#EBE0C9, #2A231A);
+  --ink: light-dark(#33261A, #EFE4D0);
+  --secondary: light-dark(#66543F, #C2B197);
+  --wine: light-dark(#874A1F, #E0A36B);
+  --on-wine: light-dark(#FFFFFF, #24170C);
+  --wash: light-dark(#ECDCC4, #3E2F20);
+  --divider: light-dark(#D6C6AA, #4A3E2F);
+  --outline: light-dark(#8E7B62, #8E7C64);
+  --origin: light-dark(#E4D7BB, #3B3123);
+  --origin-ai: light-dark(#DCE2E6, #283140);
+}
+/* Newsprint: grey stock, black ink, an editor's blue pencil. */
+[data-theme="newsprint"] {
+  --paper: light-dark(#F3F2EF, #1B1C1E);
+  --panel: light-dark(#E8E7E3, #232427);
+  --ink: light-dark(#1C1C1C, #ECECE8);
+  --secondary: light-dark(#57564F, #B3B2AC);
+  --wine: light-dark(#1F4F82, #8DB4E8);
+  --on-wine: light-dark(#FFFFFF, #0E1A2A);
+  --wash: light-dark(#E0E6EE, #2C3440);
+  --divider: light-dark(#D1D0CB, #3C3D40);
+  --outline: light-dark(#87867F, #85868A);
+  --origin: light-dark(#E9E3CF, #36332A);
+  --origin-ai: light-dark(#DCE5F1, #263241);
+}
+/* Fountain pen: white paper, blue-black ink. */
+[data-theme="fountain"] {
+  --paper: light-dark(#FBFBF8, #161A24);
+  --panel: light-dark(#F0F1EE, #1D2230);
+  --ink: light-dark(#1B2338, #E4E9F4);
+  --secondary: light-dark(#535C6E, #A9B2C6);
+  --wine: light-dark(#2B4FA0, #93B1F2);
+  --on-wine: light-dark(#FFFFFF, #111A33);
+  --wash: light-dark(#E3E9F6, #273252);
+  --divider: light-dark(#D6D9DE, #343B4D);
+  --outline: light-dark(#878D9C, #7F889D);
+  --origin: light-dark(#F0E8D5, #38332A);
+  --origin-ai: light-dark(#ECE5F4, #302B44);
+}
+/* High contrast: white and black, for the clearest text. */
+[data-theme="contrast"] {
+  --paper: light-dark(#FFFFFF, #000000);
+  --panel: light-dark(#F2F2F2, #141414);
+  --ink: light-dark(#000000, #FFFFFF);
+  --secondary: light-dark(#3D3D3D, #D4D4D4);
+  --wine: light-dark(#8B1A2B, #FFA3AE);
+  --on-wine: light-dark(#FFFFFF, #1A0006);
+  --wash: light-dark(#F7E3E6, #3A1A20);
+  --divider: light-dark(#8F8F8F, #6B6B6B);
+  --outline: light-dark(#595959, #A6A6A6);
+  --origin: light-dark(#F2E7C6, #3A3320);
+  --origin-ai: light-dark(#DCE8F7, #1E2A3D);
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -33,7 +95,7 @@ i[data-icon] { display: inline-flex; }
 .titlebar { height: 54px; flex: none; display: flex; align-items: center; gap: 16px; background: var(--panel); box-shadow: inset 0 -1px var(--divider); padding: 0 16px; -webkit-app-region: drag; user-select: none; }
 body.mac .titlebar { padding-left: 88px; }
 .titlebar button { -webkit-app-region: no-drag; }
-.wordmark { font: italic 600 27px/1 var(--serif); letter-spacing: -1.8px; margin-right: 8px; }
+.wordmark { font: italic 600 27px/1 var(--book-serif); letter-spacing: -1.8px; margin-right: 8px; }
 .wordmark span { color: var(--wine); }
 #tabs { display: flex; height: 100%; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; gap: 3px; padding-top: 9px; }
 .tab { display: inline-flex; flex: none; max-width: 260px; color: var(--secondary); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; }
@@ -287,3 +349,16 @@ dialog.guide { width: min(760px, 94vw); }
 .show-origins .ProseMirror [data-origin=ai] { background: var(--origin-ai); }
 .publish-authorship { color: var(--secondary); }
 .author-form .field input { width: min(320px, 64%); }
+/* Theme: each sample is drawn in its own paper, ink and accent; the ring uses the current theme's. */
+.theme-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+.theme-choice { --ring: var(--wine); position: relative; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+.theme-choice input { position: absolute; inset: 0; opacity: 0; margin: 0; pointer-events: none; }
+.theme-sample { display: flex; align-items: flex-end; justify-content: space-between; height: 52px; padding: 8px 10px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 5px; }
+.theme-letters { font: 500 24px/1 var(--book-serif); }
+.theme-accent { width: 10px; height: 10px; border-radius: 50%; background: var(--wine); }
+.theme-name { font-size: 12px; color: var(--secondary); text-align: center; }
+.theme-choice:has(input:checked) .theme-sample { outline: 2px solid var(--ring); outline-offset: 2px; }
+.theme-choice:has(input:focus-visible) .theme-sample { outline: 2px solid var(--ring); outline-offset: 4px; }
+.theme-choice:has(input:checked) .theme-name { color: var(--ink); font-weight: 600; }
+.font-status { margin: 6px 0 16px; }
+@media (max-width: 580px) { .theme-picker { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

@@ -169,6 +169,19 @@ Warm, low-chroma neutrals carry everything; a single deep wine is the ink accent
 - **Origin Sand** (#EEE6D6 / #3D3530): behind pasted and imported text, only with *Show pasted and imported text* on.
 - **Origin Slate** (#E2E8F1 / #2C3442): behind AI-generated text, a cooler paper so it never reads as the writer's.
 
+### Themes
+A theme is a paper and its ink, each with a light and a dark version; Appearance (System, Light, Dark) picks between them. Every theme sets the same eleven tokens under `[data-theme]` in `src/styles.css`, and Settings shows each one as a sample drawn in its own colors.
+
+| Theme | Paper and ink | Accent |
+| --- | --- | --- |
+| **Tinto** (default) | Ivory paper, plum-black ink | Wine |
+| **Sepia** | Aged paper, umber ink | Sienna |
+| **Newsprint** | Grey stock, black ink | An editor's blue pencil |
+| **Fountain pen** | White paper, blue-black ink | Royal blue |
+| **High contrast** | White and black | Deep wine, or pale rose at night |
+
+In every theme and mode, ink is at least 7:1 on paper and panel, and secondary text and the accent are at least 4.5:1. Borders are at least 3:1, and the origin tints stay distinct from the paper. Check a new theme against the same thresholds.
+
 ### Named Rules
 **The One Ink Rule.** Wine is the only saturated color. It marks a choice, an action or a focus, never decoration, and rarely covers more than a few percent of a screen.
 
@@ -191,8 +204,13 @@ Warm, low-chroma neutrals carry everything; a single deep wine is the ink accent
 - **Body** (400, 13px, 1.45): every interface control and message.
 - **Label** (600, 13px, Pencil Grey): group labels in Settings, Home columns and panel groups.
 
+### Manuscript font
+The writer chooses the manuscript font in Settings, and it becomes `--serif` for the manuscript and the serif titles. The wordmark keeps the brand's book serif (`--book-serif`). There are two kinds of choice:
+- **Fonts on this computer:** Book serif (the default), Georgia, Palatino, Charter, System sans and Monospace.
+- **Fonts the writer adds:** TTF, OTF, WOFF or WOFF2 files, one family with its styles. Tinto reads each file and checks it against every character in the project, including wordings not chosen. It names any character the font cannot draw before adding it, and again when a project opens.
+
 ### Named Rules
-**The Two Voices Rule.** Serif for the writing and for titles; sans for the tool. Never set a button, field or message in the serif, and never set manuscript text in the sans.
+**The Two Voices Rule.** The manuscript font for the writing and for titles; the system sans for the tool. Never set a button, field or message in the manuscript font. Setting the manuscript in a sans or monospace is the writer's choice, never a default.
 
 **The Writer Sets the Measure Rule.** Size, leading and text width belong to the writer in Settings. Interface prose keeps its own measure (about 60ch in guides) and wraps with `text-wrap: pretty`.
 
@@ -261,7 +279,7 @@ In Publish, one line of Pencil Grey such as *Original · written in Tinto · sig
 
 ### Do:
 - **Do** set the manuscript, dialog titles and Home headings in `var(--serif)`, and everything else in the system sans at 13px.
-- **Do** add every new color as a `light-dark()` token on `:root`, and check body and placeholder text at 4.5:1 on Paper in both appearances.
+- **Do** add every new color as a `light-dark()` token to every theme in `src/styles.css`, and check body and placeholder text at 4.5:1 on Paper in each theme and appearance.
 - **Do** separate regions with `--divider` hairlines and tone, as the title bar, panel and footer already do.
 - **Do** keep one primary (wine) action per dialog; the rest are outline or quiet buttons.
 - **Do** show anything about the text as a paper tint behind the words, off by default when it is not part of writing.
