@@ -120,6 +120,9 @@ body.welcome :is(.location, footer, #tabs, #settings, #writing, #panel) { displa
 .project-entry[aria-current=true], .version-entry[aria-current=true] { background: var(--wash); color: var(--wine); }
 .document-list { border-left: 1px solid var(--divider); padding-left: 32px; }
 .doc-row { padding: 10px 8px; font: 500 21px var(--serif); }
+.home-menu { position: fixed; inset: auto; margin: 0; min-width: 9rem; padding: 4px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: 0 4px 16px #20081624; }
+.home-menu button { width: 100%; justify-content: flex-start; }
+.home-menu button:focus-visible { outline-offset: -2px; }
 .section-row { color: var(--secondary); margin-left: 20px; width: calc(100% - 20px); }
 dialog { max-height: 82vh; width: min(560px,90vw); border: 1px solid var(--outline); border-radius: 9px; padding: 24px; background: var(--paper); color: var(--ink); box-shadow: 0 15px 70px #170a1026; }
 dialog::backdrop { background: #1b101c45; }

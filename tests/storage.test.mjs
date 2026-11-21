@@ -59,6 +59,22 @@ test('snapshots run after five minutes of changed work, including idle time and 
   assert.equal(f.store.versions(f.doc.id).length, 1)
 })
 
+test('deleting a source preserves its drafts as documents, including after a version restore', t => {
+  const f = fixture(t)
+  const draft = f.store.createDraft(f.doc.id, null, 'Rewrite')
+  f.store.snapshot(draft.id, 'First draft')
+  f.store.snapshot(f.doc.id, 'Original')
+  f.store.save({ ...draft, title: 'Revised chapter' })
+  f.store.deleteDocument(f.doc.id)
+  f.reopen()
+  const [remaining] = f.store.read().documents
+  assert.equal(remaining.source, undefined)
+  assert.deepEqual(f.store.versions(f.doc.id), [])
+  const restored = f.store.restore(draft.id, f.store.versions(draft.id)[0].id)
+  assert.deepEqual(restored, remaining)
+  assert.equal(restored.title, 'Revised chapter')
+})
+
 test('restore recovers hidden options and preserves the later state; named history survives the 30-day cutoff', t => {
   const f = fixture(t)
   f.store.snapshot(f.doc.id, 'Opening draft')

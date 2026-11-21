@@ -40,30 +40,6 @@ export function dialogHeader(dialog: HTMLDialogElement, title: string) {
   head.append(heading, close)
   return head
 }
-export function newDocumentDialog(dialog: HTMLDialogElement, create: (title: string) => void) {
-  const form = element('form')
-  const label = element('label', 'field', 'Document title')
-  const name = element('input')
-  name.type = 'text'
-  name.required = true
-  name.autofocus = true
-  label.append(name)
-  const actions = element('div', 'dialog-actions')
-  const submit = element('button', 'primary', 'Create document')
-  submit.type = 'submit'
-  actions.append(button('Cancel', () => dialog.close(), 'outline'), submit)
-  form.append(label, actions)
-  form.onsubmit = event => {
-    event.preventDefault()
-    if (!name.value.trim()) return
-    create(name.value.trim())
-    dialog.close()
-  }
-  dialog.replaceChildren(dialogHeader(dialog, 'New document'), form)
-  dialog.showModal()
-  name.focus()
-}
-
 export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, projectPath: string | null, packs: DictionaryPack[], install: (language: string) => Promise<void>) {
   const content = element('div')
   function field<T extends string>(label: string, options: [T, string][], current: T, change: (value: T) => void) {

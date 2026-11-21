@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
 import { ProjectStore } from './storage'
@@ -116,10 +116,59 @@ export class ProjectLibrary {
     return path === this.current?.path ? this.workspace() : this.activate(path, new ProjectStore(path))
   }
 
-  openListed(item: number | string): Workspace {
+  private listedPath(item: number | string): string {
     const path = typeof item === 'number' ? this.preferences.recent[item]?.path : this.projects(this.activeFolder).find(project => project.path === item)?.path
     if (!path) throw Error('Choose a project from the current folder.')
-    return this.open(path)
+    return path
+  }
+
+  openListed(item: number | string): Workspace {
+    return this.open(this.listedPath(item))
+  }
+
+  renameProject(path: string, name: string): string {
+    this.listedPath(path)
+    const title = name.trim().replace(/\.tinto$/i, '').trim()
+    if (!title || title.includes('/') || title.includes('\0')) throw Error('Enter a project name without a slash.')
+    const destination = join(this.activeFolder, title + '.tinto')
+    const existing = lstatSync(destination, { throwIfNoEntry: false })
+    if (existing && existing.ino !== lstatSync(path).ino) throw Error('A file with that name already exists.')
+
+    const current = this.current?.path === path ? this.current : null
+    const previous = this.preferences
+    const recent = previous.recent.filter(item => item.path === path || item.path !== destination)
+      .map(item => item.path === path ? { path: destination, title } : item)
+    this.remember({ ...previous, recent })
+    if (current) this.close()
+    let moved = false
+    let store: ProjectStore | undefined
+    try {
+      renameSync(path, destination)
+      moved = true
+      store = new ProjectStore(destination)
+      store.renameProject(title)
+      if (current) this.current = { ...current, path: destination, store }
+      else store.close()
+    } catch (error) {
+      store?.close()
+      if (moved) renameSync(destination, path)
+      if (current) this.current = { ...current, store: new ProjectStore(path) }
+      this.remember(previous)
+      throw error
+    }
+    return destination
+  }
+
+  async deleteProject(path: string, trash: (path: string) => Promise<void>) {
+    this.listedPath(path)
+    const current = this.current?.path === path ? this.current : null
+    if (current) this.close()
+    try { await trash(path) }
+    catch (error) {
+      if (current) this.current = { ...current, store: new ProjectStore(path) }
+      throw error
+    }
+    this.remember({ ...this.preferences, recent: this.preferences.recent.filter(item => item.path !== path) })
   }
 
   save(path: string, id: string, doc: DocumentRecord) {

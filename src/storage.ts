@@ -55,7 +55,7 @@ export class ProjectStore {
     }
   }
 
-  static create(path: string, title: string, firstDocument: DocumentRecord, now: () => number = Date.now): ProjectStore {
+  static create(path: string, title: string, firstDocument?: DocumentRecord, now: () => number = Date.now): ProjectStore {
     // Reserve the filename before SQLite opens it. Existing projects stay intact.
     closeSync(openSync(path, 'wx', 0o600))
     try {
@@ -74,7 +74,7 @@ export class ProjectStore {
             ${DRAFT_SCHEMA}
           `)
           db.prepare('INSERT INTO project VALUES (?, ?)').run(randomUUID(), title)
-          db.prepare('INSERT INTO documents (id, content) VALUES (?, ?)').run(firstDocument.id, JSON.stringify(firstDocument))
+          if (firstDocument) db.prepare('INSERT INTO documents (id, content) VALUES (?, ?)').run(firstDocument.id, JSON.stringify(firstDocument))
         })
       } finally {
         db.close()
@@ -90,6 +90,21 @@ export class ProjectStore {
     const project = this.db.prepare('SELECT id, title FROM project').get()!
     const documents = this.db.prepare('SELECT content FROM documents ORDER BY rowid').all().map(documentFromRow)
     return { id: String(project.id), title: String(project.title), documents }
+  }
+
+  renameProject(title: string) {
+    this.db.prepare('UPDATE project SET title = ?').run(title)
+  }
+
+  deleteDocument(id: string) {
+    transaction(this.db, () => {
+      this.db.prepare(`DELETE FROM draft_baselines WHERE draft_id = ? OR draft_id IN
+        (SELECT id FROM documents WHERE json_extract(content, '$.source.documentId') = ?)`).run(id, id)
+      this.db.prepare(`UPDATE documents SET content = json_remove(content, '$.source')
+        WHERE json_extract(content, '$.source.documentId') = ?`).run(id)
+      this.db.prepare('DELETE FROM versions WHERE document_id = ?').run(id)
+      this.db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+    })
   }
 
   save(doc: DocumentRecord): void {
@@ -184,8 +199,12 @@ export class ProjectStore {
       if (!row) throw new Error('This version is no longer available.')
       const time = this.now()
       this.capture(docId, null, time)
-      this.db.prepare('UPDATE documents SET content = ?, dirty_since = ? WHERE id = ?').run(row.content, time, docId)
-      return documentFromRow(row)
+      const current = this.readDocument(docId)
+      const version = documentFromRow(row)
+      current.manuscript = version.manuscript
+      current.language = version.language
+      this.db.prepare('UPDATE documents SET content = ?, dirty_since = ? WHERE id = ?').run(JSON.stringify(current), time, docId)
+      return current
     })
   }
 

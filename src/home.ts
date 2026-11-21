@@ -1,6 +1,9 @@
 import type { LibraryState } from './project-types'
 import { visibleText } from './model'
+import { dialogHeader } from './settings'
 import { button, element } from './ui'
+
+export type HomeItem = { kind: 'project'; path: string; title: string } | { kind: 'document'; id: string; title: string }
 
 interface FolderActions {
   chooseFolder(folder?: string): void
@@ -13,6 +16,77 @@ export interface HomeActions extends FolderActions {
   createDocument(): void
   importFile(): void
   openSample(): void
+  rename(item: HomeItem): void
+  remove(item: HomeItem): void
+}
+
+function attachMenu(row: HTMLButtonElement, item: HomeItem, menu: HTMLElement, actions: HomeActions) {
+  row.setAttribute('aria-haspopup', 'menu')
+  function open(x: number, y: number) {
+    row.focus({ preventScroll: true })
+    function command(label: string, run: () => void) {
+      const entry = button(label, () => { menu.hidePopover(); run() })
+      entry.setAttribute('role', 'menuitem')
+      return entry
+    }
+    const rename = command('Rename', () => actions.rename(item))
+    const remove = command('Delete', () => actions.remove(item))
+    menu.replaceChildren(rename, remove)
+    menu.setAttribute('aria-label', 'Actions for ' + item.title)
+    menu.showPopover({ source: row })
+    menu.style.left = Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4)) + 'px'
+    menu.style.top = Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4)) + 'px'
+    rename.focus({ preventScroll: true })
+    menu.onkeydown = event => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const next = document.activeElement === rename ? remove : rename
+        next.focus()
+      }
+    }
+  }
+  row.oncontextmenu = event => { event.preventDefault(); open(event.clientX, event.clientY) }
+  row.onkeydown = event => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+    event.preventDefault()
+    const { left, bottom } = row.getBoundingClientRect()
+    open(left, bottom)
+  }
+}
+
+export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Rename' | 'Delete', kind: HomeItem['kind'], title: string, apply: (name: string) => void | Promise<void>, detail = '') {
+  const form = element('form')
+  const name = element('input')
+  if (action === 'Delete') form.append(element('p', '', detail))
+  else {
+    const label = element('label', 'field', kind === 'project' ? 'Project name' : 'Document title')
+    name.type = 'text'
+    name.required = true
+    name.value = title
+    label.append(name)
+    form.append(label)
+  }
+  const actions = element('div', 'dialog-actions')
+  const cancel = button('Cancel', () => dialog.close(), 'outline')
+  const submit = element('button', 'primary', action === 'Create' ? 'Create document' : action)
+  submit.type = 'submit'
+  actions.append(cancel, submit)
+  const error = element('p')
+  error.setAttribute('role', 'alert')
+  form.append(error, actions)
+  form.onsubmit = async event => {
+    event.preventDefault()
+    if (action !== 'Delete' && !name.value.trim()) { name.focus(); return }
+    dialog.inert = true
+    try { await apply(name.value.trim()); dialog.close() }
+    catch (problem) { error.textContent = problem instanceof Error ? problem.message : String(problem) }
+    finally { dialog.inert = false }
+  }
+  const heading = action === 'Create' ? 'New document' : action + ' ' + kind
+  dialog.replaceChildren(dialogHeader(dialog, heading), form)
+  dialog.showModal()
+  if (action === 'Delete') cancel.focus()
+  else { name.focus(); name.select() }
 }
 
 export function renderWelcome(host: HTMLElement, actions: FolderActions) {
@@ -68,25 +142,33 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   }
 
   const columns = element('div', 'home-columns')
+  const menu = element('div', 'home-menu')
+  menu.popover = 'auto'
+  menu.setAttribute('role', 'menu')
+  menu.addEventListener('focusout', event => { if (!menu.contains(event.relatedTarget as Node)) menu.hidePopover() })
+  host.onscroll = () => { if (menu.matches(':popover-open')) menu.hidePopover() }
   const projects = element('div')
   projects.append(element('h2', '', 'Projects in this folder'))
   for (const project of library.projects) {
     const row = button(project.title, () => actions.openProject(project.path), 'project-entry', 'folder')
     row.title = project.path
     row.setAttribute('aria-current', String(workspace?.path === project.path))
+    attachMenu(row, { kind: 'project', ...project }, menu, actions)
     projects.append(row)
   }
   columns.append(projects)
-  host.append(columns)
+  host.append(columns, menu)
   if (!workspace) return
 
   const list = element('div', 'document-list')
   const heading = element('div', 'doc-heading')
   heading.append(element('h2', '', workspace.project.title), button('New document', actions.createDocument, '', 'plus'))
   list.append(heading)
+  if (!workspace.project.documents.length) list.append(element('p', '', 'No documents yet.'))
   for (const doc of workspace.project.documents) {
     const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'branch' : 'book')
     if (doc.source) row.append(element('small', 'draft-label', 'Independent draft'))
+    attachMenu(row, { kind: 'document', id: doc.id, title: doc.title }, menu, actions)
     list.append(row)
     for (const block of doc.manuscript.content) {
       if (block.type !== 'heading') continue

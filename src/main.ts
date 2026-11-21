@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, shell } from 'electron'
 import { existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
@@ -10,7 +10,7 @@ import type { ExportFormat } from './exchange'
 import type { Manuscript } from './model'
 import { ProjectStore } from './storage'
 import { ProjectLibrary } from './library'
-import { newBlock, sampleManuscript } from './model'
+import { sampleManuscript } from './model'
 import type { DocumentRecord, DraftResolution } from './project-types'
 
 app.setName('Tinto')
@@ -24,7 +24,7 @@ function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   if (event.senderFrame?.url !== entry || event.sender !== window?.webContents) throw Error('Unknown editor window.')
 }
 
-function registerProjectActions() {
+function registerProjectActions(updateBackupPath: (path: string, destination?: string) => void) {
   ipcMain.handle('file:pick', event => { trusted(event); return pickInputFile(window!) })
   ipcMain.handle('file:export', (event, format: ExportFormat, title: string, doc: Manuscript) => {
     trusted(event)
@@ -70,20 +70,37 @@ function registerProjectActions() {
     return library.activate(path, ProjectStore.create(path, title, document))
   })
   ipcMain.handle('workspace', event => { trusted(event); return library.workspace() })
+  ipcMain.handle('project:rename', (event, path: string, title: string) => {
+    trusted(event)
+    const destination = library.renameProject(path, title)
+    updateBackupPath(path, destination)
+    return library.state()
+  })
+  ipcMain.handle('project:delete', async (event, path: string) => {
+    trusted(event)
+    await library.deleteProject(path, file => shell.trashItem(file))
+    updateBackupPath(path)
+    return library.state()
+  })
+  ipcMain.handle('document:delete', (event, path: string, id: string) => {
+    trusted(event)
+    if (library.activeProject?.path !== path) throw Error('Open the original project first.')
+    library.store.deleteDocument(id)
+    return library.state()
+  })
   ipcMain.handle('project:open', async (event, item?: number | string) => {
     trusted(event)
     if (item !== undefined) return library.openListed(item)
     const choice = await dialog.showOpenDialog(window!, { title: 'Open a Tinto project', defaultPath: library.activeFolder, properties: ['openFile'], filters: [{ name: 'Tinto project', extensions: ['tinto'] }] })
     return choice.canceled ? null : library.open(choice.filePaths[0])
   })
-  ipcMain.handle('project:create', async (event, language: string) => {
+  ipcMain.handle('project:create', async event => {
     trusted(event)
     const choice = await dialog.showSaveDialog(window!, { title: 'Create a Tinto project', defaultPath: join(library.activeFolder, 'Untitled.tinto'), filters: [{ name: 'Tinto project', extensions: ['tinto'] }], buttonLabel: 'Create project' })
     if (!choice.filePath || choice.canceled) return null
     const path = choice.filePath
     const title = basename(path, extname(path))
-    const document: DocumentRecord = { id: randomUUID(), title, language, manuscript: { type: 'doc', content: [newBlock()] } }
-    return library.activate(path, ProjectStore.create(path, title, document))
+    return library.activate(path, ProjectStore.create(path, title))
   })
   ipcMain.on('document:save', (event, path: string, id: string, document: DocumentRecord) => {
     try {
@@ -133,8 +150,8 @@ if (primaryWindow) app.whenReady().then(async () => {
     return new Response(bytes, { headers: { 'Content-Type': mime[extname(path).slice(1)] + '; charset=utf-8' } })
   })
   library = new ProjectLibrary(join(app.getPath('userData'), 'projects.json'))
-  registerProjectActions()
-  registerBackups({ window: () => window!, project: () => library.activeProject, open: path => library.open(path), trusted })
+  const updateBackupPath = registerBackups({ window: () => window!, project: () => library.activeProject, open: path => library.open(path), trusted })
+  registerProjectActions(updateBackupPath)
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }
