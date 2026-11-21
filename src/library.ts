@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
-import { ProjectStore } from './storage'
+import { ProjectStore, type MoveOrigin } from './storage'
 
 interface LibraryPreferences {
   folder: string | null
@@ -12,6 +12,7 @@ interface LibraryPreferences {
 export class ProjectLibrary {
   private preferences: LibraryPreferences = { folder: null, folders: [], recent: [] }
   private current: { path: string; id: string; store: ProjectStore } | null = null
+  private lastMove: { source: string; destination: string; id: string; origin: MoveOrigin } | null = null
 
   constructor(private readonly file: string) {
     if (!existsSync(file)) return
@@ -126,6 +127,25 @@ export class ProjectLibrary {
     return this.open(this.listedPath(item))
   }
 
+  moveDocument(source: string, id: string, destination: string): LibraryState {
+    if (source !== this.current?.path) throw Error('Open the original project first.')
+    if (destination === source) throw Error('Choose another project.')
+    if (typeof destination !== 'string') throw Error('Choose a project from the current folder.')
+    const origin = this.store.moveDocument(id, this.listedPath(destination))
+    this.lastMove = { source, destination, id, origin }
+    return this.state()
+  }
+
+  undoMove(): LibraryState {
+    const move = this.lastMove
+    if (!move) throw Error('There is no move to undo.')
+    const store = new ProjectStore(move.destination)
+    try { store.moveDocument(move.id, move.source, move.origin) }
+    finally { store.close() }
+    this.lastMove = null
+    return this.state()
+  }
+
   renameProject(path: string, name: string): string {
     this.listedPath(path)
     const title = name.trim().replace(/\.tinto$/i, '').trim()
@@ -156,6 +176,8 @@ export class ProjectLibrary {
       this.remember(previous)
       throw error
     }
+    if (this.lastMove?.source === path) this.lastMove.source = destination
+    if (this.lastMove?.destination === path) this.lastMove.destination = destination
     return destination
   }
 

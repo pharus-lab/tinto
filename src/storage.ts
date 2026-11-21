@@ -1,12 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, openSync, unlinkSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
+import { pathToFileURL } from 'node:url'
 import { compareDraft, forkDraft, reconcileDraft, type DraftBaseline } from './drafts'
 import type { DocumentRecord, DraftChange, DraftResolution, Project, Version } from './project-types'
 
 const APPLICATION_ID = 0x54494e54 // TINT
 const VERSION_INTERVAL = 5 * 60_000
 const RETENTION = 30 * 24 * 60 * 60_000
+export interface MoveOrigin {
+  projectId: string
+  destinationId: string
+  rowid: number
+  drafts: { id: string; source: string; baseline: string }[]
+}
 const DRAFT_SCHEMA = `
   CREATE TABLE draft_baselines (draft_id TEXT PRIMARY KEY REFERENCES documents(id), content TEXT NOT NULL);
   PRAGMA user_version = 2;
@@ -97,14 +104,50 @@ export class ProjectStore {
   }
 
   deleteDocument(id: string) {
-    transaction(this.db, () => {
-      this.db.prepare(`DELETE FROM draft_baselines WHERE draft_id = ? OR draft_id IN
-        (SELECT id FROM documents WHERE json_extract(content, '$.source.documentId') = ?)`).run(id, id)
-      this.db.prepare(`UPDATE documents SET content = json_remove(content, '$.source')
-        WHERE json_extract(content, '$.source.documentId') = ?`).run(id)
-      this.db.prepare('DELETE FROM versions WHERE document_id = ?').run(id)
-      this.db.prepare('DELETE FROM documents WHERE id = ?').run(id)
-    })
+    transaction(this.db, () => this.removeDocumentRows(id))
+  }
+
+  private removeDocumentRows(id: string) {
+    this.db.prepare(`DELETE FROM draft_baselines WHERE draft_id = ? OR draft_id IN
+      (SELECT id FROM documents WHERE json_extract(content, '$.source.documentId') = ?)`).run(id, id)
+    this.db.prepare(`UPDATE documents SET content = json_remove(content, '$.source')
+      WHERE json_extract(content, '$.source.documentId') = ?`).run(id)
+    this.db.prepare('DELETE FROM versions WHERE document_id = ?').run(id)
+    this.db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+  }
+
+  moveDocument(id: string, destination: string, undo?: MoveOrigin): MoveOrigin {
+    // Validate the destination and migrate older projects before attaching it for the move.
+    new ProjectStore(destination).close()
+    this.db.prepare('ATTACH DATABASE ? AS destination').run(pathToFileURL(destination).href + '?mode=rw')
+    try {
+      return transaction(this.db, () => {
+        const original = this.db.prepare(`SELECT d.rowid, p.id AS projectId, other.id AS destinationId
+          FROM main.documents d, main.project p, destination.project other WHERE d.id = ?`).get(id)
+        if (!original) throw Error('This document is no longer in the project.')
+        if (undo && (original.projectId !== undo.destinationId || original.destinationId !== undo.projectId)) throw Error('The project files have changed since the move.')
+        if (this.db.prepare('SELECT 1 FROM destination.documents WHERE id = ?').get(id)) throw Error('That project already contains this document.')
+        const drafts = this.db.prepare(`SELECT d.id, json_extract(d.content, '$.source') AS source, b.content AS baseline
+          FROM main.documents d JOIN main.draft_baselines b ON b.draft_id = d.id
+          WHERE d.id = ? OR json_extract(d.content, '$.source.documentId') = ?`).all(id, id)
+          .map(row => ({ id: String(row.id), source: String(row.source), baseline: String(row.baseline) }))
+        if (undo && drafts.length) throw Error('This document now has draft links in its new project. Move it from Home to review those links.')
+        let position = undo?.rowid ?? null
+        if (position !== null && this.db.prepare('SELECT 1 FROM destination.documents WHERE rowid = ?').get(position)) position = null
+        this.db.prepare(`INSERT INTO destination.documents (rowid, id, content, dirty_since)
+          SELECT ?, id, json_remove(content, '$.source'), dirty_since FROM main.documents WHERE id = ?`).run(position, id)
+        this.db.prepare(`INSERT INTO destination.versions (id, document_id, time, name, content)
+          SELECT id, document_id, time, name, content FROM main.versions WHERE document_id = ? ORDER BY rowid`).run(id)
+        this.removeDocumentRows(id)
+        for (const draft of undo?.drafts ?? []) {
+          // Restore the relationship onto the current text so later edits survive Undo.
+          const restored = this.db.prepare(`UPDATE destination.documents SET content = json_set(content, '$.source', json(?))
+            WHERE id = ? AND EXISTS (SELECT 1 FROM destination.documents WHERE id = json_extract(?, '$.documentId'))`).run(draft.source, draft.id, draft.source)
+          if (restored.changes) this.db.prepare('INSERT INTO destination.draft_baselines (draft_id, content) VALUES (?, ?)').run(draft.id, draft.baseline)
+        }
+        return { projectId: String(original.projectId), destinationId: String(original.destinationId), rowid: Number(original.rowid), drafts }
+      })
+    } finally { this.db.exec('DETACH DATABASE destination') }
   }
 
   save(doc: DocumentRecord): void {

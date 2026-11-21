@@ -1,4 +1,4 @@
-import type { LibraryState } from './project-types'
+import type { DocumentRecord, LibraryState, RecentProject } from './project-types'
 import { visibleText } from './model'
 import { dialogHeader } from './settings'
 import { button, element } from './ui'
@@ -14,6 +14,7 @@ export interface HomeActions extends FolderActions {
   openProject(path?: string): void
   createProject(): void
   createDocument(): void
+  moveDocument(doc: DocumentRecord, destination: RecentProject): void
   importFile(): void
   openSample(): void
   rename(item: HomeItem): void
@@ -54,10 +55,11 @@ function attachMenu(row: HTMLButtonElement, item: HomeItem, menu: HTMLElement, a
   }
 }
 
-export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Rename' | 'Delete', kind: HomeItem['kind'], title: string, apply: (name: string) => void | Promise<void>, detail = '') {
+export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Rename' | 'Delete' | 'Move', kind: HomeItem['kind'], title: string, apply: (name: string) => void | Promise<void>, detail = '') {
   const form = element('form')
   const name = element('input')
-  if (action === 'Delete') form.append(element('p', '', detail))
+  const confirm = action === 'Delete' || action === 'Move'
+  if (confirm) form.append(element('p', '', detail))
   else {
     const label = element('label', 'field', kind === 'project' ? 'Project name' : 'Document title')
     name.type = 'text'
@@ -76,7 +78,7 @@ export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Re
   form.append(error, actions)
   form.onsubmit = async event => {
     event.preventDefault()
-    if (action !== 'Delete' && !name.value.trim()) { name.focus(); return }
+    if (!confirm && !name.value.trim()) { name.focus(); return }
     dialog.inert = true
     try { await apply(name.value.trim()); dialog.close() }
     catch (problem) { error.textContent = problem instanceof Error ? problem.message : String(problem) }
@@ -85,7 +87,7 @@ export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Re
   const heading = action === 'Create' ? 'New document' : action + ' ' + kind
   dialog.replaceChildren(dialogHeader(dialog, heading), form)
   dialog.showModal()
-  if (action === 'Delete') cancel.focus()
+  if (confirm) cancel.focus()
   else { name.focus(); name.select() }
 }
 
@@ -148,12 +150,30 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   menu.addEventListener('focusout', event => { if (!menu.contains(event.relatedTarget as Node)) menu.hidePopover() })
   host.onscroll = () => { if (menu.matches(':popover-open')) menu.hidePopover() }
   const projects = element('div')
+  let dragged: DocumentRecord | null = null
   projects.append(element('h2', '', 'Projects in this folder'))
   for (const project of library.projects) {
     const row = button(project.title, () => actions.openProject(project.path), 'project-entry', 'folder')
     row.title = project.path
     row.setAttribute('aria-current', String(workspace?.path === project.path))
     attachMenu(row, { kind: 'project', ...project }, menu, actions)
+    if (workspace && project.path !== workspace.path) {
+      row.ondragover = event => {
+        if (!dragged) return
+        event.preventDefault()
+        event.dataTransfer!.dropEffect = 'move'
+        row.classList.add('drop-target')
+      }
+      row.ondragleave = event => {
+        if (!row.contains(event.relatedTarget as Node)) row.classList.remove('drop-target')
+      }
+      row.ondrop = event => {
+        if (!dragged) return
+        event.preventDefault()
+        row.classList.remove('drop-target')
+        actions.moveDocument(dragged, project)
+      }
+    }
     projects.append(row)
   }
   columns.append(projects)
@@ -169,6 +189,17 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
     const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'branch' : 'book')
     if (doc.source) row.append(element('small', 'draft-label', 'Independent draft'))
     attachMenu(row, { kind: 'document', id: doc.id, title: doc.title }, menu, actions)
+    row.draggable = library.projects.length > 1
+    if (row.draggable) row.title = 'Drag to another project to move this document'
+    row.ondragstart = event => {
+      dragged = doc
+      event.dataTransfer!.effectAllowed = 'move'
+      event.dataTransfer!.setData('application/x-tinto-document', doc.id)
+    }
+    row.ondragend = () => {
+      dragged = null
+      projects.querySelector('.drop-target')?.classList.remove('drop-target')
+    }
     list.append(row)
     for (const block of doc.manuscript.content) {
       if (block.type !== 'heading') continue

@@ -2,7 +2,7 @@ import { backupSettings } from './backup-settings'
 import { importFile, type ExportFormat } from './exchange'
 import { WritingEditor, type Format } from './editor'
 import { newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
-import type { DocumentRecord, LibraryState, Workspace } from './project-types'
+import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
 import type { DictionaryPack } from './dictionary-packs'
 import './desktop'
 import { loadSpelling, setSpellingLanguage, spellingPlugin } from './spelling'
@@ -36,11 +36,25 @@ let packs: DictionaryPack[] = []
 
 function record(id: string) { return library.workspace!.project.documents.find(doc => doc.id === id)! }
 function activeDocument() { return current ? record(current.documentId) : null }
-function notice(text: string) {
-  $('notice').textContent = text
-  $('notice').hidden = false
+function notice(text: string, undo?: () => Promise<void>) {
+  const banner = $('notice')
+  banner.textContent = text
+  banner.hidden = false
   clearTimeout(noticeTimer)
-  noticeTimer = setTimeout(() => { $('notice').hidden = true }, 7000)
+  function dismissLater() {
+    clearTimeout(noticeTimer)
+    if (undo && banner.matches(':hover, :focus-within')) return
+    noticeTimer = setTimeout(() => { banner.hidden = true }, 7000)
+  }
+  banner.onpointerenter = undo ? () => clearTimeout(noticeTimer) : null
+  banner.onpointerleave = undo ? dismissLater : null
+  if (undo) {
+    const action = button('Undo', () => void undo().catch(report), 'outline')
+    action.onfocus = () => clearTimeout(noticeTimer)
+    action.onblur = dismissLater
+    banner.append(action)
+  }
+  dismissLater()
 }
 function report(error: unknown) { notice(error instanceof Error ? error.message : String(error)) }
 function status(text: string, saved = false) {
@@ -206,7 +220,7 @@ async function switchTab(tab: Tab | null) {
   drawTabs()
   if (!tab) {
     renderHome($('home'), library, {
-      openDocument, createDocument, rename: renameHomeItem, remove: deleteHomeItem, importFile: () => void importDocument().catch(report),
+      openDocument, createDocument, moveDocument, rename: renameHomeItem, remove: deleteHomeItem, importFile: () => void importDocument().catch(report),
       chooseFolder: path => void changeFolder('choose', path).catch(report),
       newFolder: () => void changeFolder('new').catch(report),
       openProject: path => void changeProject('open', path).catch(report),
@@ -344,7 +358,38 @@ async function refreshHome(next: LibraryState) {
   const remaining = new Set(next.workspace.project.documents.map(doc => doc.id))
   tabs = tabs.filter(tab => remaining.has(tab.documentId))
   for (const id of editors.keys()) if (!remaining.has(id)) removeEditor(id)
-  await switchTab(null)
+  await switchTab(current && remaining.has(current.documentId) ? current : null)
+}
+
+async function undoMove() {
+  if (!flush()) return
+  document.body.inert = true
+  try {
+    await refreshHome(await api.undoMove())
+    notice('Move undone.')
+  } finally { document.body.inert = false }
+}
+
+function moveDocument(doc: DocumentRecord, destination: RecentProject) {
+  const workspace = library.workspace!
+  if (!flush()) return
+  const move = async () => {
+    document.body.inert = true
+    try {
+      const next = await api.moveDocument(workspace.path, doc.id, destination.path)
+      await refreshHome(next)
+      notice('Moved “' + doc.title + '” to “' + destination.title + '”.', undoMove)
+    } finally { document.body.inert = false }
+  }
+  const details: string[] = []
+  if (doc.source) details.push('This draft will become a standalone document.')
+  if (workspace.project.documents.some(draft => draft.source?.documentId === doc.id)) {
+    details.push('Its drafts will stay in “' + workspace.project.title + '” as standalone documents.')
+  }
+  if (details.length) {
+    const question = 'Move “' + doc.title + '” to “' + destination.title + '”? '
+    homeItemDialog(modal, 'Move', 'document', doc.title, move, question + details.join(' '))
+  } else void move().catch(report)
 }
 
 function renameHomeItem(item: HomeItem) {

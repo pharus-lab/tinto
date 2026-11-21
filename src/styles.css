@@ -94,6 +94,7 @@ footer svg { width: 14px; height: 14px; }
 #save-status, #language-label { display: inline-flex; align-items: center; gap: 6px; }
 #save-status svg { color: var(--wine); }
 #notice { position: fixed; z-index: 30; bottom: 46px; left: 20px; max-width: min(520px,85vw); padding: 12px 16px; border: 1px solid var(--outline); border-radius: 6px; background: var(--paper); box-shadow: 0 4px 16px #20081620; }
+#notice:has(button) { display: flex; align-items: center; gap: 12px; }
 #home { width: 100%; padding: 42px max(32px, calc((100% - 920px)/2)) 64px; }
 .home-heading, .doc-heading, .dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .home-heading h1, .folder-welcome h1 { font: 500 42px/1.2 var(--serif); margin: 0; letter-spacing: -1.4px; }
@@ -118,8 +119,10 @@ body.welcome :is(.location, footer, #tabs, #settings, #writing, #panel) { displa
 .project-entry, .doc-row, .section-row, .version-entry { text-align: left; width: 100%; justify-content: flex-start; }
 .project-entry { padding: 10px 12px; margin: 2px 0; }
 .project-entry[aria-current=true], .version-entry[aria-current=true] { background: var(--wash); color: var(--wine); }
+.project-entry.drop-target { background: var(--wash); outline: 2px solid var(--wine); outline-offset: -2px; }
 .document-list { border-left: 1px solid var(--divider); padding-left: 32px; }
 .doc-row { padding: 10px 8px; font: 500 21px var(--serif); }
+.doc-row[draggable=true] { cursor: grab; }
 .home-menu { position: fixed; inset: auto; margin: 0; min-width: 9rem; padding: 4px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: 0 4px 16px #20081624; }
 .home-menu button { width: 100%; justify-content: flex-start; }
 .home-menu button:focus-visible { outline-offset: -2px; }

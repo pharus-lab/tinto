@@ -88,6 +88,11 @@ function registerProjectActions(updateBackupPath: (path: string, destination?: s
     library.store.deleteDocument(id)
     return library.state()
   })
+  ipcMain.handle('document:move', (event, source: string, id: string, destination: string) => {
+    trusted(event)
+    return library.moveDocument(source, id, destination)
+  })
+  ipcMain.handle('document:undo-move', event => { trusted(event); return library.undoMove() })
   ipcMain.handle('project:open', async (event, item?: number | string) => {
     trusted(event)
     if (item !== undefined) return library.openListed(item)

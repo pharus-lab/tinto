@@ -75,6 +75,51 @@ test('deleting a source preserves its drafts as documents, including after a ver
   assert.equal(restored.title, 'Revised chapter')
 })
 
+test('moving a document preserves its history, handles ID collisions, and keeps drafts readable', t => {
+  const f = fixture(t)
+  const path = join(f.directory, 'Part #2.tinto')
+  const destination = ProjectStore.create(path, 'Part two', f.doc)
+  t.after(() => destination.close())
+  const draft = f.store.createDraft(f.doc.id, null, 'Another ending')
+  f.store.snapshot(f.doc.id, 'Before revision')
+  f.store.snapshot(f.doc.id, null)
+  const versions = f.store.versions(f.doc.id)
+  assert.throws(() => f.store.moveDocument(f.doc.id, path), /already contains/)
+  assert.deepEqual(f.store.reviewDraft(draft.id), [])
+  assert.deepEqual(f.store.versions(f.doc.id), versions)
+  destination.deleteDocument(f.doc.id)
+  const origin = f.store.moveDocument(f.doc.id, path)
+  assert.deepEqual(destination.read().documents, [f.doc])
+  assert.deepEqual(destination.versions(f.doc.id), versions)
+  assert.deepEqual(f.store.versions(f.doc.id), [])
+  const standalone = { ...draft }
+  delete standalone.source
+  assert.deepEqual(f.store.read().documents, [standalone])
+
+  const revised = { ...f.doc, title: 'New title after moving' }
+  destination.save(revised)
+  standalone.manuscript.content[1].content[0].text = 'New draft wording.'
+  f.store.save(standalone)
+  destination.moveDocument(f.doc.id, f.path, origin)
+  f.reopen()
+  assert.deepEqual(f.store.read().documents, [revised, { ...standalone, source: draft.source }])
+  assert.deepEqual(f.store.versions(f.doc.id), versions)
+  assert.equal(f.store.reviewDraft(draft.id)[0].origin, 'draft')
+  assert.deepEqual(destination.read().documents, [])
+
+  f.store.moveDocument(f.doc.id, path)
+
+  const secondDraft = destination.createDraft(f.doc.id, null, 'Shorter ending')
+  const draftOrigin = destination.moveDocument(secondDraft.id, f.path)
+  const movedDraft = f.store.read().documents[1]
+  assert.equal(movedDraft.source, undefined)
+  assert.deepEqual(movedDraft.manuscript, secondDraft.manuscript)
+  assert.deepEqual(destination.read().documents, [revised])
+  f.store.moveDocument(secondDraft.id, path, draftOrigin)
+  assert.deepEqual(destination.read().documents, [revised, secondDraft])
+  assert.deepEqual(destination.reviewDraft(secondDraft.id), [])
+})
+
 test('restore recovers hidden options and preserves the later state; named history survives the 30-day cutoff', t => {
   const f = fixture(t)
   f.store.snapshot(f.doc.id, 'Opening draft')
