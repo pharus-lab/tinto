@@ -24,6 +24,9 @@ export interface Desktop {
   testSite(id: string): Promise<SiteSummary>
   removeSite(id: string): Promise<void>
   posts(documentId: string, headingId: string | null): Promise<PostRecord[]>
+  saveModule(values: { name: string; site: string }): Promise<{ path: string; updated: boolean } | null>
+  copyText(text: string): Promise<void>
+  openCloudflare(): Promise<void>
   pickImages(multiple: boolean): Promise<PickedImage[]>
   publishPost(request: PublishRequest): Promise<PostRecord>
   unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>

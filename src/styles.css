@@ -157,3 +157,21 @@ dialog p { color: var(--secondary); }
 .alt-actions button { padding-left: 6px; padding-right: 6px; }
 .alt-empty, .path { color: var(--secondary); overflow-wrap: anywhere; }
 #editors { max-width: calc(60ch + 96px); }
+.site-form-heading { display: flex; align-items: center; gap: 6px; }
+.site-form-heading .icon-button { width: 26px; height: 26px; padding: 4px; color: var(--secondary); }
+dialog.guide { width: min(760px, 94vw); }
+.guide-steps { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 20px; padding: 0; list-style: none; counter-reset: step; font-size: 13px; color: var(--secondary); }
+.guide-steps li { counter-increment: step; }
+.guide-steps li::before { content: counter(step) '. '; }
+.guide-steps li.current { color: var(--wine); font-weight: 600; }
+.guide-heading { font-size: 18px; margin-bottom: 8px; }
+.guide-list { margin: 8px 0 16px; padding-left: 20px; color: var(--secondary); }
+.guide-list li { margin: 4px 0; }
+.guide-block { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 18px; }
+.guide-prompt { flex: 1; min-width: 0; max-height: 240px; overflow: auto; margin: 0; padding: 10px 12px; border: 1px solid var(--divider); border-radius: 5px; background: var(--panel); font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.guide-command { display: flex; align-items: center; gap: 8px; margin: 8px 0 14px; }
+.guide-command > code { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--divider); border-radius: 4px; background: var(--panel); font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.guide-command > .field { flex: 1; margin: 0; }
+.guide-command .field > input, input.guide-key { flex: 1; min-width: 0; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.guide .field > input { width: min(380px, 64%); }
+.guide-status { min-height: 1.4em; overflow-wrap: anywhere; }

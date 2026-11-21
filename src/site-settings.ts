@@ -1,4 +1,5 @@
 import type { SiteSummary } from './project-types'
+import { showSiteGuide } from './site-guide'
 import { button, element, errorMessage } from './ui'
 
 const intro = 'Publish to any website that has the Tinto blog module. Copy its publishing URL and API key from the website.'
@@ -56,7 +57,16 @@ export function siteSettings(parent: HTMLElement) {
     form.append(row)
     return input
   }
-  form.append(element('h3', 'group-label', 'Add a website'))
+  // The ? opens a guide from adding the module to a website through connecting it here.
+  const heading = element('div', 'site-form-heading')
+  const help = button('', () => showSiteGuide(async site => {
+    draw(await api.sites())
+    message.textContent = 'Connected ' + site.name + '. The website accepted the API key.'
+  }), 'icon-button', 'help')
+  help.setAttribute('aria-label', 'How to connect a website')
+  help.title = 'How to connect a website'
+  heading.append(element('h3', 'group-label', 'Add a website'), help)
+  form.append(heading)
   const endpoint = field('Publishing URL', 'endpoint', 'url')
   endpoint.placeholder = 'https://'
   const key = field('API key', 'key', 'password')

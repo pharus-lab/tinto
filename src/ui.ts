@@ -17,7 +17,8 @@ const paths: Record<string, string> = {
   check: '<path d="m5 12 4 4L19 6"/>',
   plus: '<path d="M12 4v16m-8-8h16"/>',
   page: '<path d="M6 3h9l4 4v14H6V3Zm8 0v6h5M9 13h7m-7 4h5"/>',
-  leaf: '<path d="M5 18C4 8 12 4 21 3c-1 9-4 16-14 15m-3 3L15 10"/>'
+  leaf: '<path d="M5 18C4 8 12 4 21 3c-1 9-4 16-14 15m-3 3L15 10"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5"/><path d="M12 17.2v.1"/>'
 }
 export function icon(name: string): SVGSVGElement {
   const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg')

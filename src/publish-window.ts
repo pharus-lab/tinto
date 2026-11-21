@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { rm, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { writeModule, checkModuleSite, type ModuleSite } from './module-export'
 import { Publisher, type ImageInput } from './publishing'
 import { protect, reveal } from './secure-file'
 import { SiteClient, siteId, validateConnection, type SiteConnection } from './site-api'
@@ -15,6 +16,9 @@ interface PublishContext {
   trusted(event: Electron.IpcMainInvokeEvent): void
 }
 interface SavedSite extends SiteConnection { id: string; name: string }
+// The guide opens only this address, so the renderer never chooses a URL.
+const WORKERS_DASHBOARD = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages'
+const WRANGLER_FILES = ['wrangler.jsonc', 'wrangler.json', 'wrangler.toml']
 
 export function registerPublishing(context: PublishContext) {
   // Every website's publishing URL and API key, encrypted together.
@@ -80,6 +84,32 @@ export function registerPublishing(context: PublishContext) {
     context.trusted(event)
     await publisher.idle()
     await keep((await sites()).filter(item => item.id !== id))
+  })
+  // Connect-a-website guide: writes the bundled module into the folder the writer picks.
+  ipcMain.handle('guide:save-module', async (event, values: ModuleSite) => {
+    context.trusted(event)
+    const site = checkModuleSite(values)
+    const window = context.window()
+    const choice = await dialog.showOpenDialog(window, {
+      title: 'Choose your website’s project folder', buttonLabel: 'Add module here', properties: ['openDirectory', 'createDirectory']
+    })
+    const folder = choice.filePaths[0]
+    if (choice.canceled || !folder) return null
+    const ask = async (message: string, detail: string, action: string) =>
+      (await dialog.showMessageBox(window, { type: 'question', buttons: ['Cancel', action], defaultId: 1, cancelId: 0, message, detail })).response === 1
+    if (!WRANGLER_FILES.some(file => existsSync(join(folder, file)))
+      && !await ask('This folder has no Wrangler configuration.', 'Choose the project folder of a website that deploys to Cloudflare Workers. It contains wrangler.jsonc, wrangler.json or wrangler.toml.', 'Add module anyway')) return null
+    if (existsSync(join(folder, 'tinto'))
+      && !await ask('This website already has a tinto folder.', 'Tinto replaces the module code and keeps tinto.config.mjs with your settings.', 'Update module files')) return null
+    return writeModule(folder, join(__dirname, 'cloudflare-module'), site)
+  })
+  ipcMain.handle('guide:copy', (event, text: string) => {
+    context.trusted(event)
+    clipboard.writeText(String(text).slice(0, 20_000))
+  })
+  ipcMain.handle('guide:open-dashboard', event => {
+    context.trusted(event)
+    return shell.openExternal(WORKERS_DASHBOARD)
   })
   ipcMain.handle('post:list', (event, documentId: string, headingId: string | null) => {
     context.trusted(event)
