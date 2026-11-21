@@ -1,7 +1,7 @@
 import type { DocumentRecord, LibraryState, RecentProject } from './project-types'
 import { visibleText } from './model'
 import { dialogHeader } from './settings'
-import { attachMenu, button, contextMenu, element } from './ui'
+import { attachMenu, button, contextMenu, element, errorMessage } from './ui'
 
 export type HomeItem = { kind: 'project'; path: string; title: string } | { kind: 'document'; id: string; title: string }
 
@@ -47,7 +47,7 @@ export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Re
     if (!confirm && !name.value.trim()) { name.focus(); return }
     dialog.inert = true
     try { await apply(name.value.trim()); dialog.close() }
-    catch (problem) { error.textContent = problem instanceof Error ? problem.message : String(problem) }
+    catch (problem) { error.textContent = errorMessage(problem) }
     finally { dialog.inert = false }
   }
   const heading = action === 'Create' ? 'New document' : action + ' ' + kind
@@ -151,7 +151,7 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   list.append(heading)
   if (!workspace.project.documents.length) list.append(element('p', '', 'No documents yet.'))
   for (const doc of workspace.project.documents) {
-    const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'branch' : 'book')
+    const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'draft' : 'book')
     if (doc.source) row.append(element('small', 'draft-label', 'Independent draft'))
     itemMenu(row, { kind: 'document', id: doc.id, title: doc.title })
     row.draggable = library.projects.length > 1

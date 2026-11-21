@@ -53,7 +53,7 @@ async function simulate(app) {
     shell.openExternal = async url => { state.opened.push(url) }
     globalThis.fetch = async (address, init = {}) => {
       state.requests.push([String(address), new Headers(init.headers).get('Authorization')])
-      return state.live ? Response.json({ tinto: 1, name: 'Field Notes' }) : new Response('Not found', { status: 404 })
+      return state.live ? Response.json({ tinto: 2, name: 'Field Notes', categories: [] }) : new Response('Not found', { status: 404 })
     }
   })
 }
@@ -95,7 +95,7 @@ test('the guide adds the module to a site, hands the agent its prompts, creates 
   await button('Save module to your site…').click()
   await guide.getByText('Saved in ' + join(site, 'tinto') + '.').waitFor()
   const files = (await readdir(join(site, 'tinto'))).sort()
-  assert.deepEqual(files, ['README.md', 'astro.mjs', 'shared.mjs', 'tinto.config.mjs', 'worker.mjs'])
+  assert.deepEqual(files, ['README.md', 'astro.mjs', 'files.mjs', 'shared.mjs', 'tinto.config.mjs', 'worker.mjs'])
   for (const file of files.filter(file => file !== 'tinto.config.mjs')) {
     assert.equal(await readFile(join(site, 'tinto', file), 'utf8'), await readFile(join(source, file), 'utf8'), file)
   }

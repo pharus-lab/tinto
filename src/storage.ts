@@ -29,6 +29,12 @@ const POST_SCHEMA = `
   PRAGMA user_version = 4;
 `
 
+// Records saved before drafts, categories and attachments existed get their defaults.
+function postFromRow(row: Record<string, unknown>): PostRecord {
+  const post = JSON.parse(String(row.content))
+  return { status: 'published', category: '', attachments: [], release: null, ...post }
+}
+
 function transaction<T>(db: DatabaseSync, action: () => T): T {
   db.exec('BEGIN IMMEDIATE')
   try {
@@ -242,12 +248,16 @@ export class ProjectStore {
 
   post(siteId: string, documentId: string, headingId: string | null): PostRecord | null {
     const row = this.db.prepare('SELECT content FROM posts WHERE site_id = ? AND document_id = ? AND heading_id = ?').get(siteId, documentId, headingId ?? '')
-    return row ? JSON.parse(String(row.content)) : null
+    return row ? postFromRow(row) : null
   }
 
   posts(documentId: string, headingId: string | null): PostRecord[] {
-    return this.db.prepare('SELECT content FROM posts WHERE document_id = ? AND heading_id = ? ORDER BY rowid').all(documentId, headingId ?? '')
-      .map(row => JSON.parse(String(row.content)))
+    return this.db.prepare('SELECT content FROM posts WHERE document_id = ? AND heading_id = ? ORDER BY rowid').all(documentId, headingId ?? '').map(postFromRow)
+  }
+
+  // Every post in the project, for the overview grouped by website.
+  allPosts(): PostRecord[] {
+    return this.db.prepare('SELECT content FROM posts ORDER BY rowid').all().map(postFromRow)
   }
 
   savePost(post: PostRecord): void {
@@ -268,17 +278,19 @@ export class ProjectStore {
     })
   }
 
-  private capture(docId: string, name: string | null, time: number): void {
+  private capture(docId: string, name: string | null, time: number): string {
+    const id = randomUUID()
     const result = this.db.prepare(`
       INSERT INTO versions (id, document_id, name, time, content)
       SELECT ?, id, ?, ?, content FROM documents WHERE id = ?
-    `).run(randomUUID(), name, time, docId)
+    `).run(id, name, time, docId)
     if (!result.changes) throw new Error('This document is no longer in the project.')
     this.db.prepare('UPDATE documents SET dirty_since = NULL WHERE id = ?').run(docId)
+    return id
   }
 
-  snapshot(docId: string, name: string | null): void {
-    transaction(this.db, () => this.capture(docId, name, this.now()))
+  snapshot(docId: string, name: string | null): string {
+    return transaction(this.db, () => this.capture(docId, name, this.now()))
   }
 
   restore(docId: string, versionId: string): DocumentRecord {

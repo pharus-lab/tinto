@@ -4,18 +4,19 @@ import { existsSync } from 'node:fs'
 import { rm, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { writeModule, checkModuleSite, type ModuleSite } from './module-export'
-import { Publisher, type ImageInput } from './publishing'
+import { FILE_TYPES } from '../modules/cloudflare/files.mjs'
+import { Publisher, changedSinceRelease, type AttachmentInput, type ImageInput } from './publishing'
 import { protect, reveal } from './secure-file'
 import { SiteClient, siteId, validateConnection, type SiteConnection } from './site-api'
 import { ProjectStore } from './storage'
-import type { PickedImage, PostImageChoice, PublishRequest, SiteSummary } from './project-types'
+import type { FilePick, PickedFile, PostAttachmentChoice, PostImageChoice, PostOverview, PublishRequest, SiteCategory, SiteSummary } from './project-types'
 
 interface PublishContext {
   window(): BrowserWindow
   project(): { id: string; path: string } | null
   trusted(event: Electron.IpcMainInvokeEvent): void
 }
-interface SavedSite extends SiteConnection { id: string; name: string }
+interface SavedSite extends SiteConnection { id: string; name: string; categories?: SiteCategory[] }
 // The guide opens only this address, so the renderer never chooses a URL.
 const WORKERS_DASHBOARD = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages'
 const WRANGLER_FILES = ['wrangler.jsonc', 'wrangler.json', 'wrangler.toml']
@@ -39,7 +40,7 @@ export function registerPublishing(context: PublishContext) {
     if (!found) throw Error('This website is no longer in Tinto. Add it again in Settings.')
     return found
   }
-  const summary = ({ id, name, endpoint }: SavedSite): SiteSummary => ({ id, name, endpoint })
+  const summary = ({ id, name, endpoint, categories }: SavedSite): SiteSummary => ({ id, name, endpoint, categories: categories ?? [] })
   const publisher = new Publisher(async id => new SiteClient(await site(id)))
   // The renderer refers to chosen images by token; it never supplies a path.
   const picked = new Map<string, { path: string; name: string }>()
@@ -51,11 +52,16 @@ export function registerPublishing(context: PublishContext) {
     const store = new ProjectStore(active.path)
     try { return await task(store) } finally { store.close() }
   }
+  function chosen(token: string) {
+    const file = picked.get(token)
+    if (!file) throw Error('Choose the file again.')
+    return file
+  }
   function image(choice: PostImageChoice): ImageInput {
-    if ('file' in choice) return { alt: choice.alt, file: String(choice.file) }
-    const file = picked.get(choice.token)
-    if (!file) throw Error('Choose the image again.')
-    return { alt: choice.alt, ...file }
+    return 'file' in choice ? { alt: choice.alt, file: String(choice.file) } : { alt: choice.alt, ...chosen(choice.token) }
+  }
+  function attachment(choice: PostAttachmentChoice): AttachmentInput {
+    return 'file' in choice ? { title: choice.title, file: String(choice.file) } : { title: choice.title, ...chosen(choice.token) }
   }
 
   ipcMain.handle('sites:list', async event => {
@@ -66,8 +72,8 @@ export function registerPublishing(context: PublishContext) {
   ipcMain.handle('sites:add', async (event, endpoint: string, key: string) => {
     context.trusted(event)
     const connection = validateConnection({ endpoint, key })
-    const { name } = await new SiteClient(connection).info()
-    const entry: SavedSite = { id: siteId(connection.endpoint), name, ...connection }
+    const { name, categories } = await new SiteClient(connection).info()
+    const entry: SavedSite = { id: siteId(connection.endpoint), name, categories, ...connection }
     await publisher.idle()
     const current = await sites()
     await keep(current.some(item => item.id === entry.id) ? current.map(item => item.id === entry.id ? entry : item) : [...current, entry])
@@ -76,9 +82,9 @@ export function registerPublishing(context: PublishContext) {
   ipcMain.handle('sites:test', async (event, id: string) => {
     context.trusted(event)
     const entry = await site(id)
-    const { name } = await new SiteClient(entry).info()
-    if (name !== entry.name) await keep((await sites()).map(item => item.id === id ? { ...item, name } : item))
-    return summary({ ...entry, name })
+    const { name, categories } = await new SiteClient(entry).info()
+    await keep((await sites()).map(item => item.id === id ? { ...item, name, categories } : item))
+    return summary({ ...entry, name, categories })
   })
   ipcMain.handle('sites:remove', async (event, id: string) => {
     context.trusted(event)
@@ -113,14 +119,32 @@ export function registerPublishing(context: PublishContext) {
   })
   ipcMain.handle('post:list', (event, documentId: string, headingId: string | null) => {
     context.trusted(event)
-    return withProject(async store => store.posts(documentId, headingId))
+    return withProject(async store => store.posts(documentId, headingId).map(post => ({ ...post, changed: changedSinceRelease(store, post) })))
   })
-  ipcMain.handle('post:pick-images', async (event, multiple: boolean): Promise<PickedImage[]> => {
+  // Every post in the project, with its document and website, for the Posts overview.
+  ipcMain.handle('post:all', async event => {
     context.trusted(event)
+    const names = new Map((await sites()).map(item => [item.id, item.name]))
+    return withProject(async store => {
+      const titles = new Map(store.read().documents.map(doc => [doc.id, doc.title]))
+      return store.allPosts().map((post): PostOverview => ({
+        ...post, changed: changedSinceRelease(store, post), documentTitle: titles.get(post.documentId) ?? '', siteName: names.get(post.siteId) ?? null
+      }))
+    })
+  })
+  ipcMain.handle('post:pick-files', async (event, kind: FilePick): Promise<PickedFile[]> => {
+    context.trusted(event)
+    const images = Object.keys(FILE_TYPES).filter(ext => FILE_TYPES[ext].class === 'images')
+    const others = Object.keys(FILE_TYPES).filter(ext => FILE_TYPES[ext].class !== 'images')
+    const options = {
+      cover: { title: 'Choose a cover image', buttonLabel: 'Choose image', multiple: false, filter: { name: 'Images', extensions: [...images, 'jpeg'] } },
+      gallery: { title: 'Add images to the post', buttonLabel: 'Add images', multiple: true, filter: { name: 'Images', extensions: [...images, 'jpeg'] } },
+      attachments: { title: 'Attach files to the post', buttonLabel: 'Attach', multiple: true, filter: { name: 'Documents, audio, video and downloads', extensions: others } }
+    }[kind]
+    if (!options) throw Error('Choose the kind of file first.')
     const result = await dialog.showOpenDialog(context.window(), {
-      title: multiple ? 'Add images to the post' : 'Choose a cover image', buttonLabel: multiple ? 'Add images' : 'Choose image',
-      properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif'] }]
+      title: options.title, buttonLabel: options.buttonLabel,
+      properties: options.multiple ? ['openFile', 'multiSelections'] : ['openFile'], filters: [options.filter]
     })
     if (result.canceled) return []
     return Promise.all(result.filePaths.map(async path => {
@@ -132,17 +156,24 @@ export function registerPublishing(context: PublishContext) {
   })
   ipcMain.handle('post:publish', async (event, request: PublishRequest) => {
     context.trusted(event)
-    const choices = [...(request.cover ? [request.cover] : []), ...request.images]
+    const choices = [...(request.cover ? [request.cover] : []), ...request.images, ...request.attachments]
+    const target = await site(String(request.siteId))
     const input = {
-      siteId: String(request.siteId), documentId: request.documentId, headingId: request.headingId, fields: request.fields,
-      cover: request.cover ? image(request.cover) : null, images: request.images.map(image)
+      siteId: target.id, siteName: target.name, documentId: request.documentId, headingId: request.headingId,
+      status: request.status === 'draft' ? 'draft' as const : 'published' as const, fields: request.fields,
+      cover: request.cover ? image(request.cover) : null, images: request.images.map(image), attachments: request.attachments.map(attachment)
     }
-    const post = await withProject(store => publisher.publish(store, input))
+    // Upload progress goes to the window that asked, as files finish.
+    const progress = (done: number, total: number) => { if (!event.sender.isDestroyed()) event.sender.send('post:progress', done, total) }
+    const post = await withProject(store => publisher.publish(store, input, progress))
     for (const choice of choices) if ('token' in choice) picked.delete(choice.token)
-    return post
+    return { ...post, changed: false }
   })
   ipcMain.handle('post:unpublish', (event, siteId: string, documentId: string, headingId: string | null) => {
     context.trusted(event)
     return withProject(store => publisher.unpublish(store, siteId, documentId, headingId))
   })
+  // Moving or deleting a document waits for publications in progress, so their
+  // records reach the project before the document leaves it.
+  return { idle: () => publisher.idle() }
 }

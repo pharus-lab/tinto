@@ -11,6 +11,8 @@ const paths: Record<string, string> = {
   settings: '<path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',
   underline: '<path d="M6 4v6a6 6 0 0 0 12 0V4M4 21h16"/>',
   branch: '<circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10m0-3c0-5 12 1 12-5"/>',
+  // A sheet with a pencil: a working copy of a document, distinct from the branch of alternatives.
+  draft: '<path d="M12 21H5V3h8l5 5v4"/><path d="M13 3v5h5"/><path d="m14 20 6-6 2 2-6 6h-2z"/>',
   pencil: '<path d="m15 5 4 4M4 20l4.5-1L20 7.5a2.8 2.8 0 0 0-4-4L4.8 15Z"/>',
   undo: '<path d="M4 6v6h6M4 12l3-3c5-5 13-2 13 6v2"/>',
   redo: '<path d="M20 6v6h-6m6 0-3-3C12 4 4 7 4 15v2"/>',
@@ -70,9 +72,15 @@ export function attachMenu(row: HTMLButtonElement, menu: HTMLElement, title: str
     menu.showPopover({ source: row })
     menu.style.left = Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4)) + 'px'
     menu.style.top = Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4)) + 'px'
-    const container = menu.parentElement!
-    const scrollTop = container.scrollTop
-    container.onscroll = () => { if (container.scrollTop !== scrollTop && menu.matches(':popover-open')) menu.hidePopover() }
+    // Scrolling any ancestor moves the row away from the menu, so it closes.
+    const close = (event: Event) => { if (!menu.contains(event.target as Node) && menu.matches(':popover-open')) menu.hidePopover() }
+    const closed = (event: Event) => {
+      if ((event as ToggleEvent).newState !== 'closed') return
+      removeEventListener('scroll', close, { capture: true })
+      menu.removeEventListener('toggle', closed)
+    }
+    addEventListener('scroll', close, { capture: true })
+    menu.addEventListener('toggle', closed)
     entries[0].focus({ preventScroll: true })
     menu.onkeydown = event => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

@@ -125,7 +125,7 @@ test('published post records move with their document and go when it is deleted'
   const f = fixture(t)
   const post = {
     id: 'post-1', siteId: 'site-a', documentId: f.doc.id, headingId: null, title: 'The kitchen', slug: 'the-kitchen', summary: '', date: '2026-11-21', tags: [],
-    language: 'en', cover: null, images: [], url: null, publishedAt: 1
+    language: 'en', status: 'published', category: '', cover: null, images: [], attachments: [], url: null, publishedAt: 1, release: null
   }
   f.store.savePost(post)
   const path = join(f.directory, 'Elsewhere.tinto')
@@ -185,14 +185,17 @@ test('a version 2 project gains per-website post records that survive restore, r
     language: 'en', cover: null, images: [], url: null, publishedAt: 1
   }
   const elsewhere = { ...post, id: 'post-2', siteId: 'site-b', url: 'https://example.org/the-kitchen' }
+  // Records saved before drafts, categories, attachments and releases read back with defaults.
+  const read = record => ({ status: 'published', category: '', attachments: [], release: null, ...record })
   f.store.snapshot(f.doc.id, 'Before publishing')
   f.store.savePost(post)
   f.store.savePost({ ...post, title: 'Updated' })
   f.store.savePost(elsewhere)
   f.store.restore(f.doc.id, f.store.versions(f.doc.id)[0].id)
   f.reopen()
-  assert.deepEqual(f.store.post('site-a', f.doc.id, 'the-kitchen'), { ...post, title: 'Updated' })
-  assert.deepEqual(f.store.posts(f.doc.id, 'the-kitchen'), [{ ...post, title: 'Updated' }, elsewhere])
+  assert.deepEqual(f.store.post('site-a', f.doc.id, 'the-kitchen'), read({ ...post, title: 'Updated' }))
+  assert.deepEqual(f.store.posts(f.doc.id, 'the-kitchen'), [read({ ...post, title: 'Updated' }), read(elsewhere)])
+  assert.deepEqual(f.store.allPosts(), [read({ ...post, title: 'Updated' }), read(elsewhere)])
   assert.equal(f.store.post('site-a', f.doc.id, null), null)
   assert.throws(() => f.store.savePost({ ...post, id: 'post-3' }), /UNIQUE/)
   const copy = join(f.directory, 'copy.tinto')
@@ -200,7 +203,7 @@ test('a version 2 project gains per-website post records that survive restore, r
   ProjectStore.verifyBackup(copy, id)
   f.store.deletePost(post.id)
   assert.equal(f.store.post('site-a', f.doc.id, 'the-kitchen'), null)
-  assert.deepEqual(f.store.posts(f.doc.id, 'the-kitchen'), [elsewhere])
+  assert.deepEqual(f.store.posts(f.doc.id, 'the-kitchen'), [read(elsewhere)])
 })
 
 test('a version 3 project from the single-site builds gets the per-website post table', t => {

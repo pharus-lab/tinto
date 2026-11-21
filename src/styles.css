@@ -257,3 +257,16 @@ dialog.guide { width: min(760px, 94vw); }
 .guide-command .field > input, input.guide-key { flex: 1; min-width: 0; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .guide .field > input { width: min(380px, 64%); }
 .guide-status { min-height: 1.4em; overflow-wrap: anywhere; }
+.publish-form .dialog-actions { flex-wrap: wrap; }
+.publish-all { margin-right: auto; }
+.post-files-note { font-size: 13px; margin: 2px 0 8px; }
+.posts-overview { display: grid; gap: 18px; }
+.posts-site h3 { font-size: 18px; margin-bottom: 4px; }
+.posts-site h4 { margin: 10px 0 2px; }
+.posts-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.posts-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--divider); }
+.posts-entry .path { grid-column: 1 / -1; font-size: 13px; }
+.posts-title { justify-self: start; padding: 0; font-weight: 600; text-align: left; }
+.posts-state { font-size: 13px; color: var(--secondary); }
+.posts-state.draft { font-style: italic; }
+.posts-state.changed { color: var(--wine); font-weight: 600; }

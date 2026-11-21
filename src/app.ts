@@ -10,11 +10,12 @@ import { loadSpelling, setSpellingLanguage, spellingPlugin } from './spelling'
 import { renderAlternatives } from './alternatives'
 import { showDraftReview, createDraftDialog } from './draft-ui'
 import { homeItemDialog, renderHome, type HomeItem } from './home'
+import { showPosts } from './posts-ui'
 import { showPublish } from './publish-ui'
 import { siteSettings } from './site-settings'
 import { showHistory } from './history'
 import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks } from './settings'
-import { $, button, element, icon } from './ui'
+import { $, button, element, errorMessage, icon } from './ui'
 
 interface Tab { documentId: string; headingId: string | null; scroll: number; review: string | null }
 interface Session { tabs: Tab[]; current: number; panel: boolean }
@@ -61,7 +62,7 @@ function notice(text: string, undo?: () => Promise<void>) {
   }
   dismissLater()
 }
-function report(error: unknown) { notice(error instanceof Error ? error.message : String(error)) }
+function report(error: unknown) { notice(errorMessage(error)) }
 function status(text: string, saved = false) {
   $('save-status').textContent = text
   if (saved) $('save-status').prepend(icon('check'))
@@ -281,7 +282,7 @@ async function switchTab(tab: Tab | null) {
     if (!group || group.closest('[aria-hidden=true]')) tab.review = null
     if (![...language.options].some(option => option.value === doc.language)) language.add(new Option(doc.language + ' (dictionary needed)', doc.language))
     language.value = doc.language
-    $('draft-action').replaceChildren(icon('branch'), document.createTextNode(doc.source ? 'Review draft' : 'Create draft'))
+    $('draft-action').replaceChildren(icon('draft'), document.createTextNode(doc.source ? 'Review draft' : 'Create draft'))
     scroll.scrollTop = tab.scroll
     updateToolbar()
   }
@@ -323,9 +324,13 @@ async function loadLibrary(next: LibraryState, showHome = false) {
   }
   const doc = workspace.project.documents[0]
   const saved: Session | null = JSON.parse(localStorage.getItem('tabs:' + workspace.project.id) ?? 'null')
+  // Documents may have left the project while it was closed, so the saved tab
+  // is found before filtering rather than by its old position.
+  const savedTab = saved?.tabs[saved.current] ?? null
   tabs = saved?.tabs.filter(item => workspace.project.documents.some(doc => doc.id === item.documentId)) ?? (doc ? [{ documentId: doc.id, headingId: null, scroll: 0, review: SAMPLE_SENTENCE }] : [])
   panelOpen = saved?.panel ?? true
-  const selected = tabs[saved ? saved.current : 0] ?? null
+  // A position outside the saved list means Home was showing.
+  const selected = saved ? (savedTab && tabs.includes(savedTab) ? savedTab : null) : tabs[0] ?? null
   await switchTab(showHome ? null : selected)
   status('Saved locally', true)
 }
@@ -414,12 +419,16 @@ function renameHomeItem(item: HomeItem) {
   })
 }
 
-function deleteHomeItem(item: HomeItem) {
+async function deleteHomeItem(item: HomeItem) {
   if (!flush()) return
   let detail = 'Move “' + item.title + '” and all its documents to the Trash?'
   if (item.kind === 'document') {
     detail = 'Permanently delete “' + item.title + '” and its version history?'
     if (library.workspace!.project.documents.some(doc => doc.source?.documentId === item.id)) detail += ' Its drafts will stay in the project as standalone documents.'
+    // Posts stay on their websites, and Tinto could no longer update or remove them.
+    const posts = (await api.allPosts().catch(() => [])).filter(post => post.documentId === item.id)
+    const sites = [...new Set(posts.map(post => post.siteName ?? 'a removed website'))]
+    if (posts.length) detail += ' It is posted on ' + sites.join(', ') + '. Those posts stay online and Tinto can no longer update or remove them, so unpublish them first from Publish if they should go.'
   }
   homeItemDialog(modal, 'Delete', item.kind, item.title, async () => {
     const next = item.kind === 'project' ? await api.deleteProject(item.path) : await api.deleteDocument(library.workspace!.path, item.id)
@@ -496,7 +505,10 @@ function publishDialog() {
   if (!doc || !current || !flush()) return
   const languageName = [...language.options].find(option => option.value === doc.language)?.text ?? doc.language
   const title = current.headingId ? label(current) : doc.title
-  void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, settings, notice).catch(report)
+  void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, settings, notice, postsDialog).catch(report)
+}
+function postsDialog() {
+  void showPosts(modal, (id, headingId) => openDocument(id, headingId ?? undefined)).catch(report)
 }
 
 function removeEditor(id: string) {

@@ -190,6 +190,7 @@ export class ProjectLibrary {
       if (current) this.current = { ...current, store: new ProjectStore(path) }
       throw error
     }
+    if (this.lastMove?.source === path || this.lastMove?.destination === path) this.lastMove = null
     this.remember({ ...this.preferences, recent: this.preferences.recent.filter(item => item.path !== path) })
   }
 

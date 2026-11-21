@@ -3,7 +3,7 @@
 // so the build needs no Cloudflare credentials. Set TINTO_FEED to read another
 // address, such as a local `wrangler dev`.
 
-import { readFeed, settings } from './shared.mjs'
+import { PROTOCOL, readFeed, settings } from './shared.mjs'
 
 /**
  * @param {import('./shared.mjs').TintoConfig} config
@@ -33,10 +33,16 @@ export function tintoPosts(config) {
       }
       if (!response.ok) return unavailable('returned HTTP ' + response.status)
       const body = await response.json().catch(() => null)
-      if (body?.tinto !== 1 || !Array.isArray(body.posts)) return unavailable('did not return a Tinto feed')
-      const posts = readFeed(site, body.posts)
+      if (typeof body?.tinto === 'number' && body.tinto > PROTOCOL) return unavailable('uses Tinto blog protocol ' + body.tinto + ', but this copy of the module uses ' + PROTOCOL + '. Update the module and deploy')
+      if (typeof body?.tinto !== 'number' || body.tinto < 1 || !Array.isArray(body.posts)) return unavailable('did not return a Tinto feed')
+      // The build that deploys a module update still reads the live site's older
+      // feed. Its posts have no category, so they are read as they are.
+      const older = body.tinto < PROTOCOL
+      if (older) logger.warn('The live site still runs Tinto blog protocol ' + body.tinto + '. This build reads its posts as they are; publishing them again from Tinto gives them the newer fields.')
+      const posts = readFeed(older ? { ...site, categories: null } : site, body.posts)
       store.clear()
-      for (const post of posts) store.set({ id: post.locale + '/' + post.slug, data: post, digest: generateDigest(post) })
+      // The same address can exist in different categories.
+      for (const post of posts) store.set({ id: [post.locale, post.category, post.slug].filter(Boolean).join('/'), data: post, digest: generateDigest(post) })
       const counts = Object.entries(Object.groupBy(posts, post => post.locale)).map(([locale, list]) => locale + ' ' + (list?.length ?? 0))
       logger.info('Loaded ' + posts.length + ' Tinto post' + (posts.length === 1 ? '' : 's') + (counts.length ? ' (' + counts.join(', ') + ')' : '') + '.')
     }

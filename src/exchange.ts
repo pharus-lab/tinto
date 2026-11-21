@@ -118,7 +118,9 @@ function readDocx(bytes: Uint8Array): ImportedFile {
       if (enabled(property('i'))) marks.push({ type: 'em' })
       const highlight = property('highlight')
       const oldHighlight = highlight ? enabled(highlight) : attr(property('shd'), 'fill').toUpperCase() === 'F2D88F'
-      if (enabled(property('u')) || oldHighlight) marks.push({ type: 'highlight' })
+      // Inside a link, only an underline set on the run itself is the author's.
+      const linked = run.parentElement?.localName === 'hyperlink' || attr(child(rpr, 'rStyle'), 'val') === 'Hyperlink'
+      if (enabled(linked ? child(rpr, 'u') : property('u')) || oldHighlight) marks.push({ type: 'highlight' })
       for (const node of run.children) {
         if (node.localName === 'br' || node.localName === 'cr') { block = newBlock(); blocks.push(block); continue }
         const text = node.localName === 'tab' ? '\t' : node.localName === 't' ? node.textContent : ''

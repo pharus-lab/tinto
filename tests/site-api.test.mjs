@@ -6,12 +6,15 @@ import test from 'node:test'
 import { build } from 'esbuild'
 
 const bundle = await build({ stdin: { contents: "export * from './src/site-api'; export * from './src/publishing'; export * from './src/storage'; export * from './src/model'; export { postHTML } from './src/exchange'", resolveDir: process.cwd() }, platform: 'node', format: 'esm', bundle: true, write: false })
-const { SiteClient, Publisher, ProjectStore, postHTML, postId, sampleManuscript, siteId, validateConnection } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
+const { SiteClient, Publisher, ProjectStore, changedSinceRelease, postHTML, postId, sampleManuscript, siteId, validateConnection } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
 
 const endpoint = 'https://example.com/tinto'
 const key = 'site-key-with-enough-characters'
 const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('cover pixels')])
 const jpeg = Buffer.concat([Buffer.from('ffd8ffe0', 'hex'), Buffer.from('gallery pixels')])
+const pdf = Buffer.from('%PDF-1.7\nfield notes\n%%EOF')
+const mp3 = Buffer.concat([Buffer.from('ID3'), Buffer.from([3, 0, 0, 0, 0, 0, 0]), Buffer.from('rain on the window')])
+const csv = Buffer.from('date,rain\n2026-11-21,12\n')
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 test('a website is added with an https publishing URL and its complete API key', () => {
@@ -36,27 +39,30 @@ test('every request carries the key to the publishing URL only and refuses redir
   t.mock.method(globalThis, 'fetch', async (address, request) => {
     const headers = request.headers
     requests.push({ url: String(address), method: request.method, auth: headers.get('Authorization'), accept: headers.get('Accept'), type: headers.get('Content-Type'), redirect: request.redirect, body: request.body })
-    if (request.method === 'GET') return Response.json({ tinto: 1, name: ' Field\nnotes ' })
+    if (request.method === 'GET') return Response.json({ tinto: 2, name: ' Field\nnotes ', categories: [{ id: 'notes', label: 'Notes' }, { id: 'Bad Id', label: 'Dropped' }, { id: 'blog', label: '' }] })
     if (request.method === 'DELETE') return Response.json({ error: 'Not found' }, { status: 404 })
-    if (String(address).includes('/images/')) return new Response(null, { status: 201 })
+    if (String(address).includes('/files/')) return new Response(null, { status: 201 })
     return Response.json({ url: requests.length === 3 ? 'https://example.com/en/first-light' : 'javascript:alert(1)' })
   })
   const site = new SiteClient({ endpoint, key })
-  assert.deepEqual(await site.info(), { name: 'Field notes' })
-  await site.putImage('post-1', 'abc.png', png, 'image/png')
-  const post = { slug: 'first-light', language: 'en', title: 'First light', summary: '', date: '2026-11-21', tags: [], html: '<p>Hi</p>', cover: null, images: [], updatedAt: '2026-11-21T00:00:00.000Z' }
+  assert.deepEqual(await site.info(), { name: 'Field notes', categories: [{ id: 'notes', label: 'Notes' }] })
+  await site.putFile('post-1', 'abc.pdf', pdf, 'application/pdf')
+  const post = {
+    slug: 'first-light', language: 'en', category: 'notes', status: 'published', title: 'First light', summary: '', date: '2026-11-21', tags: [],
+    html: '<p>Hi</p>', cover: null, images: [], attachments: [{ file: 'abc.pdf', type: 'application/pdf', title: 'Field notes', size: pdf.length }], updatedAt: '2026-11-21T00:00:00.000Z'
+  }
   assert.deepEqual(await site.putPost('post-1', post), { url: 'https://example.com/en/first-light' })
   assert.deepEqual(await site.putPost('post-1', post), { url: null })
   await site.deletePost('post-1')
   assert.deepEqual(requests.map(({ url, method, auth, accept, redirect }) => [method, url, auth, accept, redirect]), [
     ['GET', endpoint, 'Bearer ' + key, 'application/json', 'error'],
-    ['PUT', endpoint + '/posts/post-1/images/abc.png', 'Bearer ' + key, 'application/json', 'error'],
+    ['PUT', endpoint + '/posts/post-1/files/abc.pdf', 'Bearer ' + key, 'application/json', 'error'],
     ['PUT', endpoint + '/posts/post-1', 'Bearer ' + key, 'application/json', 'error'],
     ['PUT', endpoint + '/posts/post-1', 'Bearer ' + key, 'application/json', 'error'],
     ['DELETE', endpoint + '/posts/post-1', 'Bearer ' + key, 'application/json', 'error']
   ])
-  assert.equal(requests[1].type, 'image/png')
-  assert.deepEqual(Buffer.from(requests[1].body), png)
+  assert.equal(requests[1].type, 'application/pdf')
+  assert.deepEqual(Buffer.from(requests[1].body), pdf)
   assert.equal(requests[2].type, 'application/json')
   assert.deepEqual(JSON.parse(requests[2].body), post)
 })
@@ -69,14 +75,15 @@ test('website failures explain what to do, using the site message where it has o
   const cases = [
     [() => new Response('Not here', { status: 404 }), () => site.info(), /no Tinto blog module at this publishing URL/],
     [() => Response.json({ hello: 'world' }), () => site.info(), /no Tinto blog module/],
-    [() => Response.json({ tinto: 2, name: 'Future' }), () => site.info(), /newer version of the Tinto blog module/],
+    [() => Response.json({ tinto: 3, name: 'Future' }), () => site.info(), /newer version of the Tinto blog module/],
+    [() => Response.json({ tinto: 1, name: 'Earlier' }), () => site.info(), /older Tinto blog module\. Update it with Settings → Websites → \? → Save module to your site, then deploy/],
     [() => Response.json({ error: 'Bad key' }, { status: 401 }), () => site.putPost('p', post), /example\.com rejected the API key/],
-    [() => Response.json({}, { status: 403 }), () => site.putImage('p', 'a.png', png, 'image/png'), /rejected the API key/],
+    [() => Response.json({}, { status: 403 }), () => site.putFile('p', 'a.png', png, 'image/png'), /rejected the API key/],
     [() => Response.json({ error: 'That address is taken.' }, { status: 409 }), () => site.putPost('p', post), /^Error: That address is taken\.$/],
     [() => Response.json({}, { status: 409 }), () => site.putPost('p', post), /already uses this address on example\.com/],
     [() => Response.json({ error: 'Tags\nare too long' }, { status: 422 }), () => site.putPost('p', post), /^Error: Tags are too long$/],
-    [() => Response.json({}, { status: 400 }), () => site.putImage('p', 'a.png', png, 'image/png'), /rejected the image/],
-    [() => Response.json({}, { status: 413 }), () => site.putImage('p', 'a.png', png, 'image/png'), /does not accept an image this large/],
+    [() => Response.json({}, { status: 400 }), () => site.putFile('p', 'a.png', png, 'image/png'), /rejected the file/],
+    [() => Response.json({}, { status: 413 }), () => site.putFile('p', 'a.png', png, 'image/png'), /does not accept a file this large/],
     [() => Response.json({}, { status: 429 }), () => site.putPost('p', post), /limiting requests/],
     [() => Response.json({ error: 'Database offline' }, { status: 503 }), () => site.deletePost('p'), /returned HTTP 503: Database offline/],
     [() => { throw TypeError('fetch failed') }, () => site.info(), /Could not reach example\.com.*without redirects/],
@@ -88,21 +95,28 @@ test('website failures explain what to do, using the site message where it has o
   }
 })
 
+// A website that records what it receives and how many uploads overlap.
 class FakeSite {
   log = []
-  images = new Map()
+  files = new Map()
   posts = new Map()
   fail = null
-  async putImage(id, file, bytes, type) {
-    this.log.push('image ' + file)
-    if (this.fail === 'image') throw Error('example.com rejected the image.')
-    this.images.set(id + '/' + file, { bytes: Buffer.from(bytes), type })
+  active = 0
+  peak = 0
+  async putFile(id, file, bytes, type) {
+    this.log.push('file ' + file)
+    this.active++
+    this.peak = Math.max(this.peak, this.active)
+    await new Promise(resolve => setTimeout(resolve, 5))
+    this.active--
+    if (this.fail === 'file') throw Error('example.com rejected the file.')
+    this.files.set(id + '/' + file, { bytes: Buffer.from(bytes), type })
   }
   async putPost(id, post) {
     this.log.push('post ' + id)
     if (this.fail === 'post') throw Error('example.com returned HTTP 500.')
     this.posts.set(id, post)
-    return { url: 'https://example.com/posts/' + post.slug }
+    return { url: post.status === 'published' ? 'https://example.com/posts/' + post.slug : null }
   }
   async deletePost(id) {
     this.log.push('delete ' + id)
@@ -115,125 +129,156 @@ async function fixture(t) {
   const document = { id: 'story', title: 'The long way home', language: 'en', manuscript: sampleManuscript() }
   const path = join(dir, 'Stories.tinto')
   let store = ProjectStore.create(path, 'Stories', document)
-  const files = { cover: join(dir, 'cover.png'), garden: join(dir, 'garden.jpg'), other: join(dir, 'other.png'), fake: join(dir, 'notes.png') }
+  const files = {
+    cover: join(dir, 'cover.png'), garden: join(dir, 'garden.jpg'), other: join(dir, 'other.png'), fake: join(dir, 'notes.png'),
+    pdf: join(dir, 'Field notes.pdf'), mp3: join(dir, 'rain.mp3'), csv: join(dir, 'rain.csv')
+  }
   await writeFile(files.cover, png)
   await writeFile(files.garden, jpeg)
   await writeFile(files.other, Buffer.concat([png, Buffer.from('another')]))
   await writeFile(files.fake, 'plain text')
+  await writeFile(files.pdf, pdf)
+  await writeFile(files.mp3, mp3)
+  await writeFile(files.csv, csv)
   const sites = { one: new FakeSite(), two: new FakeSite() }
+  const clock = { time: Date.UTC(2026, 10, 21) }
   const publisher = new Publisher(async id => {
     if (!sites[id]) throw Error('This website is no longer in Tinto. Add it again in Settings.')
     return sites[id]
-  }, () => Date.UTC(2026, 10, 21))
+  }, () => clock.time)
   t.after(async () => { store.close(); await rm(dir, { recursive: true, force: true }) })
   return {
-    sites, publisher, files, document,
+    sites, publisher, files, document, clock,
     get store() { return store },
     reopen() { store.close(); store = new ProjectStore(path) }
   }
 }
-const fields = { title: 'The kitchen', slug: 'the-kitchen', summary: 'Mara comes home.', date: '2026-11-21', tags: ['fiction', ' home ', 'fiction'] }
+const fields = { title: 'The kitchen', slug: 'the-kitchen', summary: 'Mara comes home.', date: '2026-11-21', tags: ['fiction', ' home ', 'fiction'], category: 'notes' }
+const request = (overrides = {}) => ({ siteId: 'one', siteName: 'Field Notes', documentId: 'story', headingId: 'the-kitchen', status: 'published', fields, cover: null, images: [], attachments: [], ...overrides })
 
-test('publishing uploads new images, then sends the post, then keeps the record for that website', async t => {
+test('publishing uploads new files three at a time, then sends the post, then keeps a release in History', async t => {
   const f = await fixture(t)
   const site = f.sites.one
-  const post = await f.publisher.publish(f.store, {
-    siteId: 'one', documentId: 'story', headingId: 'the-kitchen', fields,
+  const progress = []
+  const post = await f.publisher.publish(f.store, request({
     cover: { path: f.files.cover, name: 'cover.png', alt: ' A lit kitchen window ' },
-    images: [{ path: f.files.garden, name: 'garden.jpg', alt: 'Pear tree' }, { path: f.files.cover, name: 'cover-again.png', alt: 'Same file' }]
-  })
+    images: [{ path: f.files.garden, name: 'garden.jpg', alt: 'Pear tree' }, { path: f.files.cover, name: 'cover-again.png', alt: 'Same file' }],
+    attachments: [{ path: f.files.pdf, name: 'Field notes.pdf', title: ' Field notes ' }, { path: f.files.mp3, name: 'rain.mp3', title: 'Rain' }, { path: f.files.csv, name: 'rain.csv', title: 'Rain data' }]
+  }), (done, total) => progress.push(done + '/' + total))
   assert.equal(post.id, postId(f.store.projectId(), 'one', 'story', 'the-kitchen'))
   assert.match(post.id, uuid)
   assert.match(post.cover.file, /^[0-9a-f]{32}\.png$/)
-  assert.match(post.images[0].file, /^[0-9a-f]{32}\.jpg$/)
-  assert.deepEqual(site.log, ['image ' + post.cover.file, 'image ' + post.images[0].file, 'post ' + post.id])
+  assert.deepEqual(post.attachments.map(item => [item.file.slice(33), item.type, item.title, item.size, item.name]), [
+    ['pdf', 'application/pdf', 'Field notes', pdf.length, 'Field notes.pdf'], ['mp3', 'audio/mpeg', 'Rain', mp3.length, 'rain.mp3'], ['csv', 'text/csv', 'Rain data', csv.length, 'rain.csv']
+  ])
+  // Five different files (the cover is chosen twice), sent before the post and never more than three at once.
+  assert.equal(site.log.filter(entry => entry.startsWith('file ')).length, 5)
+  assert.equal(site.log.at(-1), 'post ' + post.id)
+  assert.equal(site.peak, 3)
+  assert.deepEqual(progress, ['0/5', '1/5', '2/5', '3/5', '4/5', '5/5'])
   const sent = site.posts.get(post.id)
-  assert.deepEqual(Object.keys(sent), ['slug', 'language', 'title', 'summary', 'date', 'tags', 'html', 'cover', 'images', 'updatedAt'])
-  assert.deepEqual({ ...sent, html: undefined }, {
-    slug: 'the-kitchen', language: 'en', title: 'The kitchen', summary: 'Mara comes home.', date: '2026-11-21', tags: ['fiction', 'home'], html: undefined,
-    cover: { file: post.cover.file, type: 'image/png', alt: 'A lit kitchen window' },
-    images: [{ file: post.images[0].file, type: 'image/jpeg', alt: 'Pear tree' }, { file: post.cover.file, type: 'image/png', alt: 'Same file' }],
-    updatedAt: '2026-11-21T00:00:00.000Z'
-  })
+  assert.deepEqual(Object.keys(sent), ['slug', 'language', 'category', 'status', 'title', 'summary', 'date', 'tags', 'html', 'cover', 'images', 'attachments', 'updatedAt'])
+  assert.deepEqual([sent.status, sent.category, sent.tags], ['published', 'notes', ['fiction', 'home']])
+  assert.deepEqual(sent.attachments[0], { file: post.attachments[0].file, type: 'application/pdf', title: 'Field notes', size: pdf.length })
   assert.match(sent.html, /^<p>The house was quiet/)
-  assert.doesNotMatch(sent.html, /<h1>|The garden|a cat/)
-  assert.doesNotMatch(JSON.stringify(sent), /cover\.png|garden\.jpg/)
-  assert.equal(site.images.get(post.id + '/' + post.cover.file).type, 'image/png')
-  assert.equal(post.url, 'https://example.com/posts/the-kitchen')
+  assert.doesNotMatch(JSON.stringify(sent), /cover\.png|garden\.jpg|rain\.mp3|Field notes\.pdf/)
+
+  // The release is a named version that keeps the published text.
+  const [release] = f.store.versions('story').filter(version => version.name)
+  assert.deepEqual([release.name, release.id], ['Released on Field Notes', post.release.versionId])
+  assert.equal(changedSinceRelease(f.store, post), false)
   f.reopen()
   assert.deepEqual(f.store.post('one', 'story', 'the-kitchen'), post)
-  assert.deepEqual(f.store.posts('story', 'the-kitchen'), [post])
-  assert.equal(f.store.post('two', 'story', 'the-kitchen'), null)
-  assert.equal(f.store.post('one', 'story', null), null)
 
-  // Republishing images the website already has sends only the post.
+  // Republishing unchanged files and text sends only the post and keeps the same release.
   site.log = []
-  const again = await f.publisher.publish(f.store, {
-    siteId: 'one', documentId: 'story', headingId: 'the-kitchen', fields: { ...fields, title: 'The kitchen, again' },
-    cover: { file: post.cover.file, alt: 'Kitchen window' }, images: [{ path: f.files.garden, name: 'garden copy.jpg', alt: '' }]
-  })
+  f.clock.time += 60_000
+  const again = await f.publisher.publish(f.store, request({ fields: { ...fields, title: 'The kitchen, again' }, cover: { file: post.cover.file, alt: 'Kitchen window' }, attachments: [{ file: post.attachments[0].file, title: 'Notes (PDF)' }] }))
   assert.deepEqual(site.log, ['post ' + post.id])
-  assert.equal(again.id, post.id)
-  assert.equal(again.cover.alt, 'Kitchen window')
-  assert.equal(site.posts.get(post.id).title, 'The kitchen, again')
+  assert.equal(again.release.versionId, post.release.versionId)
+  assert.equal(again.release.at, f.clock.time)
+  assert.equal(again.attachments[0].title, 'Notes (PDF)')
+  assert.equal(f.store.versions('story').filter(version => version.name).length, 1)
+
+  // Editing the text marks the post as changed until a new release.
+  const changed = f.store.readDocument('story')
+  changed.manuscript.content[2].content = [{ type: 'text', text: 'A new first line for the kitchen.' }]
+  f.store.save(changed)
+  assert.equal(changedSinceRelease(f.store, again), true)
+  const next = await f.publisher.publish(f.store, request({ cover: { file: post.cover.file, alt: 'Kitchen window' } }))
+  assert.notEqual(next.release.versionId, post.release.versionId)
+  assert.equal(changedSinceRelease(f.store, next), false)
+  assert.deepEqual(f.store.versions('story').filter(version => version.name).map(version => version.name), ['Released on Field Notes', 'Released on Field Notes'])
+})
+
+test('a draft goes to the website without a release, and publishing it creates one', async t => {
+  const f = await fixture(t)
+  const draft = await f.publisher.publish(f.store, request({ status: 'draft', cover: { path: f.files.cover, name: 'cover.png', alt: '' } }))
+  assert.deepEqual([draft.status, draft.release, draft.url], ['draft', null, null])
+  assert.equal(f.sites.one.posts.get(draft.id).status, 'draft')
+  assert.deepEqual(f.store.versions('story').filter(version => version.name), [])
+  assert.equal(changedSinceRelease(f.store, draft), false)
+  const live = await f.publisher.publish(f.store, request({ cover: { file: draft.cover.file, alt: '' } }))
+  assert.deepEqual([live.id, live.status, live.url], [draft.id, 'published', 'https://example.com/posts/the-kitchen'])
+  assert.ok(live.release)
+  const back = await f.publisher.publish(f.store, request({ status: 'draft', cover: { file: draft.cover.file, alt: '' } }))
+  assert.equal(back.status, 'draft')
+  assert.deepEqual(back.release, live.release)
 })
 
 test('a failed attempt changes nothing locally, and the retry updates the same post', async t => {
   const f = await fixture(t)
   const site = f.sites.one
-  const input = { siteId: 'one', documentId: 'story', headingId: null, fields, cover: { path: f.files.cover, name: 'cover.png', alt: '' }, images: [] }
-  for (const failure of ['image', 'post']) {
+  const input = request({ headingId: null, cover: { path: f.files.cover, name: 'cover.png', alt: '' } })
+  for (const failure of ['file', 'post']) {
     site.fail = failure
-    await assert.rejects(f.publisher.publish(f.store, input), failure === 'image' ? /rejected the image/ : /HTTP 500/)
+    await assert.rejects(f.publisher.publish(f.store, input), failure === 'file' ? /rejected the file/ : /HTTP 500/)
     assert.equal(f.store.post('one', 'story', null), null)
   }
+  assert.deepEqual(f.store.versions('story').filter(version => version.name), [])
   site.fail = null
   const post = await f.publisher.publish(f.store, input)
   assert.deepEqual(new Set(site.log.filter(entry => entry.startsWith('post ')).map(entry => entry.slice(5))), new Set([post.id]))
-  assert.deepEqual([...site.posts.keys()], [post.id])
 
   site.fail = 'post'
   await assert.rejects(f.publisher.publish(f.store, { ...input, fields: { ...fields, title: 'Changed' }, cover: { file: post.cover.file, alt: '' } }), /HTTP 500/)
   assert.deepEqual(f.store.post('one', 'story', null), post)
   site.fail = null
   await assert.rejects(f.publisher.publish(f.store, { ...input, siteId: 'removed' }), /no longer in Tinto/)
-  assert.equal(f.store.post('removed', 'story', null), null)
 })
 
 test('each website keeps its own post of the same document, and unpublishing touches only one', async t => {
   const f = await fixture(t)
-  const input = { documentId: 'story', headingId: null, fields, cover: { path: f.files.cover, name: 'cover.png', alt: '' }, images: [] }
-  const first = await f.publisher.publish(f.store, { ...input, siteId: 'one' })
-  const second = await f.publisher.publish(f.store, { ...input, siteId: 'two', fields: { ...fields, slug: 'kitchen' } })
+  const input = request({ headingId: null, cover: { path: f.files.cover, name: 'cover.png', alt: '' } })
+  const first = await f.publisher.publish(f.store, input)
+  const second = await f.publisher.publish(f.store, { ...input, siteId: 'two', siteName: 'Second', fields: { ...fields, slug: 'kitchen', category: '' } })
   assert.notEqual(first.id, second.id)
-  assert.deepEqual(f.sites.two.log, ['image ' + second.cover.file, 'post ' + second.id])
-  assert.deepEqual(f.store.posts('story', null).map(post => [post.siteId, post.slug]), [['one', 'the-kitchen'], ['two', 'kitchen']])
-
+  assert.deepEqual(f.store.posts('story', null).map(post => [post.siteId, post.slug, post.category]), [['one', 'the-kitchen', 'notes'], ['two', 'kitchen', '']])
+  assert.deepEqual(f.store.allPosts().map(post => post.siteId), ['one', 'two'])
   await f.publisher.unpublish(f.store, 'one', 'story', null)
-  assert.deepEqual(f.sites.one.log.at(-1), 'delete ' + first.id)
   assert.equal(f.sites.one.posts.size, 0)
-  assert.deepEqual(f.store.posts('story', null), [second])
-  await f.publisher.unpublish(f.store, 'one', 'story', null)
-  assert.equal(f.sites.one.log.filter(entry => entry.startsWith('delete')).length, 1)
-
-  // Publishing there again reuses the same post id.
-  const back = await f.publisher.publish(f.store, { ...input, siteId: 'one' })
+  assert.deepEqual(f.store.posts('story', null).map(post => post.id), [second.id])
+  const back = await f.publisher.publish(f.store, input)
   assert.equal(back.id, first.id)
 })
 
-test('an invalid post or image sends nothing to the website', async t => {
+test('an invalid post or file sends nothing to the website', async t => {
   const f = await fixture(t)
-  const input = { siteId: 'one', documentId: 'story', headingId: null, fields, cover: null, images: [] }
+  const input = request({ headingId: null })
   const invalid = [
     [{ ...input, fields: { ...fields, slug: 'The Kitchen!' } }, /lowercase letters/],
     [{ ...input, fields: { ...fields, date: '2026-02-30' } }, /valid post date/],
     [{ ...input, fields: { ...fields, title: '   ' } }, /title/],
-    [{ ...input, cover: { path: f.files.fake, name: 'notes.png', alt: '' } }, /notes\.png is not a PNG/],
+    [{ ...input, fields: { ...fields, category: 'Not An Id' } }, /website’s categories/],
+    [{ ...input, cover: { path: f.files.fake, name: 'notes.png', alt: '' } }, /notes\.png is not a file type a post can include/],
+    [{ ...input, cover: { path: f.files.pdf, name: 'Field notes.pdf', alt: '' } }, /is not an image/],
+    [{ ...input, attachments: [{ path: f.files.garden, name: 'garden.jpg', title: 'Garden' }] }, /is an image\. Add it to the gallery/],
+    [{ ...input, attachments: [{ path: f.files.pdf, name: 'Field notes.pdf', title: '  ' }] }, /title of up to 120/],
     [{ ...input, cover: { file: 'secret.png', alt: '' } }, /no longer part of this post/],
-    [{ ...input, images: Array.from({ length: 21 }, () => ({ path: f.files.cover, name: 'cover.png', alt: '' })) }, /up to 20 images/],
+    [{ ...input, images: Array.from({ length: 31 }, () => ({ path: f.files.cover, name: 'cover.png', alt: '' })) }, /up to 30 files/],
     [{ ...input, headingId: 'missing' }, /no longer in its document/]
   ]
-  for (const [request, error] of invalid) await assert.rejects(f.publisher.publish(f.store, request), error)
+  for (const [bad, error] of invalid) await assert.rejects(f.publisher.publish(f.store, bad), error)
   f.store.save({ ...f.document, manuscript: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'empty' } }] } })
   await assert.rejects(f.publisher.publish(f.store, input), /Write some text/)
   assert.deepEqual(f.sites.one.log, [])

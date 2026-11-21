@@ -20,8 +20,14 @@ const desktop: Desktop = {
   saveModule: values => ipcRenderer.invoke('guide:save-module', values),
   copyText: text => ipcRenderer.invoke('guide:copy', text),
   openCloudflare: () => ipcRenderer.invoke('guide:open-dashboard'),
-  pickImages: multiple => ipcRenderer.invoke('post:pick-images', multiple),
+  allPosts: () => ipcRenderer.invoke('post:all'),
+  pickFiles: kind => ipcRenderer.invoke('post:pick-files', kind),
   publishPost: request => ipcRenderer.invoke('post:publish', request),
+  onPublishProgress: listener => {
+    const forward = (_event: Electron.IpcRendererEvent, done: number, total: number) => listener(done, total)
+    ipcRenderer.on('post:progress', forward)
+    return () => { ipcRenderer.removeListener('post:progress', forward) }
+  },
   unpublishPost: (siteId, documentId, headingId) => ipcRenderer.invoke('post:unpublish', siteId, documentId, headingId),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   exportFile: (format, title, doc) => ipcRenderer.invoke('file:export', format, title, doc),

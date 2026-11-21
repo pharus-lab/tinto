@@ -1,14 +1,17 @@
 import { createHash } from 'node:crypto'
 
-// Tinto blog module, protocol 1. docs/site-contract.md describes the API a
+// Tinto blog module, protocol 2. docs/site-contract.md describes the API a
 // website implements to receive posts from Tinto.
-export const PROTOCOL = 1
+export const PROTOCOL = 2
 
 export interface SiteConnection { endpoint: string; key: string }
 export interface SiteImage { file: string; type: string; alt: string }
+export interface SiteAttachment { file: string; type: string; title: string; size: number }
 export interface SitePost {
   slug: string
   language: string
+  category: string
+  status: 'draft' | 'published'
   title: string
   summary: string
   date: string
@@ -16,10 +19,12 @@ export interface SitePost {
   html: string
   cover: SiteImage | null
   images: SiteImage[]
+  attachments: SiteAttachment[]
   updatedAt: string
 }
+export interface SiteInfo { name: string; categories: { id: string; label: string }[] }
 export interface SiteTransport {
-  putImage(postId: string, file: string, bytes: Uint8Array, type: string): Promise<void>
+  putFile(postId: string, file: string, bytes: Uint8Array, type: string): Promise<void>
   putPost(postId: string, post: SitePost): Promise<{ url: string | null }>
   deletePost(postId: string): Promise<void>
 }
@@ -44,7 +49,7 @@ export function validateConnection(input: SiteConnection): SiteConnection {
 // replaces its key and keeps the posts already published there.
 export const siteId = (endpoint: string) => createHash('sha256').update(endpoint).digest('hex').slice(0, 32)
 
-type Action = 'check' | 'image' | 'post' | 'delete'
+type Action = 'check' | 'file' | 'post' | 'delete'
 // Text from a website is shown to the writer, so it is shortened and kept to one line.
 const clip = (value: unknown, length: number) => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, length) : ''
 
@@ -76,23 +81,31 @@ export class SiteClient implements SiteTransport {
     if (status === 401 || status === 403) return Error(site + ' rejected the API key. Copy the current key from the website and add the site again in Settings.')
     if (status === 404 && action === 'check') return Error('There is no Tinto blog module at this publishing URL. Copy the URL from the website again.')
     if (status === 409) return Error(said || 'Another post in this language already uses this address on ' + site + '. Choose a different address.')
-    if (status === 413) return Error(said || site + ' does not accept an image this large.')
+    if (status === 413) return Error(said || site + ' does not accept a file this large.')
     if (status === 429) return Error(site + ' is limiting requests. Wait a minute and try again.')
-    if (status === 400 || status === 422) return Error(said || site + ' rejected the ' + (action === 'image' ? 'image.' : 'post.'))
+    if (status === 400 || status === 422) return Error(said || site + ' rejected the ' + (action === 'file' ? 'file.' : 'post.'))
     return Error(site + ' returned HTTP ' + status + (said ? ': ' + said : '') + '.')
   }
 
-  async info(): Promise<{ name: string }> {
-    const body = await this.call('', { method: 'GET' }, 'check') as { tinto?: unknown; name?: unknown } | null
+  async info(): Promise<SiteInfo> {
+    const body = await this.call('', { method: 'GET' }, 'check') as { tinto?: unknown; name?: unknown; categories?: unknown } | null
     if (typeof body?.tinto === 'number' && body.tinto > PROTOCOL) throw Error(this.host + ' uses a newer version of the Tinto blog module. Update Tinto to publish there.')
+    if (typeof body?.tinto === 'number' && body.tinto < PROTOCOL) {
+      throw Error(this.host + ' has an older Tinto blog module. Update it with Settings → Websites → ? → Save module to your site, then deploy the website.')
+    }
     if (body?.tinto !== PROTOCOL) throw Error('There is no Tinto blog module at this publishing URL. Copy the URL from the website again.')
-    return { name: clip(body.name, 80) || this.host }
+    const categories = (Array.isArray(body.categories) ? body.categories : [])
+      .map((item: { id?: unknown; label?: unknown }) => ({ id: clip(item?.id, 40), label: clip(item?.label, 60) }))
+      .filter(item => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.id) && item.label)
+      .slice(0, 50)
+    return { name: clip(body.name, 80) || this.host, categories }
   }
 
-  async putImage(postId: string, file: string, bytes: Uint8Array, type: string): Promise<void> {
-    await this.call('/posts/' + postId + '/images/' + file, {
+  // Large files get more time: two minutes plus four seconds per megabyte.
+  async putFile(postId: string, file: string, bytes: Uint8Array, type: string): Promise<void> {
+    await this.call('/posts/' + postId + '/files/' + file, {
       method: 'PUT', headers: { 'Content-Type': type }, body: bytes as Uint8Array<ArrayBuffer>
-    }, 'image', 120_000)
+    }, 'file', 120_000 + Math.ceil(bytes.byteLength / 1_048_576) * 4_000)
   }
 
   async putPost(postId: string, post: SitePost): Promise<{ url: string | null }> {

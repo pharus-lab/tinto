@@ -10,11 +10,12 @@ const button = (scope, name) => scope.getByRole('button', { name, exact: true })
 
 function representativeDocx(template) {
   const files = unzipSync(template)
-  files['word/styles.xml'] = strToU8('<w:styles xmlns:w="' + word + '"><w:style w:styleId="ChapterStyle" w:type="paragraph"><w:name w:val="heading 2"/></w:style><w:style w:styleId="Emphasis" w:type="character"><w:rPr><w:i/></w:rPr></w:style></w:styles>')
+  files['word/styles.xml'] = strToU8('<w:styles xmlns:w="' + word + '"><w:style w:styleId="ChapterStyle" w:type="paragraph"><w:name w:val="heading 2"/></w:style><w:style w:styleId="Emphasis" w:type="character"><w:rPr><w:i/></w:rPr></w:style><w:style w:styleId="Hyperlink" w:type="character"><w:rPr><w:u w:val="single"/></w:rPr></w:style></w:styles>')
   files['word/document.xml'] = strToU8(`<w:document xmlns:w="${word}"><w:body>
     <w:p><w:pPr><w:pStyle w:val="ChapterStyle"/></w:pPr><w:r><w:t>The letter</w:t></w:r></w:p>
     <w:p><w:r><w:rPr><w:rStyle w:val="Emphasis"/><w:b/><w:highlight w:val="yellow"/></w:rPr><w:t>Monday</w:t></w:r></w:p>
     <w:p><w:r><w:rPr><w:shd w:val="clear" w:fill="F2D88F"/></w:rPr><w:t>Earlier Tinto highlight</w:t></w:r></w:p>
+    <w:p><w:r><w:t>See </w:t></w:r><w:hyperlink><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>the notes</w:t></w:r></w:hyperlink><w:r><w:t> online.</w:t></w:r></w:p>
     <w:p><w:commentRangeStart w:id="0"/><w:del><w:r><w:delText>Discarded revision</w:delText></w:r></w:del><w:ins><w:r><w:t>Accepted revision</w:t></w:r></w:ins><w:commentRangeEnd w:id="0"/></w:p>
     <w:tbl><w:tr><w:tc><w:p><w:r><w:t>A table cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
     <w:p><w:r><w:drawing/></w:r></w:p></w:body></w:document>`)
@@ -87,6 +88,9 @@ test('local import and export preserve active prose, headings and author formatt
   assert.equal(await prose.locator('h2').textContent(), 'The letter')
   assert.equal(await prose.locator('strong em u').textContent(), 'Monday')
   assert.equal(await prose.locator('u').filter({ hasText: 'Earlier Tinto highlight' }).textContent(), 'Earlier Tinto highlight')
+  // A link's style underline is not the author's mark; its text arrives plain.
+  assert.match(await prose.innerText(), /See the notes online\./)
+  assert.equal(await prose.locator('u').filter({ hasText: 'the notes' }).count(), 0)
   assert.match(await prose.innerText(), /Accepted revision/)
   assert.match(await prose.innerText(), /A table cell/)
   assert.doesNotMatch(await prose.innerText(), /Discarded revision/)

@@ -1,10 +1,9 @@
-import type { PostImageChoice, PostRecord, SiteSummary } from './project-types'
+import { postFilesEditor } from './post-files-ui'
+import type { PostState, PostStatus, SiteSummary } from './project-types'
 import { dialogHeader } from './settings'
 import { button, element, errorMessage as errorText } from './ui'
 
 export interface PublishTarget { documentId: string; headingId: string | null; title: string; languageName: string }
-type Choice = { alt: string; name: string } & ({ file: string } | { token: string })
-const largest = 15 * 1024 * 1024
 // The website chosen last is offered first during this session.
 let lastSite: string | null = null
 
@@ -13,12 +12,15 @@ export function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '')
 }
 
-function describe(site: SiteSummary, post: PostRecord | null): string {
-  if (!post) return 'Not published on ' + site.name + ' yet.'
-  return 'Published on ' + site.name + ' · ' + new Date(post.publishedAt).toLocaleString() + ' · ' + (post.url ?? post.slug)
+// One line that says where the post stands on this website.
+export function postState(post: PostState | null, siteName: string): string {
+  if (!post) return 'Not on ' + siteName + ' yet.'
+  const when = new Date(post.publishedAt).toLocaleString()
+  if (post.status === 'draft') return 'Draft on ' + siteName + ' · saved ' + when + ' · Not public yet'
+  return 'Published on ' + siteName + ' · ' + when + ' · ' + (post.url ?? post.slug) + (post.changed ? ' · Changed since the release' : '')
 }
 
-export async function showPublish(dialog: HTMLDialogElement, target: PublishTarget, openSettings: () => void, notice: (text: string) => void) {
+export async function showPublish(dialog: HTMLDialogElement, target: PublishTarget, openSettings: () => void, notice: (text: string) => void, showAll: () => void) {
   const api = window.tinto
   const [sites, posts] = await Promise.all([api.sites(), api.posts(target.documentId, target.headingId)])
   const kind = target.headingId ? 'section' : 'document'
@@ -34,21 +36,21 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
   function render(site: SiteSummary) {
     lastSite = site.id
     const post = records.get(site.id) ?? null
-    // A post on another website supplies the text fields; images are chosen per website.
+    // A post on another website supplies the text fields; files are chosen per website.
     const known = post ?? posts[0] ?? null
     const form = element('form', 'publish-form')
-    const siteRow = element('label', 'field', 'Website')
-    const picker = element('select')
-    picker.setAttribute('aria-label', 'Website')
-    for (const item of sites) {
-      const option = element('option', '', item.name + (records.has(item.id) ? ' · published' : ''))
-      option.value = item.id
-      picker.append(option)
+    function select(label: string, options: [string, string][], value: string) {
+      const row = element('label', 'field', label)
+      const input = element('select')
+      input.setAttribute('aria-label', label)
+      for (const [id, text] of options) input.add(new Option(text, id))
+      input.value = value
+      row.append(input)
+      form.append(row)
+      return input
     }
-    picker.value = site.id
+    const picker = select('Website', sites.map(item => [item.id, item.name + (records.has(item.id) ? ' · ' + (records.get(item.id)!.status === 'draft' ? 'draft' : 'published') : '')]), site.id)
     picker.onchange = () => render(sites.find(item => item.id === picker.value) ?? site)
-    siteRow.append(picker)
-    form.append(siteRow)
     function field(label: string, value: string, type = 'text') {
       const row = element('label', 'field', label)
       const input = element('input')
@@ -68,6 +70,11 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
     let slugEdited = !!known
     slug.oninput = () => { slugEdited = true }
     title.oninput = () => { if (!slugEdited) slug.value = slugify(title.value) }
+    // Categories come from the website, so each site offers its own sections or pages.
+    const categories = site.categories
+    const category = categories.length
+      ? select('Category', categories.map(item => [item.id, item.label]), categories.some(item => item.id === known?.category) ? known!.category : categories[0].id)
+      : null
     const date = field('Date', known?.date ?? new Date().toLocaleDateString('en-CA'), 'date')
     date.required = true
     const summaryRow = element('label', 'field stacked', 'Summary')
@@ -81,49 +88,11 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
     tags.placeholder = 'Separated by commas'
     form.append(element('p', '', 'Language · ' + target.languageName))
 
-    let cover: Choice | null = post?.cover ? { file: post.cover.file, alt: post.cover.alt, name: post.cover.name } : null
-    const gallery: Choice[] = post?.images.map(image => ({ file: image.file, alt: image.alt, name: image.name })) ?? []
-    const coverHost = element('section', 'post-images')
-    const galleryHost = element('section', 'post-images')
-    form.append(coverHost, galleryHost)
-    function imageRow(choice: Choice, remove: () => void) {
-      const row = element('div', 'post-image')
-      const alt = element('input')
-      alt.type = 'text'
-      alt.value = choice.alt
-      alt.maxLength = 300
-      alt.placeholder = 'Describe the image'
-      alt.setAttribute('aria-label', 'Description of ' + choice.name)
-      alt.oninput = () => { choice.alt = alt.value }
-      const removal = button('Remove', remove, 'outline')
-      removal.setAttribute('aria-label', 'Remove ' + choice.name)
-      row.append(element('span', 'post-image-name', choice.name), alt, removal)
-      return row
-    }
-    function drawImages() {
-      coverHost.replaceChildren(element('h3', 'group-label', 'Cover image'))
-      if (cover) coverHost.append(imageRow(cover, () => { cover = null; drawImages() }))
-      coverHost.append(button(cover ? 'Replace cover' : 'Choose cover', () => void pick(false), 'outline'))
-      galleryHost.replaceChildren(element('h3', 'group-label', 'Gallery'))
-      gallery.forEach((choice, index) => galleryHost.append(imageRow(choice, () => { gallery.splice(index, 1); drawImages() })))
-      galleryHost.append(button('Add images', () => void pick(true), 'outline'))
-    }
-    async function pick(multiple: boolean) {
-      try {
-        const files = await api.pickImages(multiple)
-        const large = files.filter(file => file.size > largest)
-        const choices: Choice[] = files.filter(file => file.size <= largest).map(file => ({ token: file.token, name: file.name, alt: '' }))
-        if (multiple) gallery.push(...choices)
-        else if (choices[0]) cover = choices[0]
-        drawImages()
-        status.textContent = large.length ? large.map(file => file.name).join(', ') + ' is larger than 15 MB and was not added.' : status.textContent
-      } catch (error) { status.textContent = errorText(error) }
-    }
-    drawImages()
-
     const status = element('p', 'publish-status')
     status.setAttribute('role', 'status')
-    status.textContent = describe(site, post)
+    status.textContent = postState(post, site.name)
+    const files = postFilesEditor(post, text => { status.textContent = text })
+    form.append(files.element)
     const actions = element('div', 'dialog-actions')
     form.append(status, actions)
     const controls = () => form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('button, input, textarea, select')
@@ -131,6 +100,7 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
       return async () => {
         controls().forEach(el => el.disabled = true)
         status.textContent = progress
+        const stop = api.onPublishProgress((sent, total) => { status.textContent = 'Uploading ' + sent + ' of ' + total + ' files…' + (sent === total ? ' Sending the post…' : '') })
         try {
           await task()
           dialog.close()
@@ -138,33 +108,44 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
         } catch (error) {
           controls().forEach(el => el.disabled = false)
           status.textContent = errorText(error)
-        }
+        } finally { stop() }
       }
     }
+    function send(state: PostStatus) {
+      return run(() => api.publishPost({
+        siteId: site.id, documentId: target.documentId, headingId: target.headingId, status: state,
+        fields: {
+          title: title.value, slug: slug.value, summary: summary.value, date: date.value, category: category?.value ?? '',
+          tags: tags.value.split(',').map(tag => tag.trim()).filter(Boolean)
+        },
+        ...files.values()
+      }), 'Preparing the post…', () => state === 'draft'
+        ? 'Saved “' + title.value.trim() + '” as a draft on ' + site.name + '.'
+        : 'Published “' + title.value.trim() + '” on ' + site.name + '.')
+    }
     function drawActions() {
-      actions.replaceChildren()
+      actions.replaceChildren(button('All posts', () => { dialog.close(); showAll() }, 'outline publish-all'))
       if (post) actions.append(button('Unpublish', () => {
         status.textContent = 'Remove this post from ' + site.name + '? The ' + kind + ' stays in Tinto.'
         actions.replaceChildren(
-          button('Keep post', () => { status.textContent = describe(site, post); drawActions() }, 'outline'),
+          button('Keep post', () => { status.textContent = postState(post, site.name); drawActions() }, 'outline'),
           button('Remove from site', run(() => api.unpublishPost(site.id, target.documentId, target.headingId), 'Removing the post…', () => 'Removed “' + post.title + '” from ' + site.name + '.'), 'primary')
         )
       }, 'outline'))
-      const submit = element('button', 'primary', post ? 'Update post' : 'Publish')
+      // A draft goes to the website with its files but stays out of its pages.
+      const draft = button(post?.status === 'published' ? 'Move to drafts' : post ? 'Update draft' : 'Save draft', () => {
+        if (form.reportValidity()) void send('draft')()
+      }, 'outline')
+      const submit = element('button', 'primary', post?.status === 'published' ? 'Update post' : 'Publish')
       submit.type = 'submit'
-      actions.append(button('Cancel', () => dialog.close(), 'outline'), submit)
+      actions.append(button('Cancel', () => dialog.close(), 'outline'), draft, submit)
     }
     drawActions()
-    const choice = (item: Choice): PostImageChoice => 'file' in item ? { file: item.file, alt: item.alt } : { token: item.token, alt: item.alt }
     form.onsubmit = event => {
       event.preventDefault()
-      void run(() => api.publishPost({
-        siteId: site.id, documentId: target.documentId, headingId: target.headingId,
-        fields: { title: title.value, slug: slug.value, summary: summary.value, date: date.value, tags: tags.value.split(',').map(tag => tag.trim()).filter(Boolean) },
-        cover: cover ? choice(cover) : null, images: gallery.map(choice)
-      }), 'Uploading images and sending the post…', () => 'Published “' + title.value.trim() + '” on ' + site.name + '.')()
+      void send('published')()
     }
-    dialog.replaceChildren(dialogHeader(dialog, post ? 'Update post' : 'Publish'), form)
+    dialog.replaceChildren(dialogHeader(dialog, post?.status === 'published' ? 'Update post' : 'Publish'), form)
     if (!dialog.open) dialog.showModal()
   }
   render(sites.find(item => item.id === lastSite) ?? sites.find(item => records.has(item.id)) ?? sites[0])

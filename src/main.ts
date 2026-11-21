@@ -25,7 +25,9 @@ function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   if (event.senderFrame?.url !== entry || event.sender !== window?.webContents) throw Error('Unknown editor window.')
 }
 
-function registerProjectActions(updateBackupPath: (path: string, destination?: string) => void) {
+// Moving, renaming and deleting wait for any post being published, so its record
+// is saved in the project before the project or document changes.
+function registerProjectActions(updateBackupPath: (path: string, destination?: string) => void, publishing: () => Promise<unknown>) {
   ipcMain.handle('file:pick', event => { trusted(event); return pickInputFile(window!) })
   ipcMain.handle('file:export', (event, format: ExportFormat, title: string, doc: Manuscript) => {
     trusted(event)
@@ -71,29 +73,33 @@ function registerProjectActions(updateBackupPath: (path: string, destination?: s
     return library.activate(path, ProjectStore.create(path, title, document))
   })
   ipcMain.handle('workspace', event => { trusted(event); return library.workspace() })
-  ipcMain.handle('project:rename', (event, path: string, title: string) => {
+  ipcMain.handle('project:rename', async (event, path: string, title: string) => {
     trusted(event)
+    await publishing()
     const destination = library.renameProject(path, title)
     updateBackupPath(path, destination)
     return library.state()
   })
   ipcMain.handle('project:delete', async (event, path: string) => {
     trusted(event)
+    await publishing()
     await library.deleteProject(path, file => shell.trashItem(file))
     updateBackupPath(path)
     return library.state()
   })
-  ipcMain.handle('document:delete', (event, path: string, id: string) => {
+  ipcMain.handle('document:delete', async (event, path: string, id: string) => {
     trusted(event)
+    await publishing()
     if (library.activeProject?.path !== path) throw Error('Open the original project first.')
     library.store.deleteDocument(id)
     return library.state()
   })
-  ipcMain.handle('document:move', (event, source: string, id: string, destination: string) => {
+  ipcMain.handle('document:move', async (event, source: string, id: string, destination: string) => {
     trusted(event)
+    await publishing()
     return library.moveDocument(source, id, destination)
   })
-  ipcMain.handle('document:undo-move', event => { trusted(event); return library.undoMove() })
+  ipcMain.handle('document:undo-move', async event => { trusted(event); await publishing(); return library.undoMove() })
   ipcMain.handle('project:open', async (event, item?: number | string) => {
     trusted(event)
     if (item !== undefined) return library.openListed(item)
@@ -157,8 +163,8 @@ if (primaryWindow) app.whenReady().then(async () => {
   })
   library = new ProjectLibrary(join(app.getPath('userData'), 'projects.json'))
   const updateBackupPath = registerBackups({ window: () => window!, project: () => library.activeProject, open: path => library.open(path), trusted })
-  registerProjectActions(updateBackupPath)
-  registerPublishing({ window: () => window!, project: () => library.activeProject, trusted })
+  const publishing = registerPublishing({ window: () => window!, project: () => library.activeProject, trusted })
+  registerProjectActions(updateBackupPath, publishing.idle)
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }

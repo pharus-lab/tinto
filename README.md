@@ -35,15 +35,29 @@ Automatic backups are opt-in per local project. While Tinto is open it checks fo
 
 ## Publish to websites
 
-**Publish** sends the open document or linked section to any website that includes the Tinto blog module. One Tinto can publish to several websites. [docs/site-contract.md](docs/site-contract.md) describes the API a website implements to receive posts. Sites on Cloudflare Workers can copy the ready-made module in [modules/cloudflare](modules/cloudflare/README.md), which adds the API, a feed for the site build, and the post images.
+**Publish** sends the open document or linked section to any website that includes the Tinto blog module. One Tinto can publish to several websites. [docs/site-contract.md](docs/site-contract.md) describes the API a website implements to receive posts. Sites on Cloudflare Workers can copy the ready-made module in [modules/cloudflare](modules/cloudflare/README.md), which adds the API, a feed for the site build, and the post files.
 
 To connect a website for the first time, choose **?** next to *Add a website* in **Settings → Websites**. The guide writes the blog module into a site on Cloudflare Workers, gives your coding agent ready-made prompts, creates the API key, and lists the manual steps up to the connection. Saving the module again to the same site updates its code and keeps the site's configuration.
 
 You can also add a website directly in **Settings → Websites** with the two values the website gives you: its **Publishing URL** and **API key**. Tinto checks both before saving them. **Test** checks them again. **Remove** deletes the key from this computer, and the posts stay on the website. To change a key, add the same publishing URL again with the new key. Posts already published there stay linked.
 
-In the **Publish** dialog, choose the website, then the title, address, date, summary, tags, cover and gallery. Tinto uploads new images first and then sends the post. **Update post** sends changes. **Unpublish** removes the post and its images from the chosen website only. The same document can be published on several websites. Each website keeps its own address and images. A second website starts from the text of the first, and its images are chosen again.
+In the **Publish** dialog, choose the website, then fill in the post:
+- the title, address, date, summary and tags;
+- the category, when the website offers categories, which it uses for its sections or pages;
+- a cover, a gallery, and attachments: PDF documents, MP3, M4A and OGG audio, MP4 and WebM video, and ZIP and CSV downloads.
 
-The publishing URLs and keys are encrypted with the operating system's credential service, in the same way as Drive tokens. Each project file stores its posts for each website, so the address, images and description survive a restart. A post is recorded only after the website accepts it. After a failure, send it again. Opening a project with this version upgrades its file, and older Tinto builds cannot open the upgraded file.
+Each attachment has a title that the website shows. Tinto checks every file by its first bytes and uploads new files three at a time before it sends the post.
+
+- **Publish** makes the post public.
+- **Save draft** sends the post and its files to the website without showing them on its pages. A published post can go back to drafts in the same way.
+- **Update post** sends changes.
+- **Unpublish** removes the post and its files from the chosen website only.
+
+The same document can be published on several websites. Each website keeps its own address, category and files. A second website starts from the text of the first, and its files are chosen again. **All posts** lists every post of the project, grouped by website and category, and marks each one as a draft, live, or changed since its release.
+
+**Releases.** Each time a post is published with new text, Tinto saves a named version of the document in **History**, called *Released on <site>*. The website keeps that text until you publish again. While you keep editing, Publish and All posts show *Changed since the release*. Tinto does not use Git: every version, draft and release lives inside the `.tinto` project file.
+
+The publishing URLs and keys are encrypted with the operating system's credential service, in the same way as Drive tokens. Each project file stores its posts for each website, so the address, files, status and release survive a restart. A post is recorded only after the website accepts it. After a failure, send it again. Opening a project with this version upgrades its file, and older Tinto builds cannot open the upgraded file.
 
 ## Build and check
 

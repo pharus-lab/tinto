@@ -1,4 +1,4 @@
-import type { DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, PickedImage, PostRecord, PublishRequest, SiteSummary } from './project-types'
+import type { DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, FilePick, PickedFile, PostOverview, PostState, PublishRequest, SiteSummary } from './project-types'
 
 import type { DictionaryPack } from './dictionary-packs'
 import type { DictionaryData } from './spelling'
@@ -23,12 +23,14 @@ export interface Desktop {
   addSite(endpoint: string, key: string): Promise<SiteSummary>
   testSite(id: string): Promise<SiteSummary>
   removeSite(id: string): Promise<void>
-  posts(documentId: string, headingId: string | null): Promise<PostRecord[]>
+  posts(documentId: string, headingId: string | null): Promise<PostState[]>
+  allPosts(): Promise<PostOverview[]>
   saveModule(values: { name: string; site: string }): Promise<{ path: string; updated: boolean } | null>
   copyText(text: string): Promise<void>
   openCloudflare(): Promise<void>
-  pickImages(multiple: boolean): Promise<PickedImage[]>
-  publishPost(request: PublishRequest): Promise<PostRecord>
+  pickFiles(kind: FilePick): Promise<PickedFile[]>
+  publishPost(request: PublishRequest): Promise<PostState>
+  onPublishProgress(listener: (done: number, total: number) => void): () => void
   unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>
   pickFile(): Promise<InputFile | null>
   exportFile(format: ExportFormat, title: string, doc: Manuscript): Promise<boolean>
