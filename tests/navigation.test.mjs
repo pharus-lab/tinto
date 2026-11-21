@@ -179,6 +179,19 @@ test('text width modes retain their dimensions as the writing area resizes', asy
   }
   await resize(1100)
   await settings.click()
+  const controls = page.getByRole('dialog').getByRole('combobox')
+  const widths = await controls.evaluateAll(controls => controls.map(control => control.offsetWidth))
+  assert.equal(new Set(widths).size, 1)
+  const clipped = await controls.evaluateAll(controls => {
+    const context = document.createElement('canvas').getContext('2d')
+    return controls.flatMap(control => {
+      const style = getComputedStyle(control)
+      context.font = style.font
+      const space = control.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+      return Array.from(control.options).map(option => option.text).filter(text => context.measureText(text).width > space)
+    })
+  })
+  assert.deepEqual(clipped, [])
   assert.deepEqual(await mode.locator('option').allTextContents(), ['Fixed Width', 'Fixed Margin'])
   assert.equal(await mode.inputValue(), 'fixed-margin')
   assert.equal(await margin.inputValue(), '48')
@@ -230,7 +243,8 @@ test('linked sections share edits, the trail follows scrolling, and keyboard rev
     const outline = await next.evaluate(element => getComputedStyle(element).outlineStyle)
     assert.equal(outline, 'solid')
     assert.equal(await page.locator('.alt-nested .alt-option[aria-pressed=true] .alt-check').innerText(), '✓')
-    assert.match(await page.locator('.tab.current').evaluate(element => getComputedStyle(element).boxShadow), /inset/)
+    const tabBackground = selector => page.locator(selector).first().evaluate(el => getComputedStyle(el).backgroundColor)
+    assert.notEqual(await tabBackground('.tab.current'), await tabBackground('.tab:not(.current)'))
     if (scheme === 'dark' && process.env.TINTO_DARK_SCREENSHOT) await page.screenshot({ path: process.env.TINTO_DARK_SCREENSHOT, scale: 'css' })
   }
   await button('Reading and project settings').click()

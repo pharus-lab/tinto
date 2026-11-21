@@ -55,7 +55,7 @@ function versionPreview(manuscript: Manuscript): HTMLElement {
 }
 
 export function showHistory(dialog: HTMLDialogElement, doc: DocumentRecord, restored: (doc: DocumentRecord) => void, notice: (message: string) => void) {
-  const content = element('section')
+  const content = element('section', 'history-body')
   const heading = element('header', 'dialog-head')
   const title = element('h2', '', 'Version history')
   title.id = 'dialog-title'

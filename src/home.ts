@@ -37,6 +37,9 @@ function attachMenu(row: HTMLButtonElement, item: HomeItem, menu: HTMLElement, a
     menu.showPopover({ source: row })
     menu.style.left = Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4)) + 'px'
     menu.style.top = Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4)) + 'px'
+    const home = menu.parentElement!
+    const scrollTop = home.scrollTop
+    home.onscroll = () => { if (home.scrollTop !== scrollTop && menu.matches(':popover-open')) menu.hidePopover() }
     rename.focus({ preventScroll: true })
     menu.onkeydown = event => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -148,7 +151,6 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   menu.popover = 'auto'
   menu.setAttribute('role', 'menu')
   menu.addEventListener('focusout', event => { if (!menu.contains(event.relatedTarget as Node)) menu.hidePopover() })
-  host.onscroll = () => { if (menu.matches(':popover-open')) menu.hidePopover() }
   const projects = element('div')
   let dragged: DocumentRecord | null = null
   projects.append(element('h2', '', 'Projects in this folder'))

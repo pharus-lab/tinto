@@ -1,3 +1,4 @@
+import { redoDepth, undoDepth } from 'prosemirror-history'
 import { backupSettings } from './backup-settings'
 import { importFile, type ExportFormat } from './exchange'
 import { WritingEditor, type Format } from './editor'
@@ -10,7 +11,7 @@ import { renderAlternatives } from './alternatives'
 import { showDraftReview, createDraftDialog } from './draft-ui'
 import { homeItemDialog, renderHome, type HomeItem } from './home'
 import { showHistory } from './history'
-import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings } from './settings'
+import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks } from './settings'
 import { $, button, element, icon } from './ui'
 
 interface Tab { documentId: string; headingId: string | null; scroll: number; review: string | null }
@@ -20,6 +21,8 @@ const prefs = preferences()
 const modal = $('modal') as HTMLDialogElement
 const language = $('language') as HTMLSelectElement
 const blockStyle = $('block-style') as HTMLSelectElement
+const undoButton = $('undo') as HTMLButtonElement
+const redoButton = $('redo') as HTMLButtonElement
 const scroll = $('scroll')
 const editors = new Map<string, WritingEditor>()
 const pending = new Map<string, { projectId: string; path: string; doc: DocumentRecord }>()
@@ -102,6 +105,7 @@ function drawTabs() {
     const wrap = element('div', 'tab' + (tab === current ? ' current' : ''))
     const title = tab ? label(tab) : 'Home'
     const select = button('', () => void selectTab(tab).catch(report), '', !tab ? 'home' : tab.headingId ? 'link' : 'book')
+    select.title = title
     select.dataset.tabKey = key
     select.append(element('span', 'tab-label', title))
     if (tab === current) select.setAttribute('aria-current', 'page')
@@ -179,6 +183,8 @@ function drawPanel() {
 function updateToolbar() {
   if (!editor || !current || inspecting) return
   const { state } = editor.view
+  undoButton.disabled = undoDepth(state) === 0
+  redoButton.disabled = redoDepth(state) === 0
   const { $from } = state.selection
   const block = $from.depth ? $from.node(1) : state.doc.firstChild!
   blockStyle.value = block.type.name === 'heading' ? 'h' + block.attrs.level : 'paragraph'
@@ -218,6 +224,7 @@ async function switchTab(tab: Tab | null) {
   $('language-label').hidden = !tab
   $('panel').hidden = !tab || !panelOpen
   drawTabs()
+  $('tabs').querySelector('.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   if (!tab) {
     renderHome($('home'), library, {
       openDocument, createDocument, moveDocument, rename: renameHomeItem, remove: deleteHomeItem, importFile: () => void importDocument().catch(report),
@@ -427,19 +434,18 @@ async function updateLanguages() {
   packs = await api.listPacks()
   language.replaceChildren(...languageOptions(packs).map(([code, name]) => new Option(name, code)))
   language.value = activeDocument()?.language ?? prefs.defaultLanguage
+  const content = modal.querySelector<HTMLElement>('.settings-body')
+  if (content) updateSettingsPacks(content, packs, prefs.defaultLanguage)
 }
 function settings() {
-  showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
-    try {
-      await api.installPack(code)
-      await updateLanguages()
-      for (const [id, instance] of editors) {
-        if (record(id).language === code) setSpellingLanguage(instance.view, await checker(code))
-      }
-      settings()
-    } catch (error) { report(error) }
+  const body = showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
+    await api.installPack(code)
+    await updateLanguages()
+    for (const [id, instance] of editors) {
+      if (record(id).language === code) setSpellingLanguage(instance.view, await checker(code))
+    }
   })
-  if (library.workspace) backupSettings(modal, flush, () => {
+  if (library.workspace) backupSettings(body, flush, () => {
     modal.close()
     saveSession()
     void api.library().then(next => loadLibrary(next)).catch(report)
@@ -531,8 +537,8 @@ function wire() {
   }
   document.querySelectorAll<HTMLElement>('[data-format]').forEach(el => { el.onclick = () => editor?.format(el.dataset.format as Format) })
   blockStyle.onchange = () => editor?.format(blockStyle.value as Format)
-  $('undo').onclick = () => { editor?.undo(); editor?.view.focus() }
-  $('redo').onclick = () => { editor?.redo(); editor?.view.focus() }
+  undoButton.onclick = () => { editor?.undo(); editor?.view.focus() }
+  redoButton.onclick = () => { editor?.redo(); editor?.view.focus() }
   $('settings').onclick = settings
   $('export').onclick = exportDialog
   $('draft-action').onclick = () => void drafts().catch(report)
