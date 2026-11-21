@@ -4,8 +4,10 @@ import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { baseKeymap, toggleMark } from "prosemirror-commands";
 import { closeHistory, history, redo, undo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
-import { copyInlines, visibleText, type ChoiceJSON, type InlineJSON, type Manuscript, type OptionJSON } from "./model";
+import { copyInlines, markTags, visibleText, type ChoiceJSON, type InlineJSON, type Manuscript, type OptionJSON } from "./model";
 import { findSection, linkedSection, sectionKey } from "./section";
+
+const parseUnderline = (value: string): null | false => value.split(/\s+/).includes("underline") ? null : false;
 
 export const schema = new Schema({
   nodes: {
@@ -29,14 +31,17 @@ export const schema = new Schema({
   marks: {
     strong: { parseDOM: [{ tag: "strong" }, { tag: "b" }, { style: "font-weight=bold" }], toDOM: () => ["strong", 0] },
     em: { parseDOM: [{ tag: "em" }, { tag: "i" }, { style: "font-style=italic" }], toDOM: () => ["em", 0] },
-    highlight: { parseDOM: [{ tag: "mark" }], toDOM: () => ["mark", 0] },
+    highlight: {
+      parseDOM: [{ tag: "u" }, { tag: "mark" }, { style: "text-decoration", getAttrs: parseUnderline }, { style: "text-decoration-line", getAttrs: parseUnderline }],
+      toDOM: () => [markTags.highlight, 0],
+    },
   },
 });
 
 export interface ChoiceContext {
   id: string;
   active: string;
-  options: { id: string; text: string }[];
+  options: { id: string; text: string; content: InlineJSON[] }[];
   parentId: string | null;
   parentText: string | null;
   children: { id: string; text: string }[];
@@ -50,7 +55,7 @@ export interface EditorHooks {
 }
 
 type LocatedChoice = { node: PMNode; pos: number };
-export type Format = "bold" | "italic" | "highlight" | "paragraph" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+export type Format = "bold" | "italic" | "underline" | "paragraph" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 
 function enclosingChoice(position: ResolvedPos): LocatedChoice | null {
   for (let depth = position.depth; depth > 0; depth--) {
@@ -191,10 +196,10 @@ export class WritingEditor {
     this.hooks = hooks;
     const bindings: Record<string, Command> = {
       "Mod-z": undo, "Shift-Mod-z": redo, "Mod-y": redo,
-      "Mod-b": () => this.format("bold"), "Mod-i": () => this.format("italic"),
+      "Mod-b": () => this.format("bold"), "Mod-i": () => this.format("italic"), "Mod-u": () => this.format("underline"),
       "Alt-ArrowRight": () => this.leaveChoice(),
       "ArrowLeft": () => this.crossChoiceBoundary(-1), "ArrowRight": () => this.crossChoiceBoundary(1),
-      "Backspace": () => this.crossChoiceBoundary(-1), "Delete": () => this.crossChoiceBoundary(1),
+      "Backspace": () => this.deleteAtBoundary(-1), "Delete": () => this.deleteAtBoundary(1),
     };
 
     this.view = new EditorView(host, {
@@ -204,14 +209,29 @@ export class WritingEditor {
       }),
       attributes: { role: "textbox", "aria-label": "Manuscript", "aria-multiline": "true", spellcheck: "false" },
       decorations: state => {
-        const found = this.reviewId && locate(state.doc, this.reviewId);
+        const found = this.reviewId ? locate(state.doc, this.reviewId) : enclosingChoice(state.selection.$from);
         if (!found) return null;
         return DecorationSet.create(state.doc, [Decoration.node(found.pos, found.pos + found.node.nodeSize, { class: "reviewed-wording" })]);
+      },
+      handleClick: (view, pos, event) => {
+        if (event.shiftKey || event.metaKey || event.ctrlKey || !(event.target instanceof Element)) return false;
+        const wording = event.target.closest(".wording");
+        if (!wording) return false;
+        // A click in a span's padding belongs inside that wording, even
+        // when Chromium reports the equivalent position in its parent.
+        const start = view.posAtDOM(wording, 0);
+        const end = view.posAtDOM(wording, wording.childNodes.length);
+        const caret = Math.max(start, Math.min(pos, end));
+        view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, caret)).setMeta("pointer", true));
+        return true;
       },
       handleKeyDown: (view, event) => {
         const selection = view.state.selection;
         if (event.key === "Enter" && (enclosingChoice(selection.$from) || enclosingChoice(selection.$to))) return this.explain(splitMessage);
-        if (partialGroup(selection) && (event.key === "Backspace" || event.key === "Delete")) return this.explain(selectionMessage);
+        if (event.key === "Backspace" || event.key === "Delete") {
+          if (partialGroup(selection)) return this.explain(selectionMessage);
+          if (event.repeat && selection.$from.parent.type === schema.nodes.choice && !selection.$from.parent.content.size) return true;
+        }
         return false;
       },
       handleTextInput: (view) => partialGroup(view.state.selection) && this.explain(selectionMessage),
@@ -253,6 +273,20 @@ export class WritingEditor {
             event.preventDefault();
             return this.explain(selectionMessage);
           }
+          // Chromium removes the enclosing span when its last grapheme is
+          // deleted. Use its intended text range, but keep the choice node.
+          const { $from } = selection;
+          if (event.cancelable && !event.isComposing && $from.parent.type === schema.nodes.choice && /^delete.*(Backward|Forward)$/.test(event.inputType)) {
+            const range = event.getTargetRanges()[0];
+            if (range) {
+              const from = Math.max($from.start(), view.posAtDOM(range.startContainer, range.startOffset));
+              const to = Math.min($from.end(), view.posAtDOM(range.endContainer, range.endOffset));
+              event.preventDefault();
+              if (from < to) view.dispatch(view.state.tr.delete(from, to).scrollIntoView());
+              else if (!$from.parent.content.size) this.deleteAtBoundary(event.inputType.endsWith("Backward") ? -1 : 1);
+              return true;
+            }
+          }
           // Replacing a span's entire text through Chromium's native input
           // method can remove the span itself. Write at the model selection
           // so its containing choice and its inactive options stay intact.
@@ -270,6 +304,14 @@ export class WritingEditor {
         this.view.updateState(next);
         if (next.doc !== previous.doc) hooks.change?.(this.json());
         if (next.doc !== previous.doc || !previous.selection.eq(next.selection) || previous.storedMarks !== next.storedMarks) hooks.selection?.();
+        // Chromium treats the parent position beside an empty span as an
+        // equivalent caret position. Keep the visible caret inside the box.
+        const { empty, $from } = next.selection;
+        if (empty && $from.parent.type === schema.nodes.choice && !$from.parent.content.size && this.view.hasFocus()) {
+          const box = this.view.nodeDOM($from.before());
+          const selection = this.view.dom.ownerDocument.getSelection();
+          if (box && selection && selection.anchorNode !== box) selection.collapse(box, 0);
+        }
       },
     });
   }
@@ -290,6 +332,16 @@ export class WritingEditor {
     if (adjacent?.type !== schema.nodes.choice && !(atEdge && $from.parent.type === schema.nodes.choice)) return false;
     this.view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, $from.pos + direction)));
     return true;
+  }
+
+  private deleteAtBoundary(direction: number): boolean {
+    const { state } = this.view;
+    const { $from, empty } = state.selection;
+    if (empty && $from.parent.type === schema.nodes.choice && !$from.parent.content.size) {
+      this.commitChoice(state.tr.delete($from.before(), $from.after()));
+      return true;
+    }
+    return this.crossChoiceBoundary(direction);
   }
 
   private leaveChoice(): boolean {
@@ -338,7 +390,10 @@ export class WritingEditor {
     });
     return {
       id, active,
-      options: options.map(option => ({ id: option.id, text: option.id === active ? node.textContent : (option.content ?? []).map(visibleText).join("") })),
+      options: options.map(option => {
+        const content: InlineJSON[] = option.id === active ? node.content.toJSON() ?? [] : option.content ?? [];
+        return { id: option.id, text: content.map(visibleText).join(""), content };
+      }),
       parentId: parent?.node.attrs.id ?? null, parentText: parent?.node.textContent ?? null, children,
     };
   }
@@ -353,6 +408,10 @@ export class WritingEditor {
     const node = tr.doc.nodeAt(pos)!;
     const end = pos + 1 + node.content.size;
     tr.setSelection(TextSelection.create(tr.doc, selectText ? pos + 1 : end, end));
+    this.commitChoice(tr);
+  }
+
+  private commitChoice(tr: Transaction): void {
     this.view.dispatch(closeHistory(tr).scrollIntoView());
     this.view.dispatch(closeHistory(this.view.state.tr));
   }
@@ -422,6 +481,43 @@ export class WritingEditor {
     const node = schema.nodes.choice.create({ ...attrs, active: optionId, options }, Fragment.fromJSON(schema, next.content ?? []));
     this.applyChoice(state.tr.replaceWith(found.pos, found.pos + found.node.nodeSize, node), found.pos, false);
     return true;
+  }
+
+  editOption(groupId: string, optionId: string, content: InlineJSON[]): void {
+    const found = this.visibleChoice(groupId);
+    if (!found) return;
+    const { node, pos } = found;
+    const attrs = node.attrs as ChoiceJSON["attrs"];
+    const tr = this.view.state.tr;
+    if (attrs.active === optionId) {
+      tr.replaceWith(pos + 1, pos + node.nodeSize - 1, Fragment.fromJSON(schema, content));
+    } else {
+      const options = attrs.options.map(option => option.id === optionId ? { id: optionId, content } : option);
+      tr.setNodeAttribute(pos, "options", options);
+    }
+    this.commitChoice(tr);
+  }
+
+  deleteOption(groupId: string, optionId: string): void {
+    const found = this.visibleChoice(groupId);
+    if (!found) return;
+    const { node, pos } = found;
+    const attrs = node.attrs as ChoiceJSON["attrs"];
+    const index = attrs.options.findIndex(option => option.id === optionId);
+    if (index < 0) return;
+    const options = attrs.options.filter(option => option.id !== optionId);
+    const active = options.find(option => option.id === attrs.active) ?? options[Math.min(index, options.length - 1)];
+    const content = active?.id === attrs.active ? node.content : Fragment.fromJSON(schema, active?.content ?? []);
+    const tr = this.view.state.tr;
+    if (options.length < 2) {
+      tr.replaceWith(pos, pos + node.nodeSize, content);
+      tr.setSelection(TextSelection.create(tr.doc, pos + content.size));
+      this.commitChoice(tr);
+    } else {
+      const remaining = options.map(option => option.id === active.id ? { id: active.id } : option);
+      const updated = node.type.create({ ...attrs, active: active.id, options: remaining }, content, node.marks);
+      this.applyChoice(tr.replaceWith(pos, pos + node.nodeSize, updated), pos, false);
+    }
   }
 
   cycle(groupId: string, direction: number): boolean {

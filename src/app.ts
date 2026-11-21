@@ -189,7 +189,7 @@ function updateToolbar() {
   const block = $from.depth ? $from.node(1) : state.doc.firstChild!
   blockStyle.value = block.type.name === 'heading' ? 'h' + block.attrs.level : 'paragraph'
   for (const el of document.querySelectorAll<HTMLElement>('[data-format]')) {
-    const name = ({ bold: 'strong', italic: 'em', highlight: 'highlight' } as Record<string, string>)[el.dataset.format!]
+    const name = ({ bold: 'strong', italic: 'em', underline: 'highlight' } as Record<string, string>)[el.dataset.format!]
     const mark = state.schema.marks[name]
     const enabled = state.selection.empty ? !!mark.isInSet(state.storedMarks ?? $from.marks()) : state.doc.rangeHasMark(state.selection.from, state.selection.to, mark)
     el.setAttribute('aria-pressed', String(enabled))

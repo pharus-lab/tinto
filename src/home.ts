@@ -1,7 +1,7 @@
 import type { DocumentRecord, LibraryState, RecentProject } from './project-types'
 import { visibleText } from './model'
 import { dialogHeader } from './settings'
-import { button, element } from './ui'
+import { attachMenu, button, contextMenu, element } from './ui'
 
 export type HomeItem = { kind: 'project'; path: string; title: string } | { kind: 'document'; id: string; title: string }
 
@@ -19,43 +19,6 @@ export interface HomeActions extends FolderActions {
   openSample(): void
   rename(item: HomeItem): void
   remove(item: HomeItem): void
-}
-
-function attachMenu(row: HTMLButtonElement, item: HomeItem, menu: HTMLElement, actions: HomeActions) {
-  row.setAttribute('aria-haspopup', 'menu')
-  function open(x: number, y: number) {
-    row.focus({ preventScroll: true })
-    function command(label: string, run: () => void) {
-      const entry = button(label, () => { menu.hidePopover(); run() })
-      entry.setAttribute('role', 'menuitem')
-      return entry
-    }
-    const rename = command('Rename', () => actions.rename(item))
-    const remove = command('Delete', () => actions.remove(item))
-    menu.replaceChildren(rename, remove)
-    menu.setAttribute('aria-label', 'Actions for ' + item.title)
-    menu.showPopover({ source: row })
-    menu.style.left = Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4)) + 'px'
-    menu.style.top = Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4)) + 'px'
-    const home = menu.parentElement!
-    const scrollTop = home.scrollTop
-    home.onscroll = () => { if (home.scrollTop !== scrollTop && menu.matches(':popover-open')) menu.hidePopover() }
-    rename.focus({ preventScroll: true })
-    menu.onkeydown = event => {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault()
-        const next = document.activeElement === rename ? remove : rename
-        next.focus()
-      }
-    }
-  }
-  row.oncontextmenu = event => { event.preventDefault(); open(event.clientX, event.clientY) }
-  row.onkeydown = event => {
-    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
-    event.preventDefault()
-    const { left, bottom } = row.getBoundingClientRect()
-    open(left, bottom)
-  }
 }
 
 export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Rename' | 'Delete' | 'Move', kind: HomeItem['kind'], title: string, apply: (name: string) => void | Promise<void>, detail = '') {
@@ -147,10 +110,10 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   }
 
   const columns = element('div', 'home-columns')
-  const menu = element('div', 'home-menu')
-  menu.popover = 'auto'
-  menu.setAttribute('role', 'menu')
-  menu.addEventListener('focusout', event => { if (!menu.contains(event.relatedTarget as Node)) menu.hidePopover() })
+  const menu = contextMenu()
+  function itemMenu(row: HTMLButtonElement, item: HomeItem) {
+    attachMenu(row, menu, item.title, [['Rename', () => actions.rename(item)], ['Delete', () => actions.remove(item)]])
+  }
   const projects = element('div')
   let dragged: DocumentRecord | null = null
   projects.append(element('h2', '', 'Projects in this folder'))
@@ -158,7 +121,7 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
     const row = button(project.title, () => actions.openProject(project.path), 'project-entry', 'folder')
     row.title = project.path
     row.setAttribute('aria-current', String(workspace?.path === project.path))
-    attachMenu(row, { kind: 'project', ...project }, menu, actions)
+    itemMenu(row, { kind: 'project', ...project })
     if (workspace && project.path !== workspace.path) {
       row.ondragover = event => {
         if (!dragged) return
@@ -190,7 +153,7 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   for (const doc of workspace.project.documents) {
     const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'branch' : 'book')
     if (doc.source) row.append(element('small', 'draft-label', 'Independent draft'))
-    attachMenu(row, { kind: 'document', id: doc.id, title: doc.title }, menu, actions)
+    itemMenu(row, { kind: 'document', id: doc.id, title: doc.title })
     row.draggable = library.projects.length > 1
     if (row.draggable) row.title = 'Drag to another project to move this document'
     row.ondragstart = event => {

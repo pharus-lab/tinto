@@ -14,6 +14,7 @@ function representativeDocx(template) {
   files['word/document.xml'] = strToU8(`<w:document xmlns:w="${word}"><w:body>
     <w:p><w:pPr><w:pStyle w:val="ChapterStyle"/></w:pPr><w:r><w:t>The letter</w:t></w:r></w:p>
     <w:p><w:r><w:rPr><w:rStyle w:val="Emphasis"/><w:b/><w:highlight w:val="yellow"/></w:rPr><w:t>Monday</w:t></w:r></w:p>
+    <w:p><w:r><w:rPr><w:shd w:val="clear" w:fill="F2D88F"/></w:rPr><w:t>Earlier Tinto highlight</w:t></w:r></w:p>
     <w:p><w:commentRangeStart w:id="0"/><w:del><w:r><w:delText>Discarded revision</w:delText></w:r></w:del><w:ins><w:r><w:t>Accepted revision</w:t></w:r></w:ins><w:commentRangeEnd w:id="0"/></w:p>
     <w:tbl><w:tr><w:tc><w:p><w:r><w:t>A table cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
     <w:p><w:r><w:drawing/></w:r></w:p></w:body></w:document>`)
@@ -31,9 +32,16 @@ test('local import and export preserve active prose, headings and author formatt
   await button(page.locator('#home'), 'The kitchen').click()
   await prose.locator('[data-choice-id="kitchen-food"]').click()
   const nested = page.getByRole('region', { name: 'Within this passage' })
-  await button(nested, 'Edit wording').click()
-  for (const mark of ['Bold', 'Italic', 'Highlight']) await button(page, mark).click()
-  await prose.locator('.reviewed-wording mark').waitFor()
+  await button(nested, 'Edit in manuscript').click()
+  for (const mark of ['Bold', 'Italic', 'Underline']) await button(page, mark).click()
+  const underlined = prose.locator('.wording .reviewed-wording u')
+  assert.equal(await underlined.textContent(), 'cake')
+  const shortcut = process.platform === 'darwin' ? 'Meta+u' : 'Control+u'
+  await page.keyboard.press(shortcut)
+  await underlined.waitFor({ state: 'detached' })
+  await page.keyboard.press(shortcut)
+  await underlined.waitFor()
+  assert.equal(await button(page, 'Underline').getAttribute('aria-pressed'), 'true')
   const paths = { docx: join(output, 'Kitchen excerpt.docx'), pdf: join(output, 'Kitchen excerpt.pdf') }
 
   async function exportAs(extension, label) {
@@ -52,15 +60,15 @@ test('local import and export preserve active prose, headings and author formatt
   await exportAs('pdf', 'PDF (.pdf)')
   const docx = await readFile(paths.docx)
   const xml = strFromU8(unzipSync(docx)['word/document.xml'])
-  assert.match(xml, /F2D88F/)
-  assert.doesNotMatch(xml, /<w:highlight[^>]+yellow/)
+  assert.match(xml, /<w:u w:val="single"\/>/)
+  assert.doesNotMatch(xml, /<w:highlight|F2D88F/)
   assert.match(xml, /Heading1/)
   assert.match(xml, /cake/)
   assert.doesNotMatch(xml, /a cat|ice cream|The garden|F4E5E6|wording|misspelling|history/i)
   await importPath(paths.docx)
   await page.locator('#tabs .current').filter({ hasText: 'Kitchen excerpt' }).waitFor()
   assert.equal(await prose.locator('h1').textContent(), 'The kitchen')
-  assert.equal(await prose.locator('strong em mark, strong mark em, em strong mark, em mark strong, mark strong em, mark em strong').textContent(), 'cake')
+  assert.equal(await prose.locator('strong em u').textContent(), 'cake')
 
   await importPath(paths.pdf)
   let notes = page.getByRole('dialog', { name: 'Import notes' })
@@ -77,7 +85,8 @@ test('local import and export preserve active prose, headings and author formatt
   for (const category of ['Table cells', 'Images', 'Comments', 'Tracked revisions']) await notes.getByText(category, { exact: false }).waitFor()
   await button(notes, 'Done').click()
   assert.equal(await prose.locator('h2').textContent(), 'The letter')
-  assert.equal(await prose.locator('strong em mark').textContent(), 'Monday')
+  assert.equal(await prose.locator('strong em u').textContent(), 'Monday')
+  assert.equal(await prose.locator('u').filter({ hasText: 'Earlier Tinto highlight' }).textContent(), 'Earlier Tinto highlight')
   assert.match(await prose.innerText(), /Accepted revision/)
   assert.match(await prose.innerText(), /A table cell/)
   assert.doesNotMatch(await prose.innerText(), /Discarded revision/)

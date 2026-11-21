@@ -17,7 +17,6 @@
 .draft-column h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--secondary); }
 .draft-prose, .draft-result-prose { white-space: pre-wrap; overflow-wrap: anywhere; font: 17px/1.5 var(--serif); color: var(--ink); }
 .draft-heading { font-size: 21px; font-weight: 600; }
-.draft-review mark { background: var(--gold); color: var(--ink); }
 .draft-review summary { cursor: pointer; color: var(--secondary); font-size: 12px; }
 .draft-options { margin-top: 8px; }
 .draft-options ol { padding-left: 20px; margin: 4px 0; }

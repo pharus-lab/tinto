@@ -9,7 +9,6 @@
   --wash: light-dark(#F4E5E6, #432E35);
   --divider: light-dark(#D9D1CF, #493E42);
   --outline: light-dark(#938487, #8B787E);
-  --gold: light-dark(#F2D88F, #675021);
   --size: 21px;
   --leading: 1.72;
   --serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
@@ -89,9 +88,12 @@ select {
 .ProseMirror h3 { font-size: 1.35em; }
 .ProseMirror > :first-child, .ProseMirror > .section-start { margin-top: 0; }
 .ProseMirror p { margin: 0 0 .95em; }
-.ProseMirror mark, .version-text mark { color: var(--ink); background: var(--gold); }
-.ProseMirror .reviewed-wording { background: var(--wash); border-bottom: 1px solid var(--wine); }
-.ProseMirror .reviewed-wording .wording { border-bottom: 2px dotted var(--wine); }
+.ProseMirror u, .version-text u, .draft-review u { text-decoration-thickness: .065em; text-underline-offset: .14em; }
+.ProseMirror .wording { padding-inline: .35em; border-radius: .2em; box-decoration-break: clone; background-color: color-mix(in srgb, var(--wine) 16%, transparent); }
+.ProseMirror .reviewed-wording, .ProseMirror .wording:empty { outline: 1px solid color-mix(in srgb, var(--wine) 60%, transparent); outline-offset: -1px; }
+/* The serif text box is about 1.3em tall. Chromium paints a selection across the full line height. */
+.ProseMirror .reviewed-wording:not(:empty) { padding-block: max(.08em, calc(.5lh - .65em + 1px)); }
+.ProseMirror .wording:empty { display: inline-block; width: .75em; height: 1.45em; line-height: 1.45; vertical-align: -.28em; padding-inline: .35em; cursor: text; }
 .ProseMirror ::selection { background: color-mix(in srgb,var(--wine) 28%,transparent); }
 #panel { width: clamp(270px, 27%, 345px); flex: none; padding: 24px; background: var(--panel); border-left: 1px solid var(--divider); }
 .panel-title { display: flex; align-items: center; justify-content: space-between; margin: 0 0 28px; }
@@ -104,9 +106,19 @@ select {
 .alt-pagination { flex: none; white-space: nowrap; font-size: 12px; color: var(--secondary); }
 .alt-pagination button { padding: 2px 5px; }
 .alt-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.alt-option-row { position: relative; }
 .alt-wording { overflow-wrap: anywhere; }
-.alt-option { padding: 12px; text-align: left; justify-content: flex-start; background: var(--paper); border: 1px solid var(--outline); border-radius: 5px; width: 100%; font: 16px/1.35 var(--serif); }
+.alt-option { padding: 12px 36px 12px 12px; text-align: left; justify-content: flex-start; background: var(--paper); border: 1px solid var(--outline); border-radius: 5px; width: 100%; font: 16px/1.35 var(--serif); }
 .alt-option[aria-pressed=true] { background: var(--wine); border-color: var(--wine); color: var(--on-wine); }
+.alt-pencil { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 6px; color: var(--secondary); }
+.alt-option[aria-pressed=true] + .alt-pencil { color: var(--on-wine); }
+.alt-pencil:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+dialog.alt-editor { position: fixed; inset: auto; margin: 0; padding: 10px; border-radius: 5px; max-height: calc(100vh - 8px); }
+.alt-editor::backdrop { background: transparent; }
+.alt-editor-prose .ProseMirror { min-height: 2.2em; max-height: 45vh; overflow: auto; padding: 3px; font: 16px/1.45 var(--serif); }
+.alt-editor-prose .ProseMirror p { margin: 0; }
+.alt-editor-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 8px; }
+.alt-editor-notice { color: var(--wine); }
 .alt-actions { margin-top: 6px; font-size: 12px; color: var(--secondary); flex-wrap: wrap; }
 .alt-parent { color: var(--secondary); }
 footer { height: 34px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 20px; background: var(--panel); border-top: 1px solid var(--divider); color: var(--secondary); font-size: 12px; }
@@ -146,9 +158,9 @@ body.welcome :is(.location, footer, #tabs, #settings, #writing, #panel) { displa
 .draft-label { flex: none; color: var(--secondary); font: 12px/1.4 system-ui, sans-serif; }
 .doc-row { padding: 10px 8px; font: 500 21px var(--serif); }
 .doc-row[draggable=true] { cursor: grab; }
-.home-menu { position: fixed; inset: auto; margin: 0; min-width: 9rem; padding: 4px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: 0 4px 16px #20081624; }
-.home-menu button { width: 100%; justify-content: flex-start; }
-.home-menu button:focus-visible { outline-offset: -2px; }
+.context-menu { position: fixed; inset: auto; margin: 0; min-width: 9rem; padding: 4px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: 0 4px 16px #20081624; }
+.context-menu button { width: 100%; justify-content: flex-start; }
+.context-menu button:focus-visible { outline-offset: -2px; }
 .section-row { color: var(--secondary); margin-left: 20px; width: calc(100% - 20px); }
 dialog { max-height: 82vh; width: min(560px,90vw); overflow-wrap: anywhere; border: 1px solid var(--outline); border-radius: 9px; padding: 24px; background: var(--paper); color: var(--ink); box-shadow: 0 15px 70px #170a1026; }
 dialog::backdrop { background: #1b101c45; }

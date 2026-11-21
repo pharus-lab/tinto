@@ -153,7 +153,7 @@ function resultEditor(host: HTMLElement, initial: BlockJSON, change: (block: Blo
   }
   style.onchange = () => editor.format(style.value as Format)
   tools.onmousedown = event => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }
-  tools.append(style, ...(['bold', 'italic', 'highlight'] as const).map(mark => button(mark[0].toUpperCase() + mark.slice(1), () => editor.format(mark), 'outline')), alternatives)
+  tools.append(style, ...(['bold', 'italic', 'underline'] as const).map(mark => button(mark[0].toUpperCase() + mark.slice(1), () => editor.format(mark), 'outline')), alternatives)
   host.append(tools, prose, choices, notice)
   draw()
   return editor

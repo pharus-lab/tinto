@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { newBlock, type BlockJSON, type InlineJSON, type Manuscript, type MarkJSON, type TextJSON } from './model'
+import { markTags, newBlock, type BlockJSON, type InlineJSON, type Manuscript, type MarkJSON, type TextJSON } from './model'
 
 const word = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 const rels = 'http://schemas.openxmlformats.org/package/2006/relationships'
@@ -19,7 +19,7 @@ export const printStyles = `
   p, h1, h2, h3, h4, h5, h6 { margin: 0 0 8pt; white-space: pre-wrap; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
   ${headingSizes.map((size, index) => 'h' + (index + 1) + ' { font-size: ' + size + 'pt; }').join('\n')}
-  mark { background: #F2D88F; color: inherit; }
+  u { text-decoration-thickness: .065em; text-underline-offset: .14em; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 `
 
@@ -32,7 +32,7 @@ export function documentHTML(doc: Manuscript): string {
     const runs = activeRuns(block.content ?? []).map(run => {
       let value = xml(run.text)
       for (const mark of run.marks ?? []) {
-        const name = mark.type === 'highlight' ? 'mark' : mark.type
+        const name = markTags[mark.type]
         value = '<' + name + '>' + value + '</' + name + '>'
       }
       return value
@@ -44,7 +44,7 @@ export function writeDocx(doc: Manuscript): Uint8Array {
   const paragraphs = doc.content.map(block => {
     const style = block.type === 'heading' ? '<w:pPr><w:pStyle w:val="Heading' + block.attrs.level + '"/></w:pPr>' : ''
     const runs = activeRuns(block.content ?? []).map(run => {
-      const marks = run.marks?.map(mark => ({ strong: '<w:b/>', em: '<w:i/>', highlight: '<w:shd w:val="clear" w:fill="F2D88F"/>' })[mark.type]).join('') ?? ''
+      const marks = run.marks?.map(mark => ({ strong: '<w:b/>', em: '<w:i/>', highlight: '<w:u w:val="single"/>' })[mark.type]).join('') ?? ''
       return '<w:r><w:rPr>' + marks + '</w:rPr><w:t xml:space="preserve">' + xml(run.text) + '</w:t></w:r>'
     })
     return '<w:p>' + style + runs.join('') + '</w:p>'
@@ -106,12 +106,13 @@ function readDocx(bytes: Uint8Array): ImportedFile {
       const rpr = child(run, 'rPr')
       const inherited = [...chain, ...inheritance(attr(child(rpr, 'rStyle'), 'val'))].map(style => child(style, 'rPr'))
       const marks: MarkJSON[] = []
-      for (const [key, type] of [['b','strong'], ['i','em'], ['highlight','highlight']] as const) {
-        const prop = [...inherited, rpr].map(s => child(s, key)).filter(Boolean).at(-1)
-        const shade = key === 'highlight' && [...inherited, rpr].map(s => child(s, 'shd')).filter(Boolean).at(-1)
-        const gold = shade && attr(shade, 'fill').toUpperCase() === 'F2D88F'
-        if (prop ? !['none','false','0','off'].includes(attr(prop,'val')) : gold) marks.push({ type })
-      }
+      const property = (name: string) => [...inherited, rpr].map(s => child(s, name)).filter(Boolean).at(-1)
+      const enabled = (prop: Element | undefined) => !!prop && !['none','false','0','off'].includes(attr(prop, 'val'))
+      if (enabled(property('b'))) marks.push({ type: 'strong' })
+      if (enabled(property('i'))) marks.push({ type: 'em' })
+      const highlight = property('highlight')
+      const oldHighlight = highlight ? enabled(highlight) : attr(property('shd'), 'fill').toUpperCase() === 'F2D88F'
+      if (enabled(property('u')) || oldHighlight) marks.push({ type: 'highlight' })
       for (const node of run.children) {
         if (node.localName === 'br' || node.localName === 'cr') { block = newBlock(); blocks.push(block); continue }
         const text = node.localName === 'tab' ? '\t' : node.localName === 't' ? node.textContent : ''
