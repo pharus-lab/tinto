@@ -1,5 +1,4 @@
-import type { DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, PickedImage, PostRecord, PublishRequest, PublishResult, SiteStatus } from './project-types'
-import type { SiteConfig } from './cloudflare'
+import type { DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, PickedImage, PostRecord, PublishRequest, SiteSummary } from './project-types'
 
 import type { DictionaryPack } from './dictionary-packs'
 import type { DictionaryData } from './spelling'
@@ -20,15 +19,14 @@ export interface Desktop {
   restoreBackup(id: string): Promise<string | null>
   openRestored(path: string): Promise<Workspace>
   online(): Promise<void>
-  siteStatus(): Promise<SiteStatus>
-  connectSite(config: SiteConfig): Promise<SiteStatus>
-  testSite(): Promise<SiteStatus>
-  disconnectSite(): Promise<SiteStatus>
-  loadPost(documentId: string, headingId: string | null): Promise<PostRecord | null>
+  sites(): Promise<SiteSummary[]>
+  addSite(endpoint: string, key: string): Promise<SiteSummary>
+  testSite(id: string): Promise<SiteSummary>
+  removeSite(id: string): Promise<void>
+  posts(documentId: string, headingId: string | null): Promise<PostRecord[]>
   pickImages(multiple: boolean): Promise<PickedImage[]>
-  publishPost(request: PublishRequest): Promise<PublishResult>
-  unpublishPost(documentId: string, headingId: string | null): Promise<PublishResult>
-  rebuildSite(documentId: string, headingId: string | null): Promise<PublishResult>
+  publishPost(request: PublishRequest): Promise<PostRecord>
+  unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>
   pickFile(): Promise<InputFile | null>
   exportFile(format: ExportFormat, title: string, doc: Manuscript): Promise<boolean>
   listPacks(): Promise<DictionaryPack[]>

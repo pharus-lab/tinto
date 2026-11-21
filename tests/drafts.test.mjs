@@ -141,7 +141,7 @@ test('a version-one project upgrades in place and keeps its documents and named 
   assert.equal(f.store.versions(draft.id)[0].name, 'Draft only')
   assert.equal(f.store.versions(f.source.id).length, 1)
   assert.deepEqual(f.store.reviewDraft(draft.id), [])
-  assert.equal(f.store.post(f.source.id, null), null)
+  assert.deepEqual(f.store.posts(f.source.id, null), [])
 })
 
 test('matching edits establish a new baseline before a later original-only change', t => {

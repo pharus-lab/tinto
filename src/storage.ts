@@ -13,12 +13,13 @@ const DRAFT_SCHEMA = `
 `
 // Publication details live beside the documents rather than inside them, so
 // restoring a version or creating a draft never forgets or copies a post's id.
+// Each website keeps its own post of a document or section.
 const POST_SCHEMA = `
   CREATE TABLE posts (
-    id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id),
-    heading_id TEXT NOT NULL DEFAULT '', content TEXT NOT NULL, UNIQUE (document_id, heading_id)
+    id TEXT PRIMARY KEY, site_id TEXT NOT NULL, document_id TEXT NOT NULL REFERENCES documents(id),
+    heading_id TEXT NOT NULL DEFAULT '', content TEXT NOT NULL, UNIQUE (site_id, document_id, heading_id)
   );
-  PRAGMA user_version = 3;
+  PRAGMA user_version = 4;
 `
 
 function transaction<T>(db: DatabaseSync, action: () => T): T {
@@ -55,7 +56,10 @@ export class ProjectStore {
       const version = this.db.prepare('PRAGMA user_version').get()?.user_version
       if (version === 1) transaction(this.db, () => { this.db.exec(DRAFT_SCHEMA); this.db.exec(POST_SCHEMA) })
       else if (version === 2) transaction(this.db, () => this.db.exec(POST_SCHEMA))
-      else if (version !== 3) {
+      // Version 3 came only from unreleased builds that published to a single
+      // site, before any site could be connected. Its table has no site column.
+      else if (version === 3) transaction(this.db, () => { this.db.exec('DROP TABLE posts'); this.db.exec(POST_SCHEMA) })
+      else if (version !== 4) {
         throw new Error('This project requires a different version of Tinto.')
       }
       this.tick()
@@ -169,16 +173,25 @@ export class ProjectStore {
     })
   }
 
-  post(documentId: string, headingId: string | null): PostRecord | null {
-    const row = this.db.prepare('SELECT content FROM posts WHERE document_id = ? AND heading_id = ?').get(documentId, headingId ?? '')
+  projectId(): string {
+    return String(this.db.prepare('SELECT id FROM project').get()!.id)
+  }
+
+  post(siteId: string, documentId: string, headingId: string | null): PostRecord | null {
+    const row = this.db.prepare('SELECT content FROM posts WHERE site_id = ? AND document_id = ? AND heading_id = ?').get(siteId, documentId, headingId ?? '')
     return row ? JSON.parse(String(row.content)) : null
+  }
+
+  posts(documentId: string, headingId: string | null): PostRecord[] {
+    return this.db.prepare('SELECT content FROM posts WHERE document_id = ? AND heading_id = ? ORDER BY rowid').all(documentId, headingId ?? '')
+      .map(row => JSON.parse(String(row.content)))
   }
 
   savePost(post: PostRecord): void {
     this.db.prepare(`
-      INSERT INTO posts (id, document_id, heading_id, content) VALUES (?, ?, ?, ?)
+      INSERT INTO posts (id, site_id, document_id, heading_id, content) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET content = excluded.content
-    `).run(post.id, post.documentId, post.headingId ?? '', JSON.stringify(post))
+    `).run(post.id, post.siteId, post.documentId, post.headingId ?? '', JSON.stringify(post))
   }
 
   deletePost(id: string): void {
@@ -248,7 +261,7 @@ export class ProjectStore {
         throw Error('The downloaded file is not an intact backup of this project.')
       }
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version)
-      if (version < 1 || version > 3) throw Error('This backup requires a different version of Tinto.')
+      if (version < 1 || version > 4) throw Error('This backup requires a different version of Tinto.')
     } finally { db.close() }
   }
 

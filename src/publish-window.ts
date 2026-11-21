@@ -3,41 +3,43 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { rm, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { CloudflareSite, validateConfig, verifySite, type SiteConfig } from './cloudflare'
 import { Publisher, type ImageInput } from './publishing'
 import { protect, reveal } from './secure-file'
+import { SiteClient, siteId, validateConnection, type SiteConnection } from './site-api'
 import { ProjectStore } from './storage'
-import type { PickedImage, PostImageChoice, PublishRequest, SiteStatus } from './project-types'
+import type { PickedImage, PostImageChoice, PublishRequest, SiteSummary } from './project-types'
 
 interface PublishContext {
   window(): BrowserWindow
   project(): { id: string; path: string } | null
   trusted(event: Electron.IpcMainInvokeEvent): void
 }
+interface SavedSite extends SiteConnection { id: string; name: string }
 
 export function registerPublishing(context: PublishContext) {
-  const file = join(app.getPath('userData'), 'site-connection.enc')
-  const purpose = 'connect a Cloudflare site'
-  let config: SiteConfig | null = null
-  async function connection(): Promise<SiteConfig> {
-    if (config) return config
-    if (!existsSync(file)) throw Error('Connect a Cloudflare site in Settings first.')
-    config = validateConfig(JSON.parse(await reveal(file, purpose)))
-    return config
+  // Every website's publishing URL and API key, encrypted together.
+  const file = join(app.getPath('userData'), 'sites.enc')
+  const purpose = 'publish to your websites'
+  let saved: SavedSite[] | null = null
+  async function sites(): Promise<SavedSite[]> {
+    saved ??= existsSync(file) ? JSON.parse(await reveal(file, purpose)) as SavedSite[] : []
+    return saved
   }
-  const publisher = new Publisher(async () => new CloudflareSite(await connection()))
+  async function keep(next: SavedSite[]) {
+    if (next.length) await protect(file, JSON.stringify(next), purpose)
+    else await rm(file, { force: true })
+    saved = next
+  }
+  async function site(id: string): Promise<SavedSite> {
+    const found = (await sites()).find(item => item.id === id)
+    if (!found) throw Error('This website is no longer in Tinto. Add it again in Settings.')
+    return found
+  }
+  const summary = ({ id, name, endpoint }: SavedSite): SiteSummary => ({ id, name, endpoint })
+  const publisher = new Publisher(async id => new SiteClient(await site(id)))
   // The renderer refers to chosen images by token; it never supplies a path.
   const picked = new Map<string, { path: string; name: string }>()
 
-  async function status(): Promise<SiteStatus> {
-    if (!existsSync(file)) return { connected: false, accountId: null, databaseId: null, bucket: null, error: null }
-    try {
-      const { accountId, databaseId, bucket } = await connection()
-      return { connected: true, accountId, databaseId, bucket, error: null }
-    } catch (error) {
-      return { connected: true, accountId: null, databaseId: null, bucket: null, error: error instanceof Error ? error.message : String(error) }
-    }
-  }
   // A temporary connection keeps a slow upload independent of project navigation.
   async function withProject<T>(task: (store: ProjectStore) => Promise<T>): Promise<T> {
     const active = context.project()
@@ -46,37 +48,42 @@ export function registerPublishing(context: PublishContext) {
     try { return await task(store) } finally { store.close() }
   }
   function image(choice: PostImageChoice): ImageInput {
-    if ('key' in choice) return { alt: choice.alt, key: String(choice.key) }
+    if ('file' in choice) return { alt: choice.alt, file: String(choice.file) }
     const file = picked.get(choice.token)
     if (!file) throw Error('Choose the image again.')
     return { alt: choice.alt, ...file }
   }
 
-  ipcMain.handle('site:status', event => { context.trusted(event); return status() })
-  ipcMain.handle('site:connect', async (event, input: SiteConfig) => {
+  ipcMain.handle('sites:list', async event => {
     context.trusted(event)
-    const next = validateConfig(input)
-    await verifySite(new CloudflareSite(next))
+    return (await sites()).map(summary)
+  })
+  // Adding a publishing URL that is already listed replaces its key.
+  ipcMain.handle('sites:add', async (event, endpoint: string, key: string) => {
+    context.trusted(event)
+    const connection = validateConnection({ endpoint, key })
+    const { name } = await new SiteClient(connection).info()
+    const entry: SavedSite = { id: siteId(connection.endpoint), name, ...connection }
     await publisher.idle()
-    await protect(file, JSON.stringify(next), purpose)
-    config = next
-    return status()
+    const current = await sites()
+    await keep(current.some(item => item.id === entry.id) ? current.map(item => item.id === entry.id ? entry : item) : [...current, entry])
+    return summary(entry)
   })
-  ipcMain.handle('site:test', async event => {
+  ipcMain.handle('sites:test', async (event, id: string) => {
     context.trusted(event)
-    await verifySite(new CloudflareSite(await connection()))
-    return status()
+    const entry = await site(id)
+    const { name } = await new SiteClient(entry).info()
+    if (name !== entry.name) await keep((await sites()).map(item => item.id === id ? { ...item, name } : item))
+    return summary({ ...entry, name })
   })
-  ipcMain.handle('site:disconnect', async event => {
+  ipcMain.handle('sites:remove', async (event, id: string) => {
     context.trusted(event)
     await publisher.idle()
-    await rm(file, { force: true })
-    config = null
-    return status()
+    await keep((await sites()).filter(item => item.id !== id))
   })
-  ipcMain.handle('post:load', (event, documentId: string, headingId: string | null) => {
+  ipcMain.handle('post:list', (event, documentId: string, headingId: string | null) => {
     context.trusted(event)
-    return withProject(async store => store.post(documentId, headingId))
+    return withProject(async store => store.posts(documentId, headingId))
   })
   ipcMain.handle('post:pick-images', async (event, multiple: boolean): Promise<PickedImage[]> => {
     context.trusted(event)
@@ -96,17 +103,16 @@ export function registerPublishing(context: PublishContext) {
   ipcMain.handle('post:publish', async (event, request: PublishRequest) => {
     context.trusted(event)
     const choices = [...(request.cover ? [request.cover] : []), ...request.images]
-    const input = { documentId: request.documentId, headingId: request.headingId, fields: request.fields, cover: request.cover ? image(request.cover) : null, images: request.images.map(image) }
-    const result = await withProject(store => publisher.publish(store, input))
+    const input = {
+      siteId: String(request.siteId), documentId: request.documentId, headingId: request.headingId, fields: request.fields,
+      cover: request.cover ? image(request.cover) : null, images: request.images.map(image)
+    }
+    const post = await withProject(store => publisher.publish(store, input))
     for (const choice of choices) if ('token' in choice) picked.delete(choice.token)
-    return result
+    return post
   })
-  ipcMain.handle('post:unpublish', (event, documentId: string, headingId: string | null) => {
+  ipcMain.handle('post:unpublish', (event, siteId: string, documentId: string, headingId: string | null) => {
     context.trusted(event)
-    return withProject(store => publisher.unpublish(store, documentId, headingId))
-  })
-  ipcMain.handle('post:rebuild', (event, documentId: string, headingId: string | null) => {
-    context.trusted(event)
-    return withProject(store => publisher.rebuild(store, documentId, headingId))
+    return withProject(store => publisher.unpublish(store, siteId, documentId, headingId))
   })
 }

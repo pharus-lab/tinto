@@ -1,38 +1,54 @@
-import type { PostImageChoice, PostRecord, PublishResult } from './project-types'
+import type { PostImageChoice, PostRecord, SiteSummary } from './project-types'
 import { dialogHeader } from './settings'
 import { button, element, errorMessage as errorText } from './ui'
 
 export interface PublishTarget { documentId: string; headingId: string | null; title: string; languageName: string }
-type Choice = { alt: string; name: string } & ({ key: string } | { token: string })
+type Choice = { alt: string; name: string } & ({ file: string } | { token: string })
 const largest = 15 * 1024 * 1024
+// The website chosen last is offered first during this session.
+let lastSite: string | null = null
 
 export function slugify(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '')
 }
 
-function describe(post: PostRecord | null): string {
-  if (!post) return 'Not published yet. Tinto uploads the images to R2, saves the post in D1 and starts a site rebuild.'
-  if (post.removed) return 'Removed from the site database. The site has not rebuilt yet, so the post is still visible.'
-  const when = new Date(post.publishedAt).toLocaleString()
-  if (post.deployPending) return 'Saved to the site database on ' + when + '. The site has not rebuilt yet.'
-  return 'Published · ' + when + ' · ' + post.slug
+function describe(site: SiteSummary, post: PostRecord | null): string {
+  if (!post) return 'Not published on ' + site.name + ' yet.'
+  return 'Published on ' + site.name + ' · ' + new Date(post.publishedAt).toLocaleString() + ' · ' + (post.url ?? post.slug)
 }
 
 export async function showPublish(dialog: HTMLDialogElement, target: PublishTarget, openSettings: () => void, notice: (text: string) => void) {
   const api = window.tinto
-  const [site, saved] = await Promise.all([api.siteStatus(), api.loadPost(target.documentId, target.headingId)])
-  if (!site.connected) {
+  const [sites, posts] = await Promise.all([api.sites(), api.posts(target.documentId, target.headingId)])
+  const kind = target.headingId ? 'section' : 'document'
+  if (!sites.length) {
     const actions = element('div', 'dialog-actions')
     actions.append(button('Cancel', () => dialog.close(), 'outline'), button('Open Settings', () => { dialog.close(); openSettings() }, 'primary'))
-    dialog.replaceChildren(dialogHeader(dialog, 'Publish'), element('p', '', 'Connect your Cloudflare site in Settings, then publish this ' + (target.headingId ? 'section' : 'document') + ' as a post.'), actions)
+    dialog.replaceChildren(dialogHeader(dialog, 'Publish'), element('p', '', 'Add a website in Settings, then publish this ' + kind + ' as a post.'), actions)
     if (!dialog.open) dialog.showModal()
     return
   }
+  const records = new Map(posts.map(post => [post.siteId, post]))
 
-  function render(post: PostRecord | null, note: string) {
-    const live = post && !post.removed ? post : null
+  function render(site: SiteSummary) {
+    lastSite = site.id
+    const post = records.get(site.id) ?? null
+    // A post on another website supplies the text fields; images are chosen per website.
+    const known = post ?? posts[0] ?? null
     const form = element('form', 'publish-form')
+    const siteRow = element('label', 'field', 'Website')
+    const picker = element('select')
+    picker.setAttribute('aria-label', 'Website')
+    for (const item of sites) {
+      const option = element('option', '', item.name + (records.has(item.id) ? ' · published' : ''))
+      option.value = item.id
+      picker.append(option)
+    }
+    picker.value = site.id
+    picker.onchange = () => render(sites.find(item => item.id === picker.value) ?? site)
+    siteRow.append(picker)
+    form.append(siteRow)
     function field(label: string, value: string, type = 'text') {
       const row = element('label', 'field', label)
       const input = element('input')
@@ -42,31 +58,31 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
       form.append(row)
       return input
     }
-    const title = field('Title', live?.title ?? target.title)
+    const title = field('Title', known?.title ?? target.title)
     title.required = true
     title.maxLength = 200
-    const slug = field('Address', live?.slug ?? slugify(target.title))
+    const slug = field('Address', known?.slug ?? slugify(target.title))
     slug.required = true
     slug.maxLength = 100
     slug.spellcheck = false
-    let slugEdited = !!live
+    let slugEdited = !!known
     slug.oninput = () => { slugEdited = true }
     title.oninput = () => { if (!slugEdited) slug.value = slugify(title.value) }
-    const date = field('Date', live?.date ?? new Date().toLocaleDateString('en-CA'), 'date')
+    const date = field('Date', known?.date ?? new Date().toLocaleDateString('en-CA'), 'date')
     date.required = true
     const summaryRow = element('label', 'field stacked', 'Summary')
     const summary = element('textarea')
     summary.rows = 3
     summary.maxLength = 500
-    summary.value = live?.summary ?? ''
+    summary.value = known?.summary ?? ''
     summaryRow.append(summary)
     form.append(summaryRow)
-    const tags = field('Tags', (live?.tags ?? []).join(', '))
+    const tags = field('Tags', (known?.tags ?? []).join(', '))
     tags.placeholder = 'Separated by commas'
     form.append(element('p', '', 'Language · ' + target.languageName))
 
-    let cover: Choice | null = live?.cover ? { key: live.cover.key, alt: live.cover.alt, name: live.cover.name } : null
-    const gallery: Choice[] = live?.images.map(image => ({ key: image.key, alt: image.alt, name: image.name })) ?? []
+    let cover: Choice | null = post?.cover ? { file: post.cover.file, alt: post.cover.alt, name: post.cover.name } : null
+    const gallery: Choice[] = post?.images.map(image => ({ file: image.file, alt: image.alt, name: image.name })) ?? []
     const coverHost = element('section', 'post-images')
     const galleryHost = element('section', 'post-images')
     form.append(coverHost, galleryHost)
@@ -107,17 +123,16 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
 
     const status = element('p', 'publish-status')
     status.setAttribute('role', 'status')
-    status.textContent = note || describe(post)
+    status.textContent = describe(site, post)
     const actions = element('div', 'dialog-actions')
     form.append(status, actions)
-    const controls = () => form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement>('button, input, textarea')
-    function run(task: () => Promise<PublishResult>, progress: string, done: () => string) {
+    const controls = () => form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('button, input, textarea, select')
+    function run(task: () => Promise<unknown>, progress: string, done: () => string) {
       return async () => {
         controls().forEach(el => el.disabled = true)
         status.textContent = progress
         try {
-          const result = await task()
-          if (result.deployError) { render(result.post, 'Saved, but the site rebuild did not start. ' + result.deployError); return }
+          await task()
           dialog.close()
           notice(done())
         } catch (error) {
@@ -128,30 +143,29 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
     }
     function drawActions() {
       actions.replaceChildren()
-      if (post?.deployPending) actions.append(button('Retry rebuild', run(() => api.rebuildSite(target.documentId, target.headingId), 'Starting the rebuild…', () => 'The site is rebuilding.'), 'outline'))
-      if (live) actions.append(button('Unpublish', () => {
-        status.textContent = 'Remove this post from D1 and its images from R2, then rebuild the site? The document stays in Tinto.'
+      if (post) actions.append(button('Unpublish', () => {
+        status.textContent = 'Remove this post from ' + site.name + '? The ' + kind + ' stays in Tinto.'
         actions.replaceChildren(
-          button('Keep post', () => { status.textContent = describe(post); drawActions() }, 'outline'),
-          button('Remove from site', run(() => api.unpublishPost(target.documentId, target.headingId), 'Removing the post…', () => 'Removed “' + live.title + '” from the site. The site is rebuilding.'), 'primary')
+          button('Keep post', () => { status.textContent = describe(site, post); drawActions() }, 'outline'),
+          button('Remove from site', run(() => api.unpublishPost(site.id, target.documentId, target.headingId), 'Removing the post…', () => 'Removed “' + post.title + '” from ' + site.name + '.'), 'primary')
         )
       }, 'outline'))
-      const submit = element('button', 'primary', live ? 'Update post' : 'Publish')
+      const submit = element('button', 'primary', post ? 'Update post' : 'Publish')
       submit.type = 'submit'
       actions.append(button('Cancel', () => dialog.close(), 'outline'), submit)
     }
     drawActions()
-    const choice = (item: Choice): PostImageChoice => 'key' in item ? { key: item.key, alt: item.alt } : { token: item.token, alt: item.alt }
+    const choice = (item: Choice): PostImageChoice => 'file' in item ? { file: item.file, alt: item.alt } : { token: item.token, alt: item.alt }
     form.onsubmit = event => {
       event.preventDefault()
       void run(() => api.publishPost({
-        documentId: target.documentId, headingId: target.headingId,
+        siteId: site.id, documentId: target.documentId, headingId: target.headingId,
         fields: { title: title.value, slug: slug.value, summary: summary.value, date: date.value, tags: tags.value.split(',').map(tag => tag.trim()).filter(Boolean) },
         cover: cover ? choice(cover) : null, images: gallery.map(choice)
-      }), 'Uploading images and saving the post…', () => 'Published “' + title.value.trim() + '”. The site is rebuilding.')()
+      }), 'Uploading images and sending the post…', () => 'Published “' + title.value.trim() + '” on ' + site.name + '.')()
     }
-    dialog.replaceChildren(dialogHeader(dialog, live ? 'Update post' : 'Publish'), form)
+    dialog.replaceChildren(dialogHeader(dialog, post ? 'Update post' : 'Publish'), form)
     if (!dialog.open) dialog.showModal()
   }
-  render(saved, '')
+  render(sites.find(item => item.id === lastSite) ?? sites.find(item => records.has(item.id)) ?? sites[0])
 }

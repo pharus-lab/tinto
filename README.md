@@ -29,44 +29,15 @@ Enable the Google Drive API for a Google Cloud project and create a desktop OAut
 
 Automatic backups are opt-in per local project. While Tinto is open it checks for changes every 15 minutes. **Back up now** takes an immediate snapshot. The **Tinto Backups** folder holds the five most recent completed backups per project. **Restore backup** downloads and verifies a whole project into a new local file. Use the same OAuth client on another computer to access the app’s backups. Tokens use Electron safeStorage with the operating system credential service. Linux backup connection requires a supported keyring.
 
-## Publish to a Cloudflare site
+## Publish to websites
 
-**Publish** sends the open document or linked section to a website hosted on Cloudflare. Publishing happens in three steps:
+**Publish** sends the open document or linked section to any website that includes the Tinto blog module. One Tinto can publish to several websites. [docs/site-contract.md](docs/site-contract.md) describes the API a website implements to receive posts.
 
-1. Tinto uploads the cover image and gallery to R2.
-2. Tinto saves the post's chosen wording as HTML in D1.
-3. Tinto starts a Workers Builds deploy hook, so the site rebuilds with the post.
+Add each website in **Settings → Websites** with the two values the website gives you: its **Publishing URL** and **API key**. Tinto checks both before saving them. **Test** checks them again. **Remove** deletes the key from this computer, and the posts stay on the website. To change a key, add the same publishing URL again with the new key. Posts already published there stay linked.
 
-**Update post** republishes changes. **Unpublish** removes the row and images, then rebuilds the site. [docs/site-contract.md](docs/site-contract.md) describes the table and object layout that the website reads.
+In the **Publish** dialog, choose the website, then the title, address, date, summary, tags, cover and gallery. Tinto uploads new images first and then sends the post. **Update post** sends changes. **Unpublish** removes the post and its images from the chosen website only. The same document can be published on several websites. Each website keeps its own address and images. A second website starts from the text of the first, and its images are chosen again.
 
-Connect the site once in **Settings → Cloudflare site**. You need five values:
-
-- **Account ID** and **D1 database ID**: shown on the database's page in the Cloudflare dashboard.
-- **R2 bucket**: the bucket that holds the post images.
-- **Deploy Hook URL**: in the Worker, open **Settings → Builds → Deploy Hooks**, create a hook for the production branch, and copy the URL. Treat the URL as a password.
-- **API token**: an Account API token with only these two permissions:
-  - `D1 Edit` on the account. D1 permissions cannot be limited to one database.
-  - `Workers R2 Storage Bucket Item Write` on the site's bucket only.
-
-If the dashboard does not offer the bucket-level permission, create the token through the API. This requires a temporary token that can create API tokens:
-
-```sh
-curl -s "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/tokens/permission_groups" -H "Authorization: Bearer $ADMIN_TOKEN" \
-  | jq -r '.result[] | select(.name | test("^D1 (Write|Edit)$|^Workers R2 Storage Bucket Item Write$")) | "\(.id) \(.name)"'
-curl -s "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/tokens" -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' --data '{
-  "name": "Tinto publishing",
-  "policies": [
-    { "effect": "allow", "permission_groups": [{ "id": "<D1 group id>" }], "resources": { "com.cloudflare.api.account.<ACCOUNT_ID>": "*" } },
-    { "effect": "allow", "permission_groups": [{ "id": "<bucket item write group id>" }], "resources": { "com.cloudflare.edge.r2.bucket.<ACCOUNT_ID>_default_<BUCKET>": "*" } }
-  ]
-}'
-```
-
-Delete the temporary token afterwards.
-
-**Connect site** and **Test connection** create the D1 table if it is missing, then write and delete a small file in the bucket. Neither starts a build. If R2 rejects a token limited to one bucket, replace the bucket permission with `Workers R2 Storage Edit` on the account. That permission can also create and delete buckets.
-
-The token and the hook URL are encrypted with the operating system's credential service, in the same way as Drive tokens. Each project file stores the details of its published posts, so the address, images and pending rebuilds survive a restart. Opening a project with this version upgrades its file, and older Tinto builds cannot open the upgraded file.
+The publishing URLs and keys are encrypted with the operating system's credential service, in the same way as Drive tokens. Each project file stores its posts for each website, so the address, images and description survive a restart. A post is recorded only after the website accepts it. After a failure, send it again. Opening a project with this version upgrades its file, and older Tinto builds cannot open the upgraded file.
 
 ## Build and check
 

@@ -91,27 +91,49 @@ test('restore recovers hidden options and preserves the later state; named histo
   assert.ok(!f.store.versions(f.doc.id).some(version => version.id === named.id))
 })
 
-test('a version 2 project gains post records that survive restore, reopening and backup verification', t => {
+test('a version 2 project gains per-website post records that survive restore, reopening and backup verification', t => {
   const f = fixture(t)
   const id = f.store.read().id
   const db = new DatabaseSync(f.path)
   db.exec('DROP TABLE posts; PRAGMA user_version = 2;')
   db.close()
   f.reopen()
+  assert.equal(f.store.projectId(), id)
   const post = {
-    id: 'post-1', documentId: f.doc.id, headingId: 'the-kitchen', title: 'The kitchen', slug: 'the-kitchen', summary: '', date: '2026-11-20', tags: [],
-    locale: 'en', cover: null, images: [], obsolete: [], publishedAt: 1, deployPending: false, removed: false
+    id: 'post-1', siteId: 'site-a', documentId: f.doc.id, headingId: 'the-kitchen', title: 'The kitchen', slug: 'the-kitchen', summary: '', date: '2026-11-21', tags: [],
+    language: 'en', cover: null, images: [], url: null, publishedAt: 1
   }
+  const elsewhere = { ...post, id: 'post-2', siteId: 'site-b', url: 'https://example.org/the-kitchen' }
   f.store.snapshot(f.doc.id, 'Before publishing')
   f.store.savePost(post)
   f.store.savePost({ ...post, title: 'Updated' })
+  f.store.savePost(elsewhere)
   f.store.restore(f.doc.id, f.store.versions(f.doc.id)[0].id)
   f.reopen()
-  assert.deepEqual(f.store.post(f.doc.id, 'the-kitchen'), { ...post, title: 'Updated' })
-  assert.equal(f.store.post(f.doc.id, null), null)
+  assert.deepEqual(f.store.post('site-a', f.doc.id, 'the-kitchen'), { ...post, title: 'Updated' })
+  assert.deepEqual(f.store.posts(f.doc.id, 'the-kitchen'), [{ ...post, title: 'Updated' }, elsewhere])
+  assert.equal(f.store.post('site-a', f.doc.id, null), null)
+  assert.throws(() => f.store.savePost({ ...post, id: 'post-3' }), /UNIQUE/)
   const copy = join(f.directory, 'copy.tinto')
   f.store.backupTo(copy)
   ProjectStore.verifyBackup(copy, id)
   f.store.deletePost(post.id)
-  assert.equal(f.store.post(f.doc.id, 'the-kitchen'), null)
+  assert.equal(f.store.post('site-a', f.doc.id, 'the-kitchen'), null)
+  assert.deepEqual(f.store.posts(f.doc.id, 'the-kitchen'), [elsewhere])
+})
+
+test('a version 3 project from the single-site builds gets the per-website post table', t => {
+  const f = fixture(t)
+  const db = new DatabaseSync(f.path)
+  db.exec(`DROP TABLE posts;
+    CREATE TABLE posts (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id), heading_id TEXT NOT NULL DEFAULT '', content TEXT NOT NULL, UNIQUE (document_id, heading_id));
+    PRAGMA user_version = 3;`)
+  db.close()
+  f.reopen()
+  const check = new DatabaseSync(f.path, { readOnly: true })
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 4)
+  assert.ok(check.prepare('PRAGMA table_info(posts)').all().some(column => column.name === 'site_id'))
+  check.close()
+  assert.equal(f.store.read().documents[0].id, f.doc.id)
+  assert.deepEqual(f.store.posts(f.doc.id, null), [])
 })

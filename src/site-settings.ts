@@ -1,75 +1,79 @@
-import type { SiteConfig } from './cloudflare'
+import type { SiteSummary } from './project-types'
 import { button, element, errorMessage } from './ui'
 
-const fields: [keyof SiteConfig, string, string][] = [
-  ['accountId', 'Account ID', 'text'],
-  ['databaseId', 'D1 database ID', 'text'],
-  ['bucket', 'R2 bucket', 'text'],
-  ['token', 'API token', 'password'],
-  ['deployHook', 'Deploy Hook URL', 'password']
-]
+const intro = 'Publish to any website that has the Tinto blog module. Copy its publishing URL and API key from the website.'
 
 export function siteSettings(parent: HTMLElement) {
+  const api = window.tinto
   const section = element('section', 'site-settings')
-  section.append(element('h3', 'group-label', 'Cloudflare site'))
-  const body = element('div')
-  const message = element('p')
+  const list = element('div', 'site-list')
+  const message = element('p', '', intro)
   message.setAttribute('role', 'status')
-  section.append(body, message)
+  const form = element('form', 'site-form')
+  section.append(element('h3', 'group-label', 'Websites'), list, form, message)
   parent.append(section)
-  function failure(error: unknown) { message.textContent = errorMessage(error) }
-  function busy(task: () => Promise<void>, progress: string) {
+
+  function busy(task: () => Promise<string>, progress: string) {
     return async () => {
-      section.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input').forEach(el => el.disabled = true)
+      const controls = () => section.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input')
+      controls().forEach(el => el.disabled = true)
       message.textContent = progress
-      try { await task() } catch (error) { failure(error) }
-      finally { section.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input').forEach(el => el.disabled = false) }
+      try { message.textContent = await task() } catch (error) { message.textContent = errorMessage(error) }
+      finally { controls().forEach(el => el.disabled = false) }
     }
   }
-  async function refresh(note = '') {
-    const api = window.tinto
-    const state = await api.siteStatus()
-    body.replaceChildren()
-    if (!state.connected) {
-      const form = element('form', 'site-form')
-      const inputs = new Map<keyof SiteConfig, HTMLInputElement>()
-      for (const [name, label, type] of fields) {
-        const row = element('label', 'field', label)
-        const input = element('input')
-        input.type = type
-        input.name = name
-        input.required = true
-        input.autocomplete = 'off'
-        input.spellcheck = false
-        row.append(input)
-        inputs.set(name, input)
-        form.append(row)
-      }
-      const actions = element('div', 'home-actions')
-      const submit = element('button', 'outline', 'Connect site')
-      submit.type = 'submit'
-      actions.append(submit)
-      form.append(actions)
-      form.onsubmit = event => {
-        event.preventDefault()
-        const config = Object.fromEntries([...inputs].map(([name, input]) => [name, input.value])) as unknown as SiteConfig
-        void busy(async () => {
-          await api.connectSite(config)
-          await refresh('Connected. Tinto checked the D1 table and wrote and removed a test file in the bucket.')
-        }, 'Checking D1 and R2…')()
-      }
-      body.append(form)
-      message.textContent = note || 'Publish posts to D1 and their images to R2, then start a Workers Builds deploy hook. The token needs D1 Edit and Workers R2 Storage Bucket Item Write on the bucket.'
-      return
-    }
-    if (state.accountId) body.append(element('p', 'path', 'Bucket ' + state.bucket + ' · D1 ' + state.databaseId + ' · Account ' + state.accountId))
-    message.textContent = state.error ?? note
-    const actions = element('div', 'home-actions')
-    actions.append(
-      button('Test connection', busy(async () => { await api.testSite(); await refresh('D1 and R2 accepted the token.') }, 'Checking D1 and R2…'), 'outline'),
-      button('Disconnect site', busy(async () => { await api.disconnectSite(); await refresh('Disconnected. The token and deploy hook were removed from this computer.') }, 'Disconnecting…'), 'outline')
-    )
-    body.append(actions)
+  function draw(sites: SiteSummary[]) {
+    list.replaceChildren(...sites.map(site => {
+      const row = element('div', 'site-row')
+      const label = element('div', 'site-label')
+      label.append(element('strong', '', site.name), element('span', 'path', site.endpoint))
+      const test = button('Test', busy(async () => {
+        const checked = await api.testSite(site.id)
+        draw(await api.sites())
+        return checked.name + ' accepted the API key.'
+      }, 'Checking ' + site.name + '…'), 'outline')
+      test.setAttribute('aria-label', 'Test ' + site.name)
+      const remove = button('Remove', busy(async () => {
+        await api.removeSite(site.id)
+        draw(await api.sites())
+        return 'Removed ' + site.name + ' and its API key from Tinto. Its posts stay on the website.'
+      }, 'Removing ' + site.name + '…'), 'outline')
+      remove.setAttribute('aria-label', 'Remove ' + site.name)
+      row.append(label, test, remove)
+      return row
+    }))
   }
-  void refresh().catch(failure)
+
+  function field(label: string, name: string, type: string) {
+    const row = element('label', 'field', label)
+    const input = element('input')
+    input.type = type
+    input.name = name
+    input.required = true
+    input.autocomplete = 'off'
+    input.spellcheck = false
+    row.append(input)
+    form.append(row)
+    return input
+  }
+  form.append(element('h3', 'group-label', 'Add a website'))
+  const endpoint = field('Publishing URL', 'endpoint', 'url')
+  endpoint.placeholder = 'https://'
+  const key = field('API key', 'key', 'password')
+  const actions = element('div', 'home-actions')
+  const submit = element('button', 'outline', 'Add website')
+  submit.type = 'submit'
+  actions.append(submit)
+  form.append(actions)
+  form.onsubmit = event => {
+    event.preventDefault()
+    void busy(async () => {
+      const site = await api.addSite(endpoint.value, key.value)
+      form.reset()
+      draw(await api.sites())
+      return 'Connected ' + site.name + '. The website accepted the API key.'
+    }, 'Checking the website…')()
+  }
+
+  void api.sites().then(draw).catch(error => { message.textContent = errorMessage(error) })
 }

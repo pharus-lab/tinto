@@ -49,32 +49,32 @@ export interface LibraryState {
   workspace: Workspace | null
 }
 
-// A published document or linked section. Image keys name objects in the
-// site's R2 bucket; `obsolete` keys are removed once the site has rebuilt.
-export interface PostImage { key: string; type: string; alt: string; name: string }
+// A document or linked section published on one website. Image files are
+// named by their content; `name` is the local file name and stays in Tinto.
+export interface PostImage { file: string; type: string; alt: string; name: string }
 export interface PostFields { title: string; slug: string; summary: string; date: string; tags: string[] }
 export interface PostRecord extends PostFields {
   id: string
+  siteId: string
   documentId: string
   headingId: string | null
-  locale: string
+  language: string
   cover: PostImage | null
   images: PostImage[]
-  obsolete: string[]
+  url: string | null
   publishedAt: number
-  deployPending: boolean
-  removed: boolean
 }
-// Images already in the post are named by key; new images by the token the
+// Images already in the post are named by file; new images by the token the
 // main process issued when the writer chose the file.
-export type PostImageChoice = { alt: string; key: string } | { alt: string; token: string }
+export type PostImageChoice = { alt: string; file: string } | { alt: string; token: string }
 export interface PublishRequest {
+  siteId: string
   documentId: string
   headingId: string | null
   fields: PostFields
   cover: PostImageChoice | null
   images: PostImageChoice[]
 }
-export interface PublishResult { post: PostRecord | null; deployError: string | null }
 export interface PickedImage { token: string; name: string; size: number }
-export interface SiteStatus { connected: boolean; accountId: string | null; databaseId: string | null; bucket: string | null; error: string | null }
+// A website added in Settings. Its API key stays in the main process.
+export interface SiteSummary { id: string; name: string; endpoint: string }
