@@ -9,6 +9,13 @@
   --wash: light-dark(#F4E5E6, #432E35);
   --divider: light-dark(#D9D1CF, #493E42);
   --outline: light-dark(#938487, #8B787E);
+  /* Show origins: a sand tint for pasted and imported text, a cool one for AI. */
+  --origin: light-dark(#EEE6D6, #3D3530);
+  --origin-ai: light-dark(#E2E8F1, #2C3442);
+  /* Depth: a soft shadow for floating surfaces, a deeper one for dialogs, and the dialog backdrop. */
+  --shadow: 0 4px 16px light-dark(#20081622, #0000004D);
+  --shadow-dialog: 0 15px 70px light-dark(#170A1026, #00000066);
+  --scrim: light-dark(#1B101C45, #00000080);
   --size: 21px;
   --leading: 1.72;
   --serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
@@ -73,7 +80,7 @@ select {
 .format { height: 28px; width: 28px; }
 .bold { font: bold 17px Georgia,serif; }
 .italic { font: italic 17px Georgia,serif; }
-.format[aria-pressed=true] { background: var(--wash); color: var(--wine); }
+.format[aria-pressed=true], #show-origins[aria-pressed=true] { background: var(--wash); color: var(--wine); }
 .tool-rule { height: 16px; width: 1px; background: var(--divider); margin: 0 6px; }
 .tool-fill { flex: 1; }
 #scroll, #home, #panel { overflow: auto; overscroll-behavior: contain; }
@@ -125,7 +132,7 @@ footer { height: 34px; flex: none; display: flex; align-items: center; gap: 18px
 footer svg { width: 14px; height: 14px; }
 #save-status, #language-label { display: inline-flex; align-items: center; gap: 6px; }
 #save-status svg { color: var(--wine); }
-#notice { position: fixed; z-index: 30; bottom: 46px; left: 20px; max-width: min(520px,85vw); overflow-wrap: anywhere; padding: 12px 16px; border: 1px solid var(--outline); border-radius: 6px; background: var(--paper); box-shadow: 0 4px 16px #20081620; }
+#notice { position: fixed; z-index: 30; bottom: 46px; left: 20px; max-width: min(520px,85vw); overflow-wrap: anywhere; padding: 12px 16px; border: 1px solid var(--outline); border-radius: 6px; background: var(--paper); box-shadow: var(--shadow); }
 #notice:has(button) { display: flex; align-items: center; gap: 12px; }
 #home { width: 100%; padding: 42px max(32px, calc((100% - 920px)/2)) 64px; }
 .home-heading, .doc-heading, .dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
@@ -158,12 +165,12 @@ body.welcome :is(.location, footer, #tabs, #settings, #writing, #panel) { displa
 .draft-label { flex: none; color: var(--secondary); font: 12px/1.4 system-ui, sans-serif; }
 .doc-row { padding: 10px 8px; font: 500 21px var(--serif); }
 .doc-row[draggable=true] { cursor: grab; }
-.context-menu { position: fixed; inset: auto; margin: 0; min-width: 9rem; padding: 4px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: 0 4px 16px #20081624; }
+.context-menu { position: fixed; inset: auto; margin: 0; min-width: 9rem; padding: 4px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: var(--shadow); }
 .context-menu button { width: 100%; justify-content: flex-start; }
 .context-menu button:focus-visible { outline-offset: -2px; }
 .section-row { color: var(--secondary); margin-left: 20px; width: calc(100% - 20px); }
-dialog { max-height: 82vh; width: min(560px,90vw); overflow-wrap: anywhere; border: 1px solid var(--outline); border-radius: 9px; padding: 24px; background: var(--paper); color: var(--ink); box-shadow: 0 15px 70px #170a1026; }
-dialog::backdrop { background: #1b101c45; }
+dialog { max-height: 82vh; width: min(560px,90vw); overflow-wrap: anywhere; border: 1px solid var(--outline); border-radius: 9px; padding: 24px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-dialog); }
+dialog::backdrop { background: var(--scrim); }
 .dialog-head { margin-bottom: 24px; }
 .dialog-head h2 { font-size: 29px; }
 .dialog-actions { margin-top: 20px; justify-content: flex-end; }
@@ -182,7 +189,7 @@ dialog:has(> .settings-body) > .dialog-head { flex: none; margin: 0; padding: 20
 .post-image input, textarea { padding: 7px 10px; border: 1px solid var(--outline); border-radius: 4px; background: var(--paper); }
 .settings-body .site-form .field input { width: min(320px, 64%); }
 textarea { font: inherit; color: inherit; resize: vertical; }
-:where(.publish-form) .field > input { width: min(320px, 64%); }
+:where(.publish-form) .field > :is(input, select) { width: min(320px, 64%); }
 .field.stacked { flex-direction: column; align-items: stretch; gap: 6px; }
 .post-images { margin: 18px 0; }
 .post-image { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
@@ -270,3 +277,13 @@ dialog.guide { width: min(760px, 94vw); }
 .posts-state { font-size: 13px; color: var(--secondary); }
 .posts-state.draft { font-style: italic; }
 .posts-state.changed { color: var(--wine); font-weight: 600; }
+/* Hints stay readable on paper in both appearances (WCAG 1.4.3). */
+::placeholder { color: var(--secondary); opacity: 1; }
+.guide-body p, .guide-list { max-width: 60ch; }
+/* Interface prose wraps without a lone last word; the manuscript keeps the browser's wrapping. */
+:is(dialog, #panel) :is(p, li) { text-wrap: pretty; }
+/* Origins are quiet: a tint behind the words, shown only on request. */
+.show-origins .ProseMirror [data-origin] { background: var(--origin); border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.show-origins .ProseMirror [data-origin=ai] { background: var(--origin-ai); }
+.publish-authorship { color: var(--secondary); }
+.author-form .field input { width: min(320px, 64%); }

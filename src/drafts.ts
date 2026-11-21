@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { sectionRange, type BlockJSON, type InlineJSON, type MarkJSON } from './model'
+import { formatMarks, sectionRange, type BlockJSON, type InlineJSON, type MarkJSON } from './model'
 import type { DocumentRecord, DraftChange, DraftResolution } from './project-types'
 
 export interface DraftBaseline {
@@ -59,7 +59,8 @@ function equivalentInlines(nodes: InlineJSON[] = []): InlineJSON[] {
   const runs: InlineJSON[] = []
   for (const node of nodes) {
     const marked = node as InlineJSON & { marks?: MarkJSON[] }
-    const marks = [...new Set(marked.marks?.map(mark => mark.type))].sort().map(type => ({ type }))
+    // Where text came from is not a change to the text, so origins are left out.
+    const marks = [...new Set(formatMarks(marked.marks).map(mark => mark.type))].sort().map(type => ({ type }))
     if (node.type === 'choice') {
       const options = node.attrs.options.map(option => ({ id: option.id, content: equivalentInlines(option.content) }))
       const { id, active } = node.attrs

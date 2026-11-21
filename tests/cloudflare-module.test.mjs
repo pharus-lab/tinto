@@ -10,6 +10,8 @@ import { createTintoBlog } from '../modules/cloudflare/worker.mjs'
 import { tintoPosts } from '../modules/cloudflare/astro.mjs'
 import exampleConfig from '../modules/cloudflare/tinto.config.mjs'
 import { renderPreview, settings as moduleSettings } from '../modules/cloudflare/shared.mjs'
+import { SOURCE_TYPES, authorshipLabel, signCredential, verifyCredential } from '../modules/cloudflare/credential.mjs'
+import { newAuthor } from './author-fixture.mjs'
 
 const bundle = await build({ stdin: { contents: "export * from './src/site-api'; export * from './src/publishing'; export * from './src/storage'; export * from './src/model'", resolveDir: process.cwd() }, platform: 'node', format: 'esm', bundle: true, write: false })
 const { SiteClient, Publisher, ProjectStore, sampleManuscript } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
@@ -19,6 +21,8 @@ class FakeD1 {
   db = new DatabaseSync(':memory:')
   prepare(sql) { return new Statement(this.db, sql, []) }
   async batch(statements) {
+    // As in D1, a batch needs at least one statement.
+    if (!statements.length) throw Error('D1_ERROR: No SQL statements detected.')
     this.db.exec('BEGIN')
     try {
       const results = statements.map(statement => statement.execute())
@@ -196,14 +200,14 @@ test('posts are checked against the site, saved once per locale, category and ad
     assert.match((await response.json()).error, error)
   }
   const saved = await send(post({ language: 'en-GB', cover, attachments: [document] }))
-  assert.deepEqual([saved.status, await saved.json()], [200, { url: 'https://blog.example/en/notes/first-light' }])
+  assert.deepEqual([saved.status, await saved.json()], [200, { url: 'https://blog.example/en/notes/first-light', authorship: null }])
   const other = '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9'
   const conflict = await send(post(), other)
   assert.deepEqual([conflict.status, (await conflict.json()).error], [409, 'Another post in this language and category already uses the address “first-light”. Choose a different address.'])
   assert.equal((await send(post({ category: 'essays' }), other)).status, 200, 'the same address can live in another category')
   const third = '11111111-2222-4333-8444-555555555555'
   const draft = await send(post({ language: 'es', category: 'notes', title: 'Primera luz', status: 'draft' }), third)
-  assert.deepEqual(await draft.json(), { url: null })
+  assert.deepEqual(await draft.json(), { url: null, authorship: null })
 
   const feed = await (await call('GET', '/api/tinto/feed', { auth: null })).json()
   assert.equal(feed.tinto, 2)
@@ -278,6 +282,8 @@ test('a preview is stored beside the live post and shown through a signed, expir
   hooks.length = 0
   const preview = await call('PUT', '/api/tinto/previews/' + id, { body: JSON.stringify(post({ title: 'Draft title', cover })), type: 'application/json' })
   assert.equal(preview.status, 200)
+  const withoutFiles = await call('PUT', '/api/tinto/previews/0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9', { body: JSON.stringify(post({ slug: 'no-files' })), type: 'application/json' })
+  assert.equal(withoutFiles.status, 200, 'a post without files can be previewed')
   const { url } = await preview.json()
   assert.match(url, new RegExp('^https://blog\\.example/api/tinto/preview/' + id + '\\?expires=\\d+&sig=[0-9a-f]{64}$'))
   assert.equal(hooks.length, 0, 'a preview starts no rebuild')
@@ -335,7 +341,8 @@ test('Tinto drafts, publishes, updates, translates and unpublishes through the m
   const { store, files } = await tintoProject(t)
   const client = new SiteClient({ endpoint, key })
   assert.deepEqual(await client.info(), { name: 'Field Notes', categories: [{ id: 'notes', label: 'Notes' }, { id: 'essays', label: 'Essays' }] })
-  const publisher = new Publisher(async () => client, () => clock.time)
+  const author = await newAuthor('Mara')
+  const publisher = new Publisher(async () => client, async () => author, () => clock.time)
   const fields = { title: 'The long way home', slug: 'the-long-way-home', summary: 'Mara comes home.', date: '2026-11-21', tags: ['fiction'], category: 'essays' }
   const base = { siteId: 'field-notes', siteName: 'Field Notes', documentId: 'story', headingId: null, fields, cover: null, images: [], attachments: [] }
   const feed = async () => (await (await call('GET', '/api/tinto/feed', { auth: null })).json()).posts
@@ -359,7 +366,15 @@ test('Tinto drafts, publishes, updates, translates and unpublishes through the m
 
   const live = await publisher.publish(store, { ...base, status: 'published', cover: { file: draft.cover.file, alt: 'Kitchen window' }, images: [], attachments: draft.attachments.map(item => ({ file: item.file, title: item.title })) })
   assert.equal(live.url, 'https://blog.example/en/essays/the-long-way-home')
+  assert.equal(live.verified, true)
   let posts = await feed()
+  // The site checked the author's signature and shows the result; anyone can check the credential again.
+  assert.deepEqual([posts[0].authorship.verified, posts[0].authorship.author, posts[0].authorship.original, posts[0].authorship.digitalSourceType],
+    [true, { id: author.did, name: 'Mara' }, true, SOURCE_TYPES.written])
+  assert.equal(authorshipLabel(posts[0].authorship), 'Original · written by Mara')
+  const published = await call('GET', posts[0].authorship.credential, { auth: null })
+  assert.deepEqual([published.status, published.headers.get('Content-Type'), published.headers.get('Access-Control-Allow-Origin')], [200, 'application/vc', '*'])
+  assert.deepEqual(await verifyCredential(await published.json()), { verified: true, did: author.did })
   assert.deepEqual(posts.map(item => [item.category, item.attachments.map(file => file.title)]), [['essays', ['Field notes', 'Rain']]])
   const served = await call('GET', posts[0].attachments[1].url, { auth: null })
   assert.deepEqual(Buffer.from(await served.arrayBuffer()), mp3)
@@ -433,3 +448,73 @@ test('the example configuration is valid and a broken one fails when the module 
   const broken = [{ ...config, name: '' }, { ...config, site: 'example.com' }, { ...config, basePath: 'api' }, { ...config, previewPath: 'preview' }, { ...config, previewPath: '/api/tinto' }, { ...config, languages: { english: 'en' } }, { ...config, categories: { 'Not An Id': 'Notes' } }, { ...config, categories: { notes: '' } }]
   for (const value of broken) assert.throws(() => createTintoBlog(value), /tinto\.config\.mjs/)
 })
+
+test('a site accepts posts only from its author, and only when the credential describes the post exactly', async () => {
+  const mara = await newAuthor('Mara')
+  const other = await newAuthor('Someone else')
+  const html = '<p>The house was quiet.</p>\n<p>She smiled.</p>'
+  const sha = text => createHash('sha256').update(text).digest('hex')
+  const credentialFor = (author, body = post({ html }), postId = id, changes = {}) => signCredential({
+    '@context': ['https://www.w3.org/ns/credentials/v2'], id: 'urn:uuid:' + crypto.randomUUID(),
+    type: ['VerifiableCredential', 'AuthorshipCredential'], issuer: { id: author.did, name: author.name }, validFrom: '2026-11-21T18:00:00Z',
+    credentialSubject: {
+      id: 'urn:uuid:' + postId, type: 'CreativeWork', name: body.title, inLanguage: body.language, author: { id: author.did, name: author.name },
+      sha256: sha(body.html), characters: { written: 30, pasted: 0, imported: 0, ai: 0 },
+      hasPart: [
+        { type: 'CreativeWork', position: 1, sha256: sha('<p>The house was quiet.</p>'), characters: { written: 21, pasted: 0, imported: 0, ai: 0 } },
+        { type: 'CreativeWork', position: 2, sha256: sha('<p>She smiled.</p>'), characters: { written: 9, pasted: 0, imported: 0, ai: 0 } }
+      ],
+      associatedMedia: [], ...changes
+    }
+  }, author.key, author.did, '2026-11-21T18:00:00Z')
+  const signed = async (author, fields = {}, changes = {}, postId = id) => {
+    const body = post({ html, ...fields })
+    return { ...body, credential: await credentialFor(author, body, postId, changes) }
+  }
+
+  // With no author configured, unsigned posts are accepted until the first signed one names the author.
+  const { send, call, env } = site()
+  assert.equal((await send(post({ slug: 'unsigned' }), '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9')).status, 200)
+  const first = await send(await signed(mara))
+  assert.deepEqual([first.status, (await first.json()).authorship], [200, 'verified'])
+  assert.equal(env.TINTO_DB.db.prepare('SELECT did FROM tinto_author').get().did, mara.did)
+  const refusals = [
+    [post({ slug: 'unsigned-again' }), 403, /accepts only posts signed by its author/],
+    [await signed(other), 403, /accepts posts only from the author did:key:z6Mk/],
+    [await signed(mara, { title: 'Another title' }, { name: 'First light' }), 422, /title or language differs/],
+    [{ ...(await signed(mara)), html: '<p>The house was loud.</p>\n<p>She smiled.</p>' }, 422, /the text differs/],
+    [await signed(mara, {}, { hasPart: [] }), 422, /paragraphs differ/],
+    [await signed(mara, {}, {}, '0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9'), 422, /for another post/]
+  ]
+  // A credential claiming a paragraph was written when it was pasted no longer verifies.
+  const forged = await signed(mara)
+  forged.credential.credentialSubject.hasPart[0].characters = { written: 0, pasted: 21, imported: 0, ai: 0 }
+  refusals.push([forged, 422, /could not be verified/])
+  for (const [body, status, error] of refusals) {
+    const response = await send(body)
+    assert.equal(response.status, status)
+    assert.match((await response.json()).error, error)
+  }
+  const feed = await (await call('GET', '/api/tinto/feed', { auth: null })).json()
+  const signedPost = feed.posts.find(item => item.id === id)
+  assert.deepEqual(signedPost.authorship.parts, [{ position: 1, origin: 'written', digitalSourceType: SOURCE_TYPES.written }, { position: 2, origin: 'written', digitalSourceType: SOURCE_TYPES.written }])
+  assert.equal(feed.posts.find(item => item.slug === 'unsigned').authorship, null)
+  assert.equal((await call('GET', '/api/tinto/credentials/0b1c2d3e-4f50-4617-8293-a4b5c6d7e8f9', { auth: null })).status, 404, 'an unsigned post has no credential')
+
+  // tinto.config.mjs can name the author before any post, and AI text is always named on the page.
+  const locked = site({ settings: { ...config, author: other.did } })
+  assert.equal((await locked.send(await signed(mara))).status, 403)
+  const ai = await locked.send(await signed(other, {}, {
+    characters: { written: 21, pasted: 0, imported: 0, ai: 9 },
+    hasPart: [
+      { type: 'CreativeWork', position: 1, sha256: sha('<p>The house was quiet.</p>'), characters: { written: 21, pasted: 0, imported: 0, ai: 0 } },
+      { type: 'CreativeWork', position: 2, sha256: sha('<p>She smiled.</p>'), characters: { written: 0, pasted: 0, imported: 0, ai: 9 } }
+    ]
+  }))
+  assert.equal(ai.status, 200)
+  const [shown] = (await (await locked.call('GET', '/api/tinto/feed', { auth: null })).json()).posts
+  assert.deepEqual([shown.authorship.original, shown.authorship.ai, shown.authorship.parts[1].origin], [false, true, 'ai'])
+  assert.equal(authorshipLabel(shown.authorship), 'Written by Someone else · includes AI-generated text')
+  assert.throws(() => createTintoBlog({ ...config, author: 'did:web:example.com' }), /author must be null or the did:key/)
+})
+

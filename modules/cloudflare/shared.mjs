@@ -1,5 +1,6 @@
 // Tinto blog module for Cloudflare — code shared by the Worker and the build loader.
 // It uses only Web APIs, so the same file runs in Workers and in Node.
+import { authorshipLabel, publicKeyFromDid } from './credential.mjs'
 import { FILE_NAME, FILE_TYPES } from './files.mjs'
 
 export const PROTOCOL = 2
@@ -15,23 +16,26 @@ const CATEGORY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const POST_TAGS = /<\/?(?:p|h[1-6]|strong|em|u|mark)>/g
 
 /**
+ * @typedef {import('./credential.mjs').Authorship & { credential: string }} TintoAuthorship
  * @typedef {{ file: string, type: string, alt: string, url: string }} TintoImage
  * @typedef {{ file: string, type: string, title: string, size: number, url: string }} TintoAttachment
  * @typedef {{
  *   id: string, slug: string, language: string, locale: string, category: string, title: string, summary: string,
  *   date: string, tags: string[], html: string, cover: TintoImage | null, images: TintoImage[],
- *   attachments: TintoAttachment[], updatedAt: string, url: string | null
+ *   attachments: TintoAttachment[], updatedAt: string, url: string | null, authorship: TintoAuthorship | null
  * }} TintoPost
  * @typedef {{
  *   name: string, site: string, basePath?: string,
  *   languages?: Record<string, string> | null,
  *   categories?: Record<string, string> | null,
  *   postPath?: ((post: TintoPost) => string) | null,
- *   previewPath?: string
+ *   previewPath?: string,
+ *   author?: string | null
  * }} TintoConfig
  * @typedef {{
  *   name: string, site: string, basePath: string, languages: Record<string, string> | null,
- *   categories: Record<string, string> | null, postPath: ((post: TintoPost) => string) | null, previewPath: string
+ *   categories: Record<string, string> | null, postPath: ((post: TintoPost) => string) | null, previewPath: string,
+ *   author: string | null
  * }} TintoSettings
  */
 
@@ -68,7 +72,11 @@ export function settings(config) {
   if (!/^\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(previewPath) || previewPath === basePath) {
     throw Error('tinto.config.mjs: previewPath must be a path such as /tinto-preview, outside basePath.')
   }
-  return { name, site: site.origin, basePath, languages, categories, postPath, previewPath }
+  const author = config.author ?? null
+  if (author !== null) {
+    try { publicKeyFromDid(String(author)) } catch { throw Error('tinto.config.mjs: author must be null or the did:key shown in Tinto under Settings → Author.') }
+  }
+  return { name, site: site.origin, basePath, languages, categories, postPath, previewPath, author }
 }
 
 /** Files are grouped by class: tinto/<post>/<class>/<file>. @param {string} id @param {string} file */
@@ -163,9 +171,14 @@ export function checkPost(input, site) {
   if ((cover ? 1 : 0) + images.length + attachments.length > MAX_FILES) throw new Rejection(422, 'A post can include up to ' + MAX_FILES + ' files.')
   const time = Date.parse(typeof input.updatedAt === 'string' ? input.updatedAt : '')
   if (Number.isNaN(time)) throw new Rejection(422, 'The post needs an updatedAt time.')
+  // The authorship credential is checked by the Worker, which can verify signatures.
+  const credential = input.credential ?? null
+  if (credential !== null && (typeof credential !== 'object' || Array.isArray(credential) || JSON.stringify(credential).length > 200_000)) {
+    throw new Rejection(422, 'The authorship credential is not valid.')
+  }
   return {
     slug, language, locale, category, status, title, summary, date, tags: [...new Set(tags.map(tag => tag.trim()).filter(Boolean))],
-    html, cover, images, attachments, updatedAt: new Date(time).toISOString()
+    html, cover, images, attachments, updatedAt: new Date(time).toISOString(), credential
   }
 }
 
@@ -184,9 +197,33 @@ export function publicPost(site, post) {
     summary: post.summary, date: post.date, tags: post.tags, html: post.html, cover: post.cover ? image(post.cover) : null,
     images: post.images.map(image),
     attachments: (post.attachments ?? []).map((/** @type {any} */ item) => ({ file: item.file, type: item.type, title: item.title, size: item.size, url: url(item.file) })),
-    updatedAt: post.updatedAt, url: null
+    updatedAt: post.updatedAt, url: null, authorship: readAuthorship(site, post.id, post.authorship)
   }
   return { ...shown, url: site.postPath ? new URL(site.postPath(shown), site.site).href : null }
+}
+
+const IRI = /^https?:\/\/[\x21-\x7e]{1,200}$/
+/**
+ * The authorship the Worker verified when the post arrived, kept to known
+ * fields so a page can rely on their types. Its credential is public at
+ * <basePath>/credentials/<id>, for anyone to verify again.
+ * @param {TintoSettings} site @param {string} id @param {any} value @returns {TintoAuthorship | null}
+ */
+export function readAuthorship(site, id, value) {
+  if (typeof value === 'string') { try { value = JSON.parse(value) } catch { return null } }
+  if (!value || value.verified !== true || typeof value.author?.id !== 'string' || !value.author.id.startsWith('did:key:')) return null
+  const type = (/** @type {unknown} */ iri) => typeof iri === 'string' && IRI.test(iri) ? iri : null
+  const origins = ['written', 'pasted', 'imported', 'ai', 'mixed']
+  return {
+    verified: true,
+    author: { id: value.author.id.slice(0, 100), name: typeof value.author.name === 'string' ? value.author.name.slice(0, 100) : '' },
+    original: value.original === true, ai: value.ai === true, digitalSourceType: type(value.digitalSourceType),
+    parts: (Array.isArray(value.parts) ? value.parts : []).slice(0, 5000).map((/** @type {any} */ part, /** @type {number} */ index) => ({
+      position: index + 1, origin: origins.includes(part?.origin) ? part.origin : 'mixed', digitalSourceType: type(part?.digitalSourceType)
+    })),
+    signed: typeof value.signed === 'string' ? value.signed.slice(0, 40) : '',
+    credential: site.basePath + '/credentials/' + id
+  }
 }
 
 /**
@@ -207,7 +244,7 @@ export function readFeed(site, entries) {
       const address = locale + '/' + post.category + '/' + post.slug
       if (addresses.has(address)) throw new Rejection(422, 'another post already uses ' + address)
       addresses.add(address)
-      return publicPost(site, { ...post, id, locale })
+      return publicPost(site, { ...post, id, locale, authorship: item.authorship })
     } catch (error) {
       throw Error('Tinto post ' + (id || '(without id)') + ': ' + (error instanceof Error ? error.message : String(error)))
     }
@@ -221,7 +258,8 @@ const EACH = /<template\s+data-tinto-each="(cover|images|tags|attachments)"\s*>(
 
 /**
  * Fills the site's preview page with a post. The page marks fields with
- * %%title%%, %%summary%%, %%date%%, %%category%%, %%language%% and %%body%%, and
+ * %%title%%, %%summary%%, %%date%%, %%category%%, %%language%%, %%authorship%%
+ * (a quiet line such as "Original · written by Ana") and %%body%%, and
  * repeats <template data-tinto-each="cover|images|tags|attachments"> once per
  * item, with %%url%%, %%alt%%, %%title%%, %%type%%, %%size%% and %%tag%%.
  * Everything is filled in one pass, so the author's text is never read as a marker.
@@ -230,7 +268,7 @@ const EACH = /<template\s+data-tinto-each="(cover|images|tags|attachments)"\s*>(
 export function renderPreview(template, post, site) {
   const fields = {
     title: post.title, summary: post.summary, date: post.date, language: post.language,
-    category: post.category ? site.categories?.[post.category] ?? post.category : ''
+    category: post.category ? site.categories?.[post.category] ?? post.category : '', authorship: authorshipLabel(post.authorship)
   }
   const lists = {
     cover: post.cover ? [{ url: post.cover.url, alt: post.cover.alt }] : [],

@@ -121,6 +121,14 @@ function registerProjectActions(updateBackupPath: (path: string, destination?: s
       event.returnValue = null
     } catch (error) { event.returnValue = String(error) }
   })
+  // Typing, pasting and importing measured in the editor: counts and timing only.
+  ipcMain.on('authorship:record', (event, path: string, projectId: string, documentId: string, kind: string, sample: object) => {
+    try {
+      trusted(event)
+      if (kind === 'typing' || kind === 'paste' || kind === 'import') library.recordWriting(String(path), String(projectId), String(documentId), kind, sample ?? {})
+    } catch (error) { console.error('Tinto could not record writing evidence:', error) }
+    event.returnValue = null
+  })
   ipcMain.handle('version:list', (e, id: string) => { trusted(e); return library.store.versions(id) })
   ipcMain.handle('version:name', (e, id: string, name: string) => { trusted(e); library.store.snapshot(id, name) })
   ipcMain.handle('version:restore', (e, id: string, v: string) => { trusted(e); return library.store.restore(id, v) })

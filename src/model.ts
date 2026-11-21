@@ -1,12 +1,36 @@
 // Keep the original highlight key so existing manuscripts and versions open with underlines.
 export const markTags = { strong: "strong", em: "em", highlight: "u" } as const;
-export type MarkJSON = { type: keyof typeof markTags };
+// Where text came from, when the writer did not type it in Tinto. Unmarked text
+// was written here. The mark stays inside Tinto: exports and posts leave it out.
+export type OriginSource = "pasted" | "imported" | "ai";
+export type FormatMark = { type: keyof typeof markTags };
+export type OriginMark = { type: "origin"; attrs: { source: OriginSource } };
+export type MarkJSON = FormatMark | OriginMark;
 export type TextJSON = { type: "text"; text: string; marks?: MarkJSON[] };
 export type OptionJSON = { id: string; content?: InlineJSON[] };
 export type ChoiceJSON = { type: "choice"; attrs: { id: string; active: string; options: OptionJSON[] }; content?: InlineJSON[] };
 export type InlineJSON = TextJSON | ChoiceJSON;
 export type BlockJSON = { type: "paragraph" | "heading"; attrs: { id: string; level?: number }; content?: InlineJSON[] };
 export type Manuscript = { type: "doc"; content: BlockJSON[] };
+
+// Intervals between keystrokes are counted in these bands, in milliseconds;
+// the last band holds every longer interval.
+export const INTERVAL_BANDS = [50, 100, 200, 400, 800, 1600, 5000];
+
+export const formatMarks = (marks: MarkJSON[] = []) => marks.filter((mark): mark is FormatMark => mark.type !== "origin");
+export const originOf = (marks: MarkJSON[] = []): OriginSource | null => marks.find((mark): mark is OriginMark => mark.type === "origin")?.attrs.source ?? null;
+
+// Marks every character of imported or generated text with its origin, inactive options included.
+export function withOrigin<T extends InlineJSON>(nodes: T[], source: OriginSource): T[] {
+  return nodes.map(node => {
+    if (node.type === "text") return { ...node, marks: [...formatMarks(node.marks), { type: "origin", attrs: { source } }] };
+    const options = node.attrs.options.map(option => option.content ? { ...option, content: withOrigin(option.content, source) } : option);
+    return { ...node, attrs: { ...node.attrs, options }, ...(node.content ? { content: withOrigin(node.content, source) } : {}) };
+  }) as T[];
+}
+export function manuscriptWithOrigin(doc: Manuscript, source: OriginSource): Manuscript {
+  return { ...doc, content: doc.content.map(block => block.content ? { ...block, content: withOrigin(block.content, source) } : block) };
+}
 
 export function visibleText(node: Manuscript | BlockJSON | InlineJSON): string {
   if (node.type === "text") return node.text;

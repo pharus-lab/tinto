@@ -18,5 +18,9 @@ export default {
   postPath: null,
   // The page with your post layout that Tinto's Preview fills in. It shows only
   // through a signed preview link. See "Preview page" in README.md.
-  previewPath: '/tinto-preview'
+  previewPath: '/tinto-preview',
+  // The author whose signed posts this site accepts: a did:key from Tinto's
+  // Settings → Author. With null, the first signed post sets it, and later
+  // posts must carry the same author's signature. See "Authorship" in README.md.
+  author: null
 }

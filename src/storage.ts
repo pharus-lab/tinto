@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, openSync, unlinkSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { compareDraft, forkDraft, reconcileDraft, type DraftBaseline } from './drafts'
+import { INTERVAL_BANDS } from './model'
 import type { DocumentRecord, DraftChange, DraftResolution, PostRecord, Project, Version } from './project-types'
 
 const APPLICATION_ID = 0x54494e54 // TINT
@@ -28,11 +29,32 @@ const POST_SCHEMA = `
   );
   PRAGMA user_version = 4;
 `
+// Evidence of how each document was written: typing sessions (counts and
+// timing only, never the text or the keys), pasted and imported amounts, and
+// the hash of every version and release. Entries are only ever added, and each
+// one includes the hash of the one before it, so a changed entry breaks the chain.
+const LOG_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS authorship_log (
+    document_id TEXT NOT NULL, seq INTEGER NOT NULL, time INTEGER NOT NULL, kind TEXT NOT NULL,
+    data TEXT NOT NULL, previous TEXT NOT NULL, hash TEXT NOT NULL, PRIMARY KEY (document_id, seq)
+  );
+  PRAGMA user_version = 5;
+`
+export type LogKind = 'typing' | 'paste' | 'import' | 'version' | 'release'
+export interface TypingSample { typed: number; deleted: number; activeMs: number; intervals: number[] }
+export interface WritingEvidence {
+  typed: number; deleted: number; pasted: number; imported: number; activeMs: number; sessions: number
+  intervals: number[]; entries: number; heads: string[]; intact: boolean
+}
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+const entryHash = (previous: string, documentId: string, seq: number, time: number, kind: string, data: string) =>
+  sha256(JSON.stringify([previous, documentId, seq, time, kind, data]))
+const count = (value: unknown, max = 10_000_000) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? Math.min(value, max) : 0
 
 // Records saved before drafts, categories and attachments existed get their defaults.
 function postFromRow(row: Record<string, unknown>): PostRecord {
   const post = JSON.parse(String(row.content))
-  return { status: 'published', category: '', attachments: [], release: null, ...post }
+  return { status: 'published', category: '', attachments: [], release: null, credential: null, verified: false, ...post }
 }
 
 function transaction<T>(db: DatabaseSync, action: () => T): T {
@@ -67,12 +89,14 @@ export class ProjectStore {
         throw new Error('This file is not a Tinto project.')
       }
       const version = this.db.prepare('PRAGMA user_version').get()?.user_version
-      if (version === 1) transaction(this.db, () => { this.db.exec(DRAFT_SCHEMA); this.db.exec(POST_SCHEMA) })
-      else if (version === 2) transaction(this.db, () => this.db.exec(POST_SCHEMA))
+      if (version === 1) transaction(this.db, () => { this.db.exec(DRAFT_SCHEMA); this.db.exec(POST_SCHEMA); this.db.exec(LOG_SCHEMA) })
+      else if (version === 2) transaction(this.db, () => { this.db.exec(POST_SCHEMA); this.db.exec(LOG_SCHEMA) })
       // Version 3 came only from unreleased builds that published to a single
       // site, before any site could be connected. Its table has no site column.
-      else if (version === 3) transaction(this.db, () => { this.db.exec('DROP TABLE posts'); this.db.exec(POST_SCHEMA) })
-      else if (version !== 4) {
+      else if (version === 3) transaction(this.db, () => { this.db.exec('DROP TABLE posts'); this.db.exec(POST_SCHEMA); this.db.exec(LOG_SCHEMA) })
+      // Text written before version 5 has no record of how it was written.
+      else if (version === 4) transaction(this.db, () => this.db.exec(LOG_SCHEMA))
+      else if (version !== 5) {
         throw new Error('This project requires a different version of Tinto.')
       }
       this.tick()
@@ -100,6 +124,7 @@ export class ProjectStore {
             CREATE INDEX document_history ON versions(document_id, time);
             ${DRAFT_SCHEMA}
             ${POST_SCHEMA}
+            ${LOG_SCHEMA}
           `)
           db.prepare('INSERT INTO project VALUES (?, ?)').run(randomUUID(), title)
           if (firstDocument) db.prepare('INSERT INTO documents (id, content) VALUES (?, ?)').run(firstDocument.id, JSON.stringify(firstDocument))
@@ -136,6 +161,7 @@ export class ProjectStore {
     this.db.prepare('DELETE FROM versions WHERE document_id = ?').run(id)
     // Posts stay on their websites; only this project's record of them goes.
     this.db.prepare('DELETE FROM posts WHERE document_id = ?').run(id)
+    this.db.prepare('DELETE FROM authorship_log WHERE document_id = ?').run(id)
     this.db.prepare('DELETE FROM documents WHERE id = ?').run(id)
   }
 
@@ -164,6 +190,9 @@ export class ProjectStore {
         // Published posts move with the document, so it keeps updating the same posts.
         this.db.prepare(`INSERT INTO destination.posts (id, site_id, document_id, heading_id, content)
           SELECT id, site_id, document_id, heading_id, content FROM main.posts WHERE document_id = ?`).run(id)
+        // The record of how it was written moves too, its chain unchanged.
+        this.db.prepare(`INSERT INTO destination.authorship_log (document_id, seq, time, kind, data, previous, hash)
+          SELECT document_id, seq, time, kind, data, previous, hash FROM main.authorship_log WHERE document_id = ? ORDER BY seq`).run(id)
         this.removeDocumentRows(id)
         for (const draft of undo?.drafts ?? []) {
           // Restore the relationship onto the current text so later edits survive Undo.
@@ -286,7 +315,68 @@ export class ProjectStore {
     `).run(id, name, time, docId)
     if (!result.changes) throw new Error('This document is no longer in the project.')
     this.db.prepare('UPDATE documents SET dirty_since = NULL WHERE id = ?').run(docId)
+    const content = String(this.db.prepare('SELECT content FROM versions WHERE id = ?').get(id)!.content)
+    this.appendEntry(docId, 'version', { version: id, sha256: sha256(content) }, time)
     return id
+  }
+
+  private appendEntry(documentId: string, kind: LogKind, data: object, time: number) {
+    const last = this.db.prepare('SELECT seq, hash FROM authorship_log WHERE document_id = ? ORDER BY seq DESC LIMIT 1').get(documentId)
+    const seq = last ? Number(last.seq) + 1 : 1
+    const previous = last ? String(last.hash) : ''
+    const text = JSON.stringify(data)
+    this.db.prepare('INSERT INTO authorship_log (document_id, seq, time, kind, data, previous, hash) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(documentId, seq, time, kind, text, previous, entryHash(previous, documentId, seq, time, kind, text))
+  }
+
+  // Typing, pasting and importing as the editor measured them. Only counts and
+  // timing are kept, never the text or the keys.
+  recordWriting(documentId: string, kind: 'typing' | 'paste' | 'import', sample: Partial<TypingSample> & { characters?: number }) {
+    if (!this.db.prepare('SELECT 1 FROM documents WHERE id = ?').get(documentId)) return
+    const data = kind === 'typing'
+      ? { typed: count(sample.typed), deleted: count(sample.deleted), activeMs: count(sample.activeMs, 86_400_000),
+          intervals: INTERVAL_BANDS.map((_, index) => count(sample.intervals?.[index])).concat(count(sample.intervals?.[INTERVAL_BANDS.length])) }
+      : { characters: count(sample.characters) }
+    if (kind === 'typing' && !data.typed && !data.deleted) return
+    if (kind !== 'typing' && !data.characters) return
+    transaction(this.db, () => this.appendEntry(documentId, kind, data, this.now()))
+  }
+
+  recordRelease(documentId: string, data: { site: string; post: string; body: string; credential: string }) {
+    transaction(this.db, () => this.appendEntry(documentId, 'release', data, this.now()))
+  }
+
+  // The evidence for a document together with its drafts, and the source of a
+  // draft, checking each chain from its first entry.
+  writingEvidence(documentId: string): WritingEvidence {
+    const related = this.db.prepare(`SELECT id FROM documents WHERE id = ? OR json_extract(content, '$.source.documentId') = ?
+      OR id = (SELECT json_extract(content, '$.source.documentId') FROM documents WHERE id = ?)`).all(documentId, documentId, documentId)
+    const evidence: WritingEvidence = {
+      typed: 0, deleted: 0, pasted: 0, imported: 0, activeMs: 0, sessions: 0,
+      intervals: new Array(INTERVAL_BANDS.length + 1).fill(0), entries: 0, heads: [], intact: true
+    }
+    for (const { id } of related) {
+      let previous = ''
+      let expected = 1
+      for (const row of this.db.prepare('SELECT * FROM authorship_log WHERE document_id = ? ORDER BY seq').all(String(id))) {
+        const seq = Number(row.seq)
+        const data = String(row.data)
+        if (seq !== expected++ || row.previous !== previous || row.hash !== entryHash(previous, String(id), seq, Number(row.time), String(row.kind), data)) evidence.intact = false
+        previous = String(row.hash)
+        evidence.entries++
+        const value = JSON.parse(data)
+        if (row.kind === 'typing') {
+          evidence.sessions++
+          evidence.typed += count(value.typed)
+          evidence.deleted += count(value.deleted)
+          evidence.activeMs += count(value.activeMs)
+          evidence.intervals = evidence.intervals.map((total, index) => total + count(value.intervals?.[index]))
+        } else if (row.kind === 'paste') evidence.pasted += count(value.characters)
+        else if (row.kind === 'import') evidence.imported += count(value.characters)
+      }
+      if (previous) evidence.heads.push(previous)
+    }
+    return evidence
   }
 
   snapshot(docId: string, name: string | null): string {
@@ -340,7 +430,7 @@ export class ProjectStore {
         throw Error('The downloaded file is not an intact backup of this project.')
       }
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version)
-      if (version < 1 || version > 4) throw Error('This backup requires a different version of Tinto.')
+      if (version < 1 || version > 5) throw Error('This backup requires a different version of Tinto.')
     } finally { db.close() }
   }
 

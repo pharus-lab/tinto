@@ -59,6 +59,8 @@ export interface PostFields { title: string; slug: string; summary: string; date
 export type PostStatus = 'draft' | 'published'
 // The text last published: a named version in History and a hash of its body.
 export interface PostRelease { at: number; versionId: string; body: string }
+// The authorship credential sent last, so the next one can point back to it.
+export interface PostCredential { id: string; sha256: string }
 export interface PostRecord extends PostFields {
   id: string
   siteId: string
@@ -72,6 +74,9 @@ export interface PostRecord extends PostFields {
   url: string | null
   publishedAt: number
   release: PostRelease | null
+  credential: PostCredential | null
+  // Whether the website checked the credential and records it.
+  verified: boolean
 }
 // A record as lists show it: whether the text changed since its release.
 export interface PostState extends PostRecord { changed: boolean }
@@ -93,5 +98,10 @@ export interface PublishRequest {
 export type FilePick = 'cover' | 'gallery' | 'attachments'
 export interface PickedFile { token: string; name: string; size: number }
 export interface SiteCategory { id: string; label: string }
+// The writer's author identity; the private key stays in the main process.
+export interface AuthorSummary { name: string; did: string }
+export interface CharacterCounts { written: number; pasted: number; imported: number; ai: number }
+// What the Publish dialog shows about a post's authorship before it is signed.
+export interface AuthorshipPreview { author: AuthorSummary | null; characters: CharacterCounts; typed: number; activeMinutes: number; intact: boolean }
 // A website added in Settings. Its API key stays in the main process.
 export interface SiteSummary { id: string; name: string; endpoint: string; categories: SiteCategory[] }

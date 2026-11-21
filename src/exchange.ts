@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { markTags, newBlock, type BlockJSON, type InlineJSON, type Manuscript, type MarkJSON, type TextJSON } from './model'
+import { formatMarks, markTags, newBlock, originOf, type BlockJSON, type InlineJSON, type Manuscript, type MarkJSON, type TextJSON } from './model'
 
 const word = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 const rels = 'http://schemas.openxmlformats.org/package/2006/relationships'
@@ -30,7 +30,7 @@ function blockHTML(block: BlockJSON, empty: string): string {
   const tag = block.type === 'heading' ? 'h' + Math.max(1, Math.min(6, block.attrs.level ?? 1)) : 'p'
   const runs = activeRuns(block.content ?? []).map(run => {
     let value = xml(run.text)
-    for (const mark of run.marks ?? []) {
+    for (const mark of formatMarks(run.marks)) {
       const name = markTags[mark.type]
       value = '<' + name + '>' + value + '</' + name + '>'
     }
@@ -44,13 +44,22 @@ export function documentHTML(doc: Manuscript): string {
 // A post carries the chosen wording only. Blank paragraphs are spacing in a
 // manuscript, not content, so the site never receives empty elements.
 export function postHTML(blocks: BlockJSON[]): string {
-  return blocks.filter(block => activeRuns(block.content ?? []).some(run => run.text.trim())).map(block => blockHTML(block, '')).join('\n')
+  return postParts(blocks).map(part => part.html).join('\n')
+}
+export type CharacterOrigins = { written: number; pasted: number; imported: number; ai: number }
+// Each paragraph or heading of a post, with how many of its characters came from where.
+export function postParts(blocks: BlockJSON[]): { html: string; characters: CharacterOrigins }[] {
+  return blocks.filter(block => activeRuns(block.content ?? []).some(run => run.text.trim())).map(block => {
+    const characters: CharacterOrigins = { written: 0, pasted: 0, imported: 0, ai: 0 }
+    for (const run of activeRuns(block.content ?? [])) characters[originOf(run.marks) ?? 'written'] += [...run.text].length
+    return { html: blockHTML(block, ''), characters }
+  })
 }
 export function writeDocx(doc: Manuscript): Uint8Array {
   const paragraphs = doc.content.map(block => {
     const style = block.type === 'heading' ? '<w:pPr><w:pStyle w:val="Heading' + block.attrs.level + '"/></w:pPr>' : ''
     const runs = activeRuns(block.content ?? []).map(run => {
-      const marks = run.marks?.map(mark => ({ strong: '<w:b/>', em: '<w:i/>', highlight: '<w:u w:val="single"/>' })[mark.type]).join('') ?? ''
+      const marks = formatMarks(run.marks).map(mark => ({ strong: '<w:b/>', em: '<w:i/>', highlight: '<w:u w:val="single"/>' })[mark.type]).join('')
       return '<w:r><w:rPr>' + marks + '</w:rPr><w:t xml:space="preserve">' + xml(run.text) + '</w:t></w:r>'
     })
     return '<w:p>' + style + runs.join('') + '</w:p>'

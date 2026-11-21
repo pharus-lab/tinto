@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { build } from 'esbuild'
+import { postBlocks, verifyCredential, SOURCE_TYPES } from '../modules/cloudflare/credential.mjs'
+import { newAuthor } from './author-fixture.mjs'
 
 const bundle = await build({ stdin: { contents: "export * from './src/site-api'; export * from './src/publishing'; export * from './src/storage'; export * from './src/model'; export { postHTML } from './src/exchange'", resolveDir: process.cwd() }, platform: 'node', format: 'esm', bundle: true, write: false })
-const { SiteClient, Publisher, ProjectStore, changedSinceRelease, postHTML, postId, sampleManuscript, siteId, validateConnection } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
+const { SiteClient, Publisher, ProjectStore, changedSinceRelease, postHTML, postId, sampleManuscript, siteId, validateConnection, NO_AUTHOR } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
 
 const endpoint = 'https://example.com/tinto'
 const key = 'site-key-with-enough-characters'
@@ -42,7 +45,7 @@ test('every request carries the key to the publishing URL only and refuses redir
     if (request.method === 'GET') return Response.json({ tinto: 2, name: ' Field\nnotes ', categories: [{ id: 'notes', label: 'Notes' }, { id: 'Bad Id', label: 'Dropped' }, { id: 'blog', label: '' }] })
     if (request.method === 'DELETE') return Response.json({ error: 'Not found' }, { status: 404 })
     if (String(address).includes('/files/')) return new Response(null, { status: 201 })
-    return Response.json({ url: requests.length === 3 ? 'https://example.com/en/first-light' : 'javascript:alert(1)' })
+    return Response.json(requests.length === 3 ? { url: 'https://example.com/en/first-light', authorship: 'verified' } : { url: 'javascript:alert(1)' })
   })
   const site = new SiteClient({ endpoint, key })
   assert.deepEqual(await site.info(), { name: 'Field notes', categories: [{ id: 'notes', label: 'Notes' }] })
@@ -51,8 +54,9 @@ test('every request carries the key to the publishing URL only and refuses redir
     slug: 'first-light', language: 'en', category: 'notes', status: 'published', title: 'First light', summary: '', date: '2026-11-21', tags: [],
     html: '<p>Hi</p>', cover: null, images: [], attachments: [{ file: 'abc.pdf', type: 'application/pdf', title: 'Field notes', size: pdf.length }], updatedAt: '2026-11-21T00:00:00.000Z'
   }
-  assert.deepEqual(await site.putPost('post-1', post), { url: 'https://example.com/en/first-light' })
-  assert.deepEqual(await site.putPost('post-1', post), { url: null })
+  // A module that checks authorship says so; an older one does not.
+  assert.deepEqual(await site.putPost('post-1', post), { url: 'https://example.com/en/first-light', verified: true })
+  assert.deepEqual(await site.putPost('post-1', post), { url: null, verified: false })
   await site.deletePost('post-1')
   assert.deepEqual(requests.map(({ url, method, auth, accept, redirect }) => [method, url, auth, accept, redirect]), [
     ['GET', endpoint, 'Bearer ' + key, 'application/json', 'error'],
@@ -119,7 +123,7 @@ class FakeSite {
     this.log.push('post ' + id)
     if (this.fail === 'post') throw Error('example.com returned HTTP 500.')
     this.posts.set(id, post)
-    return { url: post.status === 'published' ? 'https://example.com/posts/' + post.slug : null }
+    return { url: post.status === 'published' ? 'https://example.com/posts/' + post.slug : null, verified: true }
   }
   async putPreview(id, post) {
     this.log.push('preview ' + id)
@@ -150,13 +154,15 @@ async function fixture(t) {
   await writeFile(files.csv, csv)
   const sites = { one: new FakeSite(), two: new FakeSite() }
   const clock = { time: Date.UTC(2026, 10, 21) }
+  const author = await newAuthor()
+  const signer = { current: author }
   const publisher = new Publisher(async id => {
     if (!sites[id]) throw Error('This website is no longer in Tinto. Add it again in Settings.')
     return sites[id]
-  }, () => clock.time)
+  }, async () => signer.current, () => clock.time)
   t.after(async () => { store.close(); await rm(dir, { recursive: true, force: true }) })
   return {
-    sites, publisher, files, document, clock,
+    sites, publisher, files, document, clock, author, signer,
     get store() { return store },
     reopen() { store.close(); store = new ProjectStore(path) }
   }
@@ -185,7 +191,7 @@ test('publishing uploads new files three at a time, then sends the post, then ke
   assert.equal(site.peak, 3)
   assert.deepEqual(progress, ['0/5', '1/5', '2/5', '3/5', '4/5', '5/5'])
   const sent = site.posts.get(post.id)
-  assert.deepEqual(Object.keys(sent), ['slug', 'language', 'category', 'status', 'title', 'summary', 'date', 'tags', 'html', 'cover', 'images', 'attachments', 'updatedAt'])
+  assert.deepEqual(Object.keys(sent), ['slug', 'language', 'category', 'status', 'title', 'summary', 'date', 'tags', 'html', 'cover', 'images', 'attachments', 'updatedAt', 'credential'])
   assert.deepEqual([sent.status, sent.category, sent.tags], ['published', 'notes', ['fiction', 'home']])
   assert.deepEqual(sent.attachments[0], { file: post.attachments[0].file, type: 'application/pdf', title: 'Field notes', size: pdf.length })
   assert.match(sent.html, /^<p>The house was quiet/)
@@ -217,6 +223,53 @@ test('publishing uploads new files three at a time, then sends the post, then ke
   assert.notEqual(next.release.versionId, post.release.versionId)
   assert.equal(changedSinceRelease(f.store, next), false)
   assert.deepEqual(f.store.versions('story').filter(version => version.name).map(version => version.name), ['Released on Field Notes', 'Released on Field Notes'])
+})
+
+test('every post is signed by its author, with the text, each paragraph, its files and where each paragraph came from', async t => {
+  const f = await fixture(t)
+  // The second paragraph of the kitchen was pasted, and part of the third imported.
+  const doc = f.store.readDocument('story')
+  const pasted = { type: 'origin', attrs: { source: 'pasted' } }
+  doc.manuscript.content[1].content = [{ type: 'text', text: 'The house was quiet when Mara arrived.', marks: [pasted] }]
+  doc.manuscript.content[3].content = [{ type: 'text', text: '“You always say that,” ' }, { type: 'text', text: 'she said.', marks: [{ type: 'em' }, { type: 'origin', attrs: { source: 'imported' } }] }]
+  f.store.save(doc)
+  f.store.recordWriting('story', 'typing', { typed: 400, deleted: 20, activeMs: 300_000, intervals: [0, 5, 100, 200, 60, 20, 10, 4] })
+  const post = await f.publisher.publish(f.store, request({ cover: { path: f.files.cover, name: 'cover.png', alt: 'Window' }, attachments: [{ path: f.files.pdf, name: 'Field notes.pdf', title: 'Notes' }] }))
+  const sent = f.sites.one.posts.get(post.id)
+  const { credential } = sent
+  assert.deepEqual(await verifyCredential(credential), { verified: true, did: f.author.did })
+  assert.deepEqual(credential['@context'], ['https://www.w3.org/ns/credentials/v2'])
+  assert.deepEqual(credential.type, ['VerifiableCredential', 'AuthorshipCredential'])
+  assert.deepEqual([credential.proof.type, credential.proof.cryptosuite, credential.proof.proofPurpose], ['DataIntegrityProof', 'eddsa-jcs-2022', 'assertionMethod'])
+  const subject = credential.credentialSubject
+  assert.deepEqual([subject.id, subject.type, subject.name, subject.inLanguage, subject.author], ['urn:uuid:' + post.id, 'CreativeWork', 'The kitchen', 'en', { id: f.author.did, name: f.author.name }])
+  assert.equal(subject.sha256, createHash('sha256').update(sent.html).digest('hex'))
+  assert.deepEqual(subject.hasPart.map(part => part.sha256), postBlocks(sent.html).map(block => createHash('sha256').update(block).digest('hex')))
+  assert.deepEqual(subject.hasPart.map(part => [part.characters.written > 0, part.characters.pasted > 0, part.characters.imported > 0, part.digitalSourceType ?? null]), [
+    [false, true, false, null], [true, false, false, SOURCE_TYPES.written], [true, false, true, SOURCE_TYPES.composite], ...subject.hasPart.slice(3).map(() => [true, false, false, SOURCE_TYPES.written])
+  ])
+  assert.equal(subject.digitalSourceType, SOURCE_TYPES.composite)
+  assert.deepEqual(subject.associatedMedia.map(item => item.identifier), [post.cover.file, post.attachments[0].file])
+  assert.deepEqual([subject.writingProcess.typedCharacters, subject.writingProcess.activeMinutes, subject.writingProcess.keyIntervals.counts.length, subject.writingProcess.log.intact], [400, 5, 8, true])
+  assert.equal(subject.previousCredential, undefined)
+  // The origin marks stay in Tinto; the post body has only its formatting.
+  assert.doesNotMatch(sent.html, /origin|pasted|imported/)
+  assert.match(sent.html, /<em>she said\.<\/em>/)
+
+  // Each later credential points back to the one before it, and a changed text breaks the old signature.
+  const again = await f.publisher.publish(f.store, request({ cover: { file: post.cover.file, alt: 'Window' } }))
+  assert.deepEqual(f.sites.one.posts.get(post.id).credential.credentialSubject.previousCredential, post.credential)
+  assert.notEqual(again.credential.sha256, post.credential.sha256)
+  assert.equal(again.verified, true)
+  const forged = structuredClone(credential)
+  forged.credentialSubject.hasPart[0].characters = { written: 38, pasted: 0, imported: 0, ai: 0 }
+  assert.equal((await verifyCredential(forged)).verified, false)
+
+  // Without an author key there is nothing to sign with, so nothing is sent.
+  f.signer.current = null
+  f.sites.one.log = []
+  await assert.rejects(f.publisher.publish(f.store, request()), new RegExp(NO_AUTHOR.slice(0, 30)))
+  assert.deepEqual(f.sites.one.log, [])
 })
 
 test('a preview uploads the files and sends the post beside the live one, without a local record or release', async t => {

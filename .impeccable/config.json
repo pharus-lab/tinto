@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "src/index.html"
+        ],
+        "createdAt": "2026-11-21T19:17:19.392Z",
+        "reason": "Audit 2026-11-21 (Claude): static guess about .location; the rendered DevTools scan of every screen shows its 50px bar centers its children with inset, so no cramped padding"
+      }
+    ]
+  }
+}

@@ -21,11 +21,13 @@ export interface SitePost {
   images: SiteImage[]
   attachments: SiteAttachment[]
   updatedAt: string
+  // A W3C Verifiable Credential signed by the author. See docs/site-contract.md.
+  credential?: object
 }
 export interface SiteInfo { name: string; categories: { id: string; label: string }[] }
 export interface SiteTransport {
   putFile(postId: string, file: string, bytes: Uint8Array, type: string): Promise<void>
-  putPost(postId: string, post: SitePost): Promise<{ url: string | null }>
+  putPost(postId: string, post: SitePost): Promise<{ url: string | null; verified: boolean }>
   putPreview(postId: string, post: SitePost): Promise<{ url: string }>
   deletePost(postId: string): Promise<void>
 }
@@ -79,6 +81,7 @@ export class SiteClient implements SiteTransport {
   private explain(status: number, body: unknown, action: Action): Error {
     const said = clip((body as { error?: unknown } | null)?.error, 300)
     const site = this.host
+    if (status === 403 && said) return Error(said)
     if (status === 401 || status === 403) return Error(site + ' rejected the API key. Copy the current key from the website and add the site again in Settings.')
     if (status === 404 && action === 'check') return Error('There is no Tinto blog module at this publishing URL. Copy the URL from the website again.')
     if (status === 404 && action === 'preview') return Error(site + ' has a Tinto blog module without previews. Update it with Settings → Websites → ? → Save module to your site, then deploy the website.')
@@ -110,13 +113,14 @@ export class SiteClient implements SiteTransport {
     }, 'file', 120_000 + Math.ceil(bytes.byteLength / 1_048_576) * 4_000)
   }
 
-  async putPost(postId: string, post: SitePost): Promise<{ url: string | null }> {
+  // Modules that check authorship answer with authorship: "verified"; older ones ignore the credential.
+  async putPost(postId: string, post: SitePost): Promise<{ url: string | null; verified: boolean }> {
     const body = await this.call('/posts/' + postId, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(post)
-    }, 'post') as { url?: unknown } | null
+    }, 'post') as { url?: unknown; authorship?: unknown } | null
     let url: URL | null = null
     try { url = typeof body?.url === 'string' && body.url.length <= 2048 ? new URL(body.url) : null } catch { /* Not a usable address. */ }
-    return { url: url && /^https?:$/.test(url.protocol) ? url.href : null }
+    return { url: url && /^https?:$/.test(url.protocol) ? url.href : null, verified: body?.authorship === 'verified' }
   }
 
   // The site answers with a signed link on its own origin, under the publishing URL.

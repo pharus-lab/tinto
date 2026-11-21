@@ -32,7 +32,7 @@ async function simulateWebsites(app, files) {
       if (url.includes('/files/')) return new Response(null, { status: 201 })
       if (url.includes('/previews/')) return Response.json({ url: url.replace('/previews/', '/preview/') + '?expires=1&sig=abc' })
       const post = JSON.parse(init.body)
-      return Response.json({ url: post.status === 'published' ? new URL(site.endpoint).origin + '/' + (post.category || 'posts') + '/' + post.slug : null })
+      return Response.json({ url: post.status === 'published' ? new URL(site.endpoint).origin + '/' + (post.category || 'posts') + '/' + post.slug : null, authorship: post.credential ? 'verified' : null })
     }
   }, { files, sites })
 }
@@ -79,6 +79,9 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   await modal.getByLabel('Description of cover.png').fill('The kitchen window at night')
   await button(modal, 'Attach files').click()
   assert.equal(await modal.getByLabel('Title of Field notes.pdf').inputValue(), 'Field notes')
+  // Every post is signed; the first time, Tinto asks for the author's name.
+  assert.equal(await modal.locator('.publish-authorship').innerText(), 'Original · written in Tinto')
+  await modal.getByLabel('Sign as', { exact: true }).fill('Mara Ruiz')
 
   // Preview sends the post beside anything live and opens the site's link in the browser.
   await button(modal, 'Preview').click()
@@ -90,6 +93,12 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   assert.equal(previewed.at(-1).request, 'PUT https://one.example/tinto/previews/<post>')
   assert.equal(JSON.parse(previewed.at(-1).body).title, 'El largo camino a casa')
   assert.match(await status.innerText(), /Opened the preview/)
+  const author = await page.evaluate(() => window.tinto.author())
+  assert.equal(author.name, 'Mara Ruiz')
+  assert.match(author.did, /^did:key:z6Mk/)
+  assert.equal(JSON.parse(previewed.at(-1).body).credential.issuer.id, author.did)
+  assert.equal(await modal.getByLabel('Sign as', { exact: true }).count(), 0)
+  assert.equal(await modal.locator('.publish-authorship').innerText(), 'Original · written in Tinto · signed as Mara Ruiz')
   await button(modal, 'Publish').click()
   await page.locator('#notice').getByText('Published “El largo camino a casa” on Field Notes.').waitFor()
   const first = await requests(fixture.app)
@@ -100,6 +109,7 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   assert.equal(first[2].request, 'PUT https://one.example/tinto/posts/<post>')
   const sent = JSON.parse(first[2].body)
   assert.deepEqual([sent.category, sent.status, sent.cover.alt, sent.attachments.map(item => [item.type, item.title])], ['essays', 'published', 'The kitchen window at night', [['application/pdf', 'Field notes']]])
+  assert.deepEqual([sent.credential.credentialSubject.author.name, sent.credential.credentialSubject.associatedMedia.length], ['Mara Ruiz', 2])
   assert.doesNotMatch(first[2].body, /cover\.png|Field notes\.pdf/)
 
   // The release is a named version in History.

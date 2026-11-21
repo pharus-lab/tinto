@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { FILE_CLASSES, FILE_TYPES, describeTypes, detectFile } from '../modules/cloudflare/files.mjs'
+import type { AuthorSigner } from './author'
+import { authorshipCredential } from './authorship'
 import { postHTML } from './exchange'
-import { sectionRange } from './model'
+import { sectionRange, type BlockJSON } from './model'
 import type { DocumentRecord, PostAttachment, PostFields, PostImage, PostRecord, PostRelease, PostStatus } from './project-types'
 import type { SitePost, SiteTransport } from './site-api'
 import type { ProjectStore } from './storage'
@@ -43,15 +45,13 @@ async function readFile(path: string, name: string) {
 }
 
 // A linked section is posted without its own heading, which becomes the title.
-export function bodyHTML(doc: DocumentRecord, headingId: string | null): string {
-  let blocks = doc.manuscript.content
-  if (headingId) {
-    const range = sectionRange(doc.manuscript, headingId)
-    if (range.from === range.to) throw Error('This section is no longer in its document.')
-    blocks = blocks.slice(range.from + 1, range.to)
-  }
-  return postHTML(blocks)
+export function bodyBlocks(doc: DocumentRecord, headingId: string | null): BlockJSON[] {
+  if (!headingId) return doc.manuscript.content
+  const range = sectionRange(doc.manuscript, headingId)
+  if (range.from === range.to) throw Error('This section is no longer in its document.')
+  return doc.manuscript.content.slice(range.from + 1, range.to)
 }
+export const bodyHTML = (doc: DocumentRecord, headingId: string | null) => postHTML(bodyBlocks(doc, headingId))
 export const bodyHash = (html: string) => sha256(html)
 
 export function validateFields(input: PostFields): PostFields {
@@ -88,13 +88,17 @@ async function inParallel<T>(items: T[], limit: number, task: (item: T) => Promi
   }))
 }
 
+export const NO_AUTHOR = 'Add your name as the author first. Tinto signs every post, so the website can show who wrote it.'
+
 export class Publisher {
   private sites: (id: string) => Promise<SiteTransport>
+  private author: () => Promise<AuthorSigner | null>
   private now: () => number
   private queue: Promise<unknown> = Promise.resolve()
 
-  constructor(sites: (id: string) => Promise<SiteTransport>, now: () => number = Date.now) {
+  constructor(sites: (id: string) => Promise<SiteTransport>, author: () => Promise<AuthorSigner | null>, now: () => number = Date.now) {
     this.sites = sites
+    this.author = author
     this.now = now
   }
 
@@ -110,10 +114,13 @@ export class Publisher {
   // Publishing and previewing share this, so a preview shows exactly what would go out.
   private async prepare(store: ProjectStore, input: PublishInput, progress: Progress) {
     const doc = store.readDocument(input.documentId)
-    const html = bodyHTML(doc, input.headingId)
+    const blocks = bodyBlocks(doc, input.headingId)
+    const html = postHTML(blocks)
     if (!html) throw Error('Write some text before publishing this post.')
     const fields = validateFields(input.fields)
     if ((input.cover ? 1 : 0) + input.images.length + input.attachments.length > MAX_FILES) throw Error('A post can include up to ' + MAX_FILES + ' files.')
+    const author = await this.author()
+    if (!author) throw Error(NO_AUTHOR)
     const site = await this.sites(input.siteId)
     const previous = store.post(input.siteId, input.documentId, input.headingId)
     const id = previous?.id ?? postId(store.projectId(), input.siteId, input.documentId, input.headingId)
@@ -163,33 +170,39 @@ export class Publisher {
       progress(++done, pending.length)
     })
     const time = this.now()
+    const signed = await authorshipCredential(author, {
+      postId: id, title: fields.title, language: doc.language, blocks, html, time,
+      files: [...(cover ? [cover] : []), ...images, ...attachments].map(({ file, type }) => ({ file, type })),
+      evidence: store.writingEvidence(input.documentId), previous: previous?.credential ?? null
+    })
     const sent: SitePost = {
       slug: fields.slug, language: doc.language, category: fields.category, status: input.status, title: fields.title,
       summary: fields.summary, date: fields.date, tags: fields.tags, html,
       cover: cover ? { file: cover.file, type: cover.type, alt: cover.alt } : null,
       images: images.map(({ file, type, alt }) => ({ file, type, alt })),
       attachments: attachments.map(({ file, type, title, size }) => ({ file, type, title, size })),
-      updatedAt: new Date(time).toISOString()
+      updatedAt: new Date(time).toISOString(), credential: signed.credential
     }
-    return { site, doc, html, fields, previous, id, cover, images, attachments, sent, time }
+    return { site, doc, html, fields, previous, id, cover, images, attachments, sent, time, credential: { id: signed.id, sha256: signed.sha256 } }
   }
 
   // The local record changes only after the website has accepted the post. A
   // publication whose text changed is kept in History as a named version.
   publish(store: ProjectStore, input: PublishInput, progress: Progress = () => {}): Promise<PostRecord> {
     return this.serial(async () => {
-      const { site, doc, html, fields, previous, id, cover, images, attachments, sent, time } = await this.prepare(store, input, progress)
-      const { url } = await site.putPost(id, sent)
+      const { site, doc, html, fields, previous, id, cover, images, attachments, sent, time, credential } = await this.prepare(store, input, progress)
+      const { url, verified } = await site.putPost(id, sent)
       let release: PostRelease | null = previous?.release ?? null
+      const body = bodyHash(html)
       if (input.status === 'published') {
-        const body = bodyHash(html)
         release = release?.body === body
           ? { ...release, at: time }
           : { at: time, body, versionId: store.snapshot(input.documentId, 'Released on ' + input.siteName) }
+        store.recordRelease(input.documentId, { site: input.siteId, post: id, body, credential: credential.sha256 })
       }
       const post: PostRecord = {
         id, siteId: input.siteId, documentId: input.documentId, headingId: input.headingId, ...fields,
-        language: doc.language, status: input.status, cover, images, attachments, url, publishedAt: time, release
+        language: doc.language, status: input.status, cover, images, attachments, url, publishedAt: time, release, credential, verified: verified === true
       }
       store.savePost(post)
       return post

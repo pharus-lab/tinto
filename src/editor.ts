@@ -35,8 +35,29 @@ export const schema = new Schema({
       parseDOM: [{ tag: "u" }, { tag: "mark" }, { style: "text-decoration", getAttrs: parseUnderline }, { style: "text-decoration-line", getAttrs: parseUnderline }],
       toDOM: () => [markTags.highlight, 0],
     },
+    // Text the writer did not type here. Not parsed from HTML, so pasted
+    // markup cannot claim an origin; typing beside it is unmarked.
+    origin: {
+      attrs: { source: { default: "pasted" } }, inclusive: false,
+      toDOM: mark => ["span", { "data-origin": mark.attrs.source }, 0],
+    },
   },
 });
+
+// Pasted or dropped text from outside Tinto is marked as pasted. Moving text
+// within the manuscript, and Tinto's own clipboard, keep the origin it had.
+function markPasted(fragment: Fragment): Fragment {
+  const nodes: PMNode[] = [];
+  fragment.forEach(node => {
+    if (node.isText) nodes.push(node.mark(schema.marks.origin.create({ source: "pasted" }).addToSet(node.marks)));
+    else nodes.push(node.copy(markPasted(node.content)));
+  });
+  return Fragment.from(nodes);
+}
+// Typed text is the writer's own, even inside a pasted passage.
+function asWritten(tr: Transaction, from: number, to: number): Transaction {
+  return tr.doc.rangeHasMark(from, to, schema.marks.origin) ? tr.removeMark(from, to, schema.marks.origin) : tr;
+}
 
 export interface ChoiceContext {
   id: string;
@@ -234,7 +255,14 @@ export class WritingEditor {
         }
         return false;
       },
-      handleTextInput: (view) => partialGroup(view.state.selection) && this.explain(selectionMessage),
+      handleTextInput: (view, from, _to, text, typed) => {
+        if (partialGroup(view.state.selection)) return this.explain(selectionMessage);
+        const tr = typed();
+        if (!tr.doc.rangeHasMark(from, from + text.length, schema.marks.origin)) return false;
+        view.dispatch(asWritten(tr, from, from + text.length));
+        return true;
+      },
+      transformPasted: (slice, view) => view.dragging ? slice : new Slice(markPasted(slice.content), slice.openStart, slice.openEnd),
       transformPastedHTML: html => {
         // Rich text from other editors may carry their own ProseMirror schema.
         // Parse only prose/marks; Tinto groups travel in the typed clipboard entry.
@@ -292,7 +320,8 @@ export class WritingEditor {
           // so its containing choice and its inactive options stay intact.
           if (event.inputType === "insertText" && event.cancelable && !event.isComposing && event.data !== null && enclosingChoice(selection.$from)) {
             event.preventDefault();
-            view.dispatch(view.state.tr.insertText(event.data).scrollIntoView());
+            const from = selection.from;
+            view.dispatch(asWritten(view.state.tr.insertText(event.data), from, from + event.data.length).scrollIntoView());
             return true;
           }
           return false;

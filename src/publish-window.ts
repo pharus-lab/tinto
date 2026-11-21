@@ -1,15 +1,17 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { rm, stat } from 'node:fs/promises'
+import { readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { AuthorKeys } from './author'
+import { characterTotals } from './authorship'
 import { writeModule, checkModuleSite, type ModuleSite } from './module-export'
 import { FILE_TYPES } from '../modules/cloudflare/files.mjs'
-import { Publisher, changedSinceRelease, type AttachmentInput, type ImageInput } from './publishing'
+import { Publisher, bodyBlocks, changedSinceRelease, type AttachmentInput, type ImageInput } from './publishing'
 import { protect, reveal } from './secure-file'
 import { SiteClient, siteId, validateConnection, type SiteConnection } from './site-api'
 import { ProjectStore } from './storage'
-import type { FilePick, PickedFile, PostAttachmentChoice, PostImageChoice, PostOverview, PublishRequest, SiteCategory, SiteSummary } from './project-types'
+import type { AuthorshipPreview, FilePick, PickedFile, PostAttachmentChoice, PostImageChoice, PostOverview, PublishRequest, SiteCategory, SiteSummary } from './project-types'
 
 interface PublishContext {
   window(): BrowserWindow
@@ -41,7 +43,9 @@ export function registerPublishing(context: PublishContext) {
     return found
   }
   const summary = ({ id, name, endpoint, categories }: SavedSite): SiteSummary => ({ id, name, endpoint, categories: categories ?? [] })
-  const publisher = new Publisher(async id => new SiteClient(await site(id)))
+  // One author key per installation signs every post.
+  const author = new AuthorKeys(join(app.getPath('userData'), 'author.enc'))
+  const publisher = new Publisher(async id => new SiteClient(await site(id)), () => author.signer())
   // The renderer refers to chosen images by token; it never supplies a path.
   const picked = new Map<string, { path: string; name: string }>()
 
@@ -64,6 +68,56 @@ export function registerPublishing(context: PublishContext) {
     return 'file' in choice ? { title: choice.title, file: String(choice.file) } : { title: choice.title, ...chosen(choice.token) }
   }
 
+  ipcMain.handle('author:get', event => { context.trusted(event); return author.summary() })
+  ipcMain.handle('author:create', async (event, name: string) => { context.trusted(event); await publisher.idle(); return author.create(name) })
+  ipcMain.handle('author:rename', async (event, name: string) => { context.trusted(event); await publisher.idle(); return author.rename(name) })
+  // The export is encrypted with the writer's passphrase, for their other computers.
+  ipcMain.handle('author:export', async (event, passphrase: string) => {
+    context.trusted(event)
+    const current = await author.summary()
+    if (!current) throw Error('Create your author key first.')
+    const bytes = await author.exportKey(passphrase)
+    const choice = await dialog.showSaveDialog(context.window(), {
+      title: 'Export your author key', buttonLabel: 'Export key', defaultPath: join(app.getPath('documents'), current.name + ' author key.tintokey'),
+      filters: [{ name: 'Tinto author key', extensions: ['tintokey'] }]
+    })
+    if (choice.canceled || !choice.filePath) return null
+    await writeFile(choice.filePath, bytes, { mode: 0o600 })
+    return choice.filePath
+  })
+  ipcMain.handle('author:import', async (event, passphrase: string) => {
+    context.trusted(event)
+    const window = context.window()
+    const choice = await dialog.showOpenDialog(window, {
+      title: 'Import an author key', buttonLabel: 'Import key', properties: ['openFile'], filters: [{ name: 'Tinto author key', extensions: ['tintokey'] }]
+    })
+    const path = choice.filePaths[0]
+    if (choice.canceled || !path) return null
+    const imported = await author.readExport(new Uint8Array(await readFile(path)), passphrase)
+    const current = await author.summary()
+    if (current && current.did !== imported.did) {
+      const answer = await dialog.showMessageBox(window, {
+        type: 'warning', buttons: ['Cancel', 'Replace key'], defaultId: 0, cancelId: 0,
+        message: 'Replace the author key on this computer?',
+        detail: 'Websites that accept posts from your current key will refuse posts signed with the imported one until their owner changes the author in tinto.config.mjs. Export your current key first if you may need it again.'
+      })
+      if (answer.response !== 1) return null
+    }
+    await publisher.idle()
+    return author.adopt(imported)
+  })
+  // What the Publish dialog shows before signing: who signs, and where the text came from.
+  ipcMain.handle('authorship:preview', async (event, documentId: string, headingId: string | null): Promise<AuthorshipPreview> => {
+    context.trusted(event)
+    const signer = await author.summary()
+    return withProject(async store => {
+      const evidence = store.writingEvidence(documentId)
+      return {
+        author: signer, characters: characterTotals(bodyBlocks(store.readDocument(documentId), headingId)),
+        typed: evidence.typed, activeMinutes: Math.round(evidence.activeMs / 60_000), intact: evidence.intact
+      }
+    })
+  })
   ipcMain.handle('sites:list', async event => {
     context.trusted(event)
     return (await sites()).map(summary)
@@ -107,7 +161,7 @@ export function registerPublishing(context: PublishContext) {
       && !await ask('This folder has no Wrangler configuration.', 'Choose the project folder of a website that deploys to Cloudflare Workers. It contains wrangler.jsonc, wrangler.json or wrangler.toml.', 'Add module anyway')) return null
     if (existsSync(join(folder, 'tinto'))
       && !await ask('This website already has a tinto folder.', 'Tinto replaces the module code and keeps tinto.config.mjs with your settings.', 'Update module files')) return null
-    return writeModule(folder, join(__dirname, 'cloudflare-module'), site)
+    return writeModule(folder, join(__dirname, 'cloudflare-module'), { ...site, author: (await author.summary())?.did ?? null })
   })
   ipcMain.handle('guide:copy', (event, text: string) => {
     context.trusted(event)

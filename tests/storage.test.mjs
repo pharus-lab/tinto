@@ -125,7 +125,8 @@ test('published post records move with their document and go when it is deleted'
   const f = fixture(t)
   const post = {
     id: 'post-1', siteId: 'site-a', documentId: f.doc.id, headingId: null, title: 'The kitchen', slug: 'the-kitchen', summary: '', date: '2026-11-21', tags: [],
-    language: 'en', status: 'published', category: '', cover: null, images: [], attachments: [], url: null, publishedAt: 1, release: null
+    language: 'en', status: 'published', category: '', cover: null, images: [], attachments: [], url: null, publishedAt: 1, release: null,
+    credential: null, verified: false
   }
   f.store.savePost(post)
   const path = join(f.directory, 'Elsewhere.tinto')
@@ -186,7 +187,7 @@ test('a version 2 project gains per-website post records that survive restore, r
   }
   const elsewhere = { ...post, id: 'post-2', siteId: 'site-b', url: 'https://example.org/the-kitchen' }
   // Records saved before drafts, categories, attachments and releases read back with defaults.
-  const read = record => ({ status: 'published', category: '', attachments: [], release: null, ...record })
+  const read = record => ({ status: 'published', category: '', attachments: [], release: null, credential: null, verified: false, ...record })
   f.store.snapshot(f.doc.id, 'Before publishing')
   f.store.savePost(post)
   f.store.savePost({ ...post, title: 'Updated' })
@@ -215,9 +216,56 @@ test('a version 3 project from the single-site builds gets the per-website post 
   db.close()
   f.reopen()
   const check = new DatabaseSync(f.path, { readOnly: true })
-  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 4)
+  assert.equal(check.prepare('PRAGMA user_version').get().user_version, 5)
   assert.ok(check.prepare('PRAGMA table_info(posts)').all().some(column => column.name === 'site_id'))
   check.close()
   assert.equal(f.store.read().documents[0].id, f.doc.id)
   assert.deepEqual(f.store.posts(f.doc.id, null), [])
 })
+
+test('the writing record keeps counts only, chains every entry, travels with its document and shows any change', t => {
+  const f = fixture(t)
+  const db = new DatabaseSync(f.path)
+  db.exec('DROP TABLE authorship_log; PRAGMA user_version = 4;')
+  db.close()
+  f.reopen()
+  const empty = f.store.writingEvidence(f.doc.id)
+  assert.deepEqual([empty.entries, empty.heads, empty.intact], [0, [], true])
+  f.store.recordWriting(f.doc.id, 'typing', { typed: 120, deleted: 8, activeMs: 90_000, intervals: [1, 2, 40, 50, 10, 3, 1, 0], text: 'never kept' })
+  f.store.recordWriting(f.doc.id, 'paste', { characters: 42 })
+  f.store.recordWriting(f.doc.id, 'import', { characters: 1000 })
+  f.store.recordWriting(f.doc.id, 'typing', { typed: 0, deleted: 0 })
+  f.store.recordWriting('missing-document', 'typing', { typed: 5 })
+  f.store.snapshot(f.doc.id, 'Chapter one')
+  // A draft's typing counts for the document it came from.
+  const draft = f.store.createDraft(f.doc.id, null, 'Second pass')
+  f.store.recordWriting(draft.id, 'typing', { typed: 30, deleted: 2, activeMs: 20_000, intervals: [0, 0, 10, 15, 4, 1, 0, 0] })
+  const evidence = f.store.writingEvidence(f.doc.id)
+  assert.deepEqual([evidence.typed, evidence.deleted, evidence.pasted, evidence.imported, evidence.activeMs, evidence.sessions, evidence.entries, evidence.intact],
+    [150, 10, 42, 1000, 110_000, 2, 5, true])
+  assert.deepEqual(evidence.intervals, [1, 2, 50, 65, 14, 4, 1, 0])
+  assert.equal(evidence.heads.length, 2)
+  const rows = new DatabaseSync(f.path, { readOnly: true }).prepare('SELECT kind, data FROM authorship_log WHERE document_id = ? ORDER BY seq').all(f.doc.id)
+  assert.deepEqual(rows.map(row => row.kind), ['typing', 'paste', 'import', 'version'])
+  assert.doesNotMatch(JSON.stringify(rows), /never kept/)
+
+  // The chain moves with the document, unchanged, and leaves with it.
+  const path = join(f.directory, 'Elsewhere.tinto')
+  const destination = ProjectStore.create(path, 'Elsewhere')
+  t.after(() => destination.close())
+  f.store.moveDocument(draft.id, path)
+  f.store.moveDocument(f.doc.id, path)
+  assert.deepEqual(destination.writingEvidence(f.doc.id).heads.length, 1)
+  assert.equal(destination.writingEvidence(f.doc.id).intact, true)
+  assert.equal(destination.writingEvidence(draft.id).typed, 30)
+  assert.equal(f.store.writingEvidence(f.doc.id).entries, 0)
+
+  // Any change to a recorded entry breaks the chain.
+  const tamper = new DatabaseSync(path)
+  tamper.prepare("UPDATE authorship_log SET data = json_set(data, '$.characters', 0) WHERE kind = 'paste'").run()
+  tamper.close()
+  assert.equal(destination.writingEvidence(f.doc.id).intact, false)
+  destination.deleteDocument(f.doc.id)
+  assert.equal(new DatabaseSync(path, { readOnly: true }).prepare('SELECT COUNT(*) AS n FROM authorship_log WHERE document_id = ?').get(f.doc.id).n, 0)
+})
+

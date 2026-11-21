@@ -1,10 +1,15 @@
 // Tinto blog module for Cloudflare — the HTTPS endpoint Tinto publishes to.
 // Protocol 2 is described in Tinto's docs/site-contract.md.
 //
+// Each post carries its author's signed authorship credential (a W3C Verifiable
+// Credential). The site accepts posts from one author: the did:key in
+// tinto.config.mjs, or else the author of the first signed post it received.
+//
 // Needs the TINTO_DB (D1) and TINTO_MEDIA (R2) bindings and the TINTO_API_KEY
 // secret. TINTO_DEPLOY_HOOK, when set, is called after every change that
 // affects published posts, so a static site rebuilds.
 
+import { describePost, verifyCredential } from './credential.mjs'
 import { FILE_CLASSES, FILE_NAME, FILE_TYPES, contentName } from './files.mjs'
 import { POST_ID, PROTOCOL, Rejection, checkPost, fileKey, postFiles, publicPost, renderPreview, settings } from './shared.mjs'
 
@@ -18,15 +23,18 @@ const POSTS = `CREATE TABLE IF NOT EXISTS tinto_posts (
     id TEXT PRIMARY KEY, slug TEXT NOT NULL, language TEXT NOT NULL, locale TEXT NOT NULL, category TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'published', title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', date TEXT NOT NULL,
     tags TEXT NOT NULL DEFAULT '[]', html TEXT NOT NULL, cover TEXT, images TEXT NOT NULL DEFAULT '[]',
-    attachments TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL,
+    attachments TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, credential TEXT, authorship TEXT,
     UNIQUE (locale, category, slug)
   )`
 const SCHEMA = [
   POSTS,
   'CREATE INDEX IF NOT EXISTS tinto_posts_feed ON tinto_posts (status, date DESC, updated_at DESC)',
   'CREATE TABLE IF NOT EXISTS tinto_trash (key TEXT PRIMARY KEY, after INTEGER NOT NULL)',
-  'CREATE TABLE IF NOT EXISTS tinto_previews (id TEXT PRIMARY KEY, post TEXT NOT NULL, expires INTEGER NOT NULL)'
+  'CREATE TABLE IF NOT EXISTS tinto_previews (id TEXT PRIMARY KEY, post TEXT NOT NULL, expires INTEGER NOT NULL)',
+  "CREATE TABLE IF NOT EXISTS tinto_author (id INTEGER PRIMARY KEY CHECK (id = 1), did TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)"
 ]
+// Tables from before authorship credentials gain their columns; their posts stay unsigned.
+const SIGNING = ['ALTER TABLE tinto_posts ADD COLUMN credential TEXT', 'ALTER TABLE tinto_posts ADD COLUMN authorship TEXT']
 // Protocol 1 tables have no category, status or attachments. Their posts are
 // copied into the new table, and their images, stored without a class folder,
 // are still served (see serveFile).
@@ -37,12 +45,12 @@ const UPGRADE = [
     SELECT id, slug, language, locale, title, summary, date, tags, html, cover, images, updated_at FROM tinto_posts_v1`,
   'DROP TABLE tinto_posts_v1'
 ]
-const UPSERT = `INSERT INTO tinto_posts (id, slug, language, locale, category, status, title, summary, date, tags, html, cover, images, attachments, updated_at)
-  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+const UPSERT = `INSERT INTO tinto_posts (id, slug, language, locale, category, status, title, summary, date, tags, html, cover, images, attachments, updated_at, credential, authorship)
+  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
   ON CONFLICT (id) DO UPDATE SET slug = excluded.slug, language = excluded.language, locale = excluded.locale,
     category = excluded.category, status = excluded.status, title = excluded.title, summary = excluded.summary,
     date = excluded.date, tags = excluded.tags, html = excluded.html, cover = excluded.cover, images = excluded.images,
-    attachments = excluded.attachments, updated_at = excluded.updated_at`
+    attachments = excluded.attachments, updated_at = excluded.updated_at, credential = excluded.credential, authorship = excluded.authorship`
 const FEED = "SELECT * FROM tinto_posts WHERE status = 'published' ORDER BY date DESC, updated_at DESC"
 
 /**
@@ -74,6 +82,7 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     if (prepared.has(db)) return
     const table = await db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tinto_posts'").first()
     if (table && !String(table.sql).includes('category')) await db.batch(UPGRADE.map(sql => db.prepare(sql)))
+    else if (table && !String(table.sql).includes('authorship')) await db.batch(SIGNING.map(sql => db.prepare(sql)))
     await db.batch(SCHEMA.map(sql => db.prepare(sql)))
     prepared.add(db)
   }
@@ -171,6 +180,30 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     }
     return response.text()
   }
+  /** @param {any} env @returns {Promise<string | null>} */
+  async function siteAuthor(env) {
+    if (site.author) return site.author
+    const row = await env.TINTO_DB.prepare('SELECT did FROM tinto_author WHERE id = 1').first()
+    return row ? String(row.did) : null
+  }
+  const shortDid = (/** @type {string} */ did) => did.slice(0, 14) + '…' + did.slice(-6)
+  // The signature must verify, come from this site's author, and describe
+  // exactly this post. A post without one is accepted only until an author is set.
+  /** @param {any} env @param {any} post @param {string} id */
+  async function checkAuthorship(env, post, id) {
+    const owner = await siteAuthor(env)
+    if (!post.credential) {
+      if (owner) throw new Rejection(403, 'This site accepts only posts signed by its author. Update Tinto, then publish again.')
+      return null
+    }
+    const result = await verifyCredential(post.credential)
+    if (!result.verified || !result.did) throw new Rejection(422, 'The authorship credential could not be verified. ' + (result.reason ?? ''))
+    if (owner && result.did !== owner) {
+      throw new Rejection(403, 'This site accepts posts only from the author ' + shortDid(owner) + '. Use that author key in Tinto (Settings → Author → Import key), or ask the site owner to change author in tinto.config.mjs.')
+    }
+    try { return await describePost(post.credential, post, id, postFiles(post)) }
+    catch (error) { throw new Rejection(422, error instanceof Error ? error.message : 'The authorship credential does not match this post.') }
+  }
   /** @param {any} env @param {string} id */
   async function previousStatus(env, id) {
     const row = await env.TINTO_DB.prepare('SELECT status FROM tinto_posts WHERE id = ?1').bind(id).first()
@@ -249,14 +282,17 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     if (missing.length) throw new Rejection(422, 'A file of this post has not been uploaded. Publish again.')
     const db = env.TINTO_DB
     await schema(db)
+    const authorship = await checkAuthorship(env, post, id)
     const before = await previousStatus(env, id)
     try {
       // One transaction: files the post uses again leave the trash before the post refers to them.
+      // The first signed post names the site's author when tinto.config.mjs does not.
       await db.batch([
         ...[...keep].map(key => db.prepare('DELETE FROM tinto_trash WHERE key = ?1').bind(key)),
+        ...(authorship && !site.author ? [db.prepare('INSERT OR IGNORE INTO tinto_author (id, did, name, since) VALUES (1, ?1, ?2, ?3)').bind(authorship.author.id, authorship.author.name, new Date(now()).toISOString())] : []),
         db.prepare(UPSERT).bind(id, post.slug, post.language, post.locale, post.category, post.status, post.title, post.summary, post.date,
           JSON.stringify(post.tags), post.html, post.cover ? JSON.stringify(post.cover) : null, JSON.stringify(post.images),
-          JSON.stringify(post.attachments), post.updatedAt)
+          JSON.stringify(post.attachments), post.updatedAt, post.credential ? JSON.stringify(post.credential) : null, authorship ? JSON.stringify(authorship) : null)
       ])
     } catch (error) {
       if (/UNIQUE constraint failed/i.test(String(/** @type {any} */ (error)?.message))) {
@@ -267,7 +303,7 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     await tidy(env, id, keep)
     // A draft is not on any page, so only changes that touch published posts rebuild the site.
     if (post.status === 'published' || before === 'published') await rebuild(env, post.status === 'draft' ? 'saved as a draft' : 'saved')
-    return json(200, { url: post.status === 'published' ? publicPost(site, { ...post, id }).url : null }, origin)
+    return json(200, { url: post.status === 'published' ? publicPost(site, { ...post, id }).url : null, authorship: authorship ? 'verified' : null }, origin)
   }
 
   /** @param {any} env @param {string} id @param {string} origin */
@@ -290,6 +326,21 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     catch (error) { if (!/no such table|no such column/i.test(String(/** @type {any} */ (error)?.message))) throw error }
     const posts = rows.map((/** @type {any} */ row) => publicPost(site, rowPost(row)))
     return json(200, { tinto: PROTOCOL, name: site.name, posts }, origin, method === 'HEAD')
+  }
+
+  // The signed credential of a published post, for anyone to verify with Verifiable Credentials tools.
+  /** @param {any} env @param {string} id @param {string} method @param {string} origin */
+  async function credentialOf(env, id, method, origin) {
+    bindings(env, false)
+    const notFound = () => json(404, { error: 'This post has no published authorship credential.' }, origin)
+    if (!POST_ID.test(id)) return notFound()
+    let row = null
+    try { row = await env.TINTO_DB.prepare("SELECT credential FROM tinto_posts WHERE id = ?1 AND status = 'published'").bind(id).first() }
+    catch (error) { if (!/no such table|no such column/i.test(String(/** @type {any} */ (error)?.message))) throw error }
+    if (!row?.credential) return notFound()
+    return new Response(method === 'HEAD' ? null : String(row.credential), {
+      headers: finish({ 'Content-Type': 'application/vc', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*', 'Content-Security-Policy': "default-src 'none'" }, origin)
+    })
   }
 
   /** @param {Request} request @param {any} env @param {string} id @param {string} file @param {string} origin @param {any} ctx */
@@ -345,9 +396,11 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
     await previewTemplate(env, origin)
     const db = env.TINTO_DB
     await schema(db)
+    const authorship = await checkAuthorship(env, post, id)
     const expires = now() + PREVIEW_LIFE
-    await db.prepare('INSERT OR REPLACE INTO tinto_previews (id, post, expires) VALUES (?1, ?2, ?3)').bind(id, JSON.stringify({ ...post, id }), expires).run()
-    await db.batch(keys.map(key => db.prepare('DELETE FROM tinto_trash WHERE key = ?1').bind(key)))
+    await db.prepare('INSERT OR REPLACE INTO tinto_previews (id, post, expires) VALUES (?1, ?2, ?3)').bind(id, JSON.stringify({ ...post, credential: null, id, authorship }), expires).run()
+    // D1 refuses an empty batch, and a post may have no files.
+    if (keys.length) await db.batch(keys.map(key => db.prepare('DELETE FROM tinto_trash WHERE key = ?1').bind(key)))
     const link = origin + site.basePath + '/preview/' + id + '?expires=' + expires + '&sig=' + await signature(env, id, expires)
     return json(200, { url: link }, origin)
   }
@@ -383,6 +436,10 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
       return feed(env, method, origin)
     }
     if ((match = /^\/preview\/([^/]+)$/.exec(path))) return showPreview(request, env, match[1], new URL(request.url))
+    if ((match = /^\/credentials\/([^/]+)$/.exec(path))) {
+      allow(method, ['GET', 'HEAD'])
+      return credentialOf(env, match[1], method, origin)
+    }
     // Everything else is for Tinto and needs the key.
     await authorize(request, env)
     if (path === '' || path === '/') {

@@ -1,3 +1,4 @@
+import { PROTOCOL } from '../modules/cloudflare/shared.mjs'
 import type { SiteSummary } from './project-types'
 import { dialogHeader } from './settings'
 import { button, element, errorMessage } from './ui'
@@ -16,7 +17,7 @@ export function connectPrompt(values: GuideValues): string {
 
 ${where} Follow the "For coding agents" section of tinto/README.md. In short:
 1. Confirm that the site deploys to Cloudflare Workers (wrangler.jsonc, wrangler.json or wrangler.toml). If it does not, stop and tell me.
-2. In tinto/tinto.config.mjs, name is ${JSON.stringify(values.name)} and site is ${JSON.stringify(values.site)}. Set languages and postPath only if the site's routes need them. Do not change the other files in tinto/.
+2. In tinto/tinto.config.mjs, name is ${JSON.stringify(values.name)} and site is ${JSON.stringify(values.site)}. Set languages and postPath only if the site's routes need them. Leave author as it is: it is my author key. Do not change the other files in tinto/.
 3. Add the storage bindings without IDs, so Wrangler (4.45 or later) creates them on the next deploy:
    "d1_databases": [{ "binding": "TINTO_DB" }]
    "r2_buckets": [{ "binding": "TINTO_MEDIA" }]
@@ -32,7 +33,8 @@ export function pagesPrompt(values: GuideValues): string {
 - Render post.html as HTML (only p, h1–h6, strong, em and u without attributes, plus mark, which older posts use for the same underline). Render the title, summary and tags as text.
 - Show the cover and images with their alt text, and list post.attachments by their title with a link to their url (use the download attribute for ZIP and CSV, and audio or video elements for media). All urls are on this site.
 - If the site has categories, use post.category to place each post on the right page or section.
-- Add the preview page from "Preview page" in tinto/README.md at previewPath (/tinto-preview): the same post layout with %%title%%, %%body%% and the other markers, kept out of the sitemap and with noindex.
+- Show the authorship line quietly near the title or date, styled like the site's other small metadata: authorshipLabel(post.authorship) from tinto/credential.mjs (for example "Original · written by …"). Never hide it when the post includes AI-generated text.
+- Add the preview page from "Preview page" in tinto/README.md at previewPath (/tinto-preview): the same post layout with %%title%%, %%authorship%%, %%body%% and the other markers, kept out of the sitemap and with noindex.
 - Follow the site's language routes, and set postPath in tinto/tinto.config.mjs to match the post page.
 Do not deploy, commit or push. Run the build and tests and show me the result.`
 }
@@ -164,7 +166,8 @@ export function showSiteGuide(onConnected: (site: SiteSummary) => void) {
       dashboardRow,
       command('Hook command', 'npx wrangler secret put TINTO_DEPLOY_HOOK'),
       element('h3', 'group-label', '3. Deploy'),
-      element('p', '', 'Deploy the website with your agent’s changes: push them to your production branch, or run npx wrangler deploy. The first deploy creates the database and the image bucket. When the module is live, this address shows {"tinto":1,…}:'),
+      element('p', '', 'Deploy the website with your agent’s changes: push them to your production branch, or run npx wrangler deploy. The first deploy creates the database and the file bucket.'),
+      element('p', '', 'Once the module is live, this address answers with "tinto": ' + PROTOCOL + '.'),
       command('Feed address', values.site + BASE_PATH + '/feed')
     )
   }

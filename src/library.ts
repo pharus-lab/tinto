@@ -204,6 +204,11 @@ export class ProjectLibrary {
     } finally { previous.close() }
   }
 
+  // Evidence of writing goes only to the project it was measured in, while it is open.
+  recordWriting(path: string, id: string, documentId: string, kind: 'typing' | 'paste' | 'import', sample: Parameters<ProjectStore['recordWriting']>[2]) {
+    if (this.current?.path === path && this.current.id === id) this.current.store.recordWriting(documentId, kind, sample)
+  }
+
   tick() { this.current?.store.tick() }
 
   close() {

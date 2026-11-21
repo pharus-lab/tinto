@@ -2,7 +2,7 @@ import { redoDepth, undoDepth } from 'prosemirror-history'
 import { backupSettings } from './backup-settings'
 import { importFile, type ExportFormat } from './exchange'
 import { WritingEditor, type Format } from './editor'
-import { newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
+import { manuscriptWithOrigin, newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
 import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
 import type { DictionaryPack } from './dictionary-packs'
 import './desktop'
@@ -13,6 +13,8 @@ import { homeItemDialog, renderHome, type HomeItem } from './home'
 import { showPosts } from './posts-ui'
 import { showPublish } from './publish-ui'
 import { siteSettings } from './site-settings'
+import { authorSettings } from './author-settings'
+import { trackWriting } from './writing-evidence'
 import { showHistory } from './history'
 import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks } from './settings'
 import { $, button, element, errorMessage, icon } from './ui'
@@ -28,6 +30,7 @@ const undoButton = $('undo') as HTMLButtonElement
 const redoButton = $('redo') as HTMLButtonElement
 const scroll = $('scroll')
 const editors = new Map<string, WritingEditor>()
+const evidence = new Map<WritingEditor, ReturnType<typeof trackWriting>>()
 const pending = new Map<string, { projectId: string; path: string; doc: DocumentRecord }>()
 let library: LibraryState = { folder: null, folders: [], projects: [], workspace: null }
 let tabs: Tab[] = []
@@ -267,6 +270,9 @@ async function switchTab(tab: Tab | null) {
         selection: updateSelection
       })
       editors.set(doc.id, instance)
+      const workspace = library.workspace!
+      evidence.set(instance, trackWriting(instance.view, { path: workspace.path, projectId: workspace.project.id, documentId: doc.id },
+        (where, kind, sample) => api.recordWriting(where.path, where.projectId, where.documentId, kind, sample)))
     }
     editor = instance
     instance.view.dom.parentElement!.hidden = false
@@ -307,8 +313,14 @@ function closeTab(tab: Tab) {
   else { drawTabs(); saveSession() }
 }
 
+// The writing measured in an editor is recorded before the editor goes.
+function destroyEditor(instance: WritingEditor) {
+  evidence.get(instance)?.stop()
+  evidence.delete(instance)
+  instance.destroy()
+}
 async function loadLibrary(next: LibraryState, showHome = false) {
-  for (const instance of editors.values()) instance.destroy()
+  for (const instance of editors.values()) destroyEditor(instance)
   editors.clear()
   $('editors').replaceChildren()
   current = null
@@ -461,6 +473,7 @@ function settings() {
     saveSession()
     void api.library().then(next => loadLibrary(next)).catch(report)
   })
+  authorSettings(body)
   siteSettings(body)
 }
 async function importDocument() {
@@ -472,9 +485,11 @@ async function importDocument() {
   const imported = await importFile(file)
   if (library.workspace?.path !== projectPath) { notice('The project changed during import. Open the intended project and import the file again.'); return }
   const title = file.name.replace(/\.[^.]+$/, '')
-  const doc = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: imported.manuscript }
+  // Imported text was written elsewhere, and keeps saying so as it is edited.
+  const doc = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: manuscriptWithOrigin(imported.manuscript, 'imported') }
   const error = api.save(workspace.path, workspace.project.id, doc)
   if (error) return notice(error)
+  api.recordWriting(workspace.path, workspace.project.id, doc.id, 'import', { characters: [...doc.manuscript.content.map(visibleText).join('')].length })
   workspace.project.documents.push(doc)
   openDocument(doc.id)
   if (imported.notes.length) {
@@ -503,6 +518,8 @@ function exportDialog() {
 function publishDialog() {
   const doc = activeDocument()
   if (!doc || !current || !flush()) return
+  // The credential includes the writing measured up to now.
+  for (const tracker of evidence.values()) tracker.flush()
   const languageName = [...language.options].find(option => option.value === doc.language)?.text ?? doc.language
   const title = current.headingId ? label(current) : doc.title
   void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, settings, notice, postsDialog).catch(report)
@@ -514,7 +531,7 @@ function postsDialog() {
 function removeEditor(id: string) {
   const instance = editors.get(id)
   const host = instance?.view.dom.parentElement
-  instance?.destroy()
+  if (instance) destroyEditor(instance)
   host?.remove()
   editors.delete(id)
 }
@@ -562,6 +579,15 @@ function wire() {
   undoButton.onclick = () => { editor?.undo(); editor?.view.focus() }
   redoButton.onclick = () => { editor?.redo(); editor?.view.focus() }
   $('settings').onclick = settings
+  // Show origins tints text the writer did not type in Tinto. It is off by default.
+  const origins = $('show-origins')
+  const showOrigins = (on: boolean) => {
+    document.body.classList.toggle('show-origins', on)
+    origins.setAttribute('aria-pressed', String(on))
+    try { localStorage.setItem('show-origins', on ? '1' : '0') } catch { /* A preference only. */ }
+  }
+  showOrigins(localStorage.getItem('show-origins') === '1')
+  origins.onclick = () => showOrigins(!document.body.classList.contains('show-origins'))
   $('export').onclick = exportDialog
   $('publish').onclick = publishDialog
   $('draft-action').onclick = () => void drafts().catch(report)
@@ -589,6 +615,7 @@ function wire() {
   scroll.addEventListener('scroll', drawTrail, { passive: true })
   window.addEventListener('online', () => void api.online().catch(report))
   window.addEventListener('beforeunload', event => {
+    for (const tracker of evidence.values()) tracker.flush()
     saveSession()
     if (!flush()) { event.preventDefault(); event.returnValue = false }
   })

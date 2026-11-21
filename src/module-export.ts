@@ -4,12 +4,13 @@ import { join } from 'node:path'
 
 // Writes the Tinto blog module for Cloudflare (modules/cloudflare, bundled in
 // dist/cloudflare-module) into a website's project folder.
-export interface ModuleSite { name: string; site: string }
+export interface ModuleSite { name: string; site: string; author?: string | null }
 export interface SavedModule { path: string; updated: boolean }
 
 const CONFIG = 'tinto.config.mjs'
 const NAME_LINE = "  name: 'Example',"
 const SITE_LINE = "  site: 'https://example.com',"
+const AUTHOR_LINE = '  author: null'
 
 export function checkModuleSite(values: ModuleSite): ModuleSite {
   const name = String(values?.name ?? '').trim()
@@ -20,12 +21,15 @@ export function checkModuleSite(values: ModuleSite): ModuleSite {
   return { name, site: site.origin }
 }
 
-// Fills in the template's name and site. A changed template stops here rather
-// than producing a configuration with the example values.
+// Fills in the template's name, site and author. A changed template stops here
+// rather than producing a configuration with the example values.
 export function moduleConfig(template: string, values: ModuleSite): string {
   const { name, site } = checkModuleSite(values)
-  if (!template.includes(NAME_LINE) || !template.includes(SITE_LINE)) throw Error('The module bundled with Tinto has an unexpected configuration file. Reinstall Tinto.')
+  if (!template.includes(NAME_LINE) || !template.includes(SITE_LINE) || !template.includes(AUTHOR_LINE)) throw Error('The module bundled with Tinto has an unexpected configuration file. Reinstall Tinto.')
+  // The writer's own key locks the new site to them from its first post.
+  const author = typeof values.author === 'string' && /^did:key:z[1-9A-HJ-NP-Za-km-z]{40,60}$/.test(values.author) ? values.author : null
   return template.replace(NAME_LINE, '  name: ' + JSON.stringify(name) + ',').replace(SITE_LINE, '  site: ' + JSON.stringify(site) + ',')
+    .replace(AUTHOR_LINE, '  author: ' + (author ? JSON.stringify(author) : 'null'))
 }
 
 // An existing tinto.config.mjs holds the site's own settings, so an update

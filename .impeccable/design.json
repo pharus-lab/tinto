@@ -1,0 +1,523 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-21T20:15:22+00:00",
+  "title": "Design System: Tinto",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(98.6% 0.006 84.6)",
+        "tonalRamp": [
+          "#0C0B0A",
+          "#262523",
+          "#43423F",
+          "#62615E",
+          "#84827F",
+          "#A6A5A2",
+          "#CAC9C6",
+          "#EFEEEC"
+        ]
+      },
+      "paper-dark": {
+        "role": "neutral",
+        "displayName": "Paper (dark)",
+        "canonical": "oklch(23.2% 0.007 345.9)",
+        "tonalRamp": [
+          "#0C0B0B",
+          "#272425",
+          "#444142",
+          "#646062",
+          "#868183",
+          "#A8A3A6",
+          "#CCC8CA",
+          "#F1EDEF"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel Paper",
+        "canonical": "oklch(95.1% 0.008 73.7)",
+        "tonalRamp": [
+          "#0C0B09",
+          "#262522",
+          "#44423F",
+          "#64615D",
+          "#85827D",
+          "#A8A4A0",
+          "#CBC9C5",
+          "#F0EEEB"
+        ]
+      },
+      "panel-dark": {
+        "role": "neutral",
+        "displayName": "Panel Paper (dark)",
+        "canonical": "oklch(26.4% 0.010 346.2)",
+        "tonalRamp": [
+          "#0D0A0C",
+          "#272426",
+          "#454043",
+          "#655F62",
+          "#878084",
+          "#AAA3A6",
+          "#CDC7CA",
+          "#F2EDEF"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(25.4% 0.008 351.5)",
+        "tonalRamp": [
+          "#0D0A0B",
+          "#272425",
+          "#454142",
+          "#656062",
+          "#878083",
+          "#A9A3A5",
+          "#CCC7C9",
+          "#F1EDEF"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Ink (dark)",
+        "canonical": "oklch(95.1% 0.009 44.9)",
+        "tonalRamp": [
+          "#0D0B0A",
+          "#272423",
+          "#45413F",
+          "#65605E",
+          "#87817E",
+          "#A9A4A1",
+          "#CDC8C6",
+          "#F2EDEC"
+        ]
+      },
+      "secondary": {
+        "role": "neutral",
+        "displayName": "Pencil Grey",
+        "canonical": "oklch(49.5% 0.013 10.7)",
+        "tonalRamp": [
+          "#0E0A0A",
+          "#292424",
+          "#474041",
+          "#675F60",
+          "#8A7F80",
+          "#ACA2A3",
+          "#CFC7C7",
+          "#F3ECED"
+        ]
+      },
+      "secondary-dark": {
+        "role": "neutral",
+        "displayName": "Pencil Grey (dark)",
+        "canonical": "oklch(76.4% 0.018 3.8)",
+        "tonalRamp": [
+          "#0E0A0B",
+          "#2A2324",
+          "#483F41",
+          "#695E60",
+          "#8C7E81",
+          "#AEA1A4",
+          "#D1C6C8",
+          "#F5ECEE"
+        ]
+      },
+      "wine": {
+        "role": "primary",
+        "displayName": "Tinto Wine",
+        "canonical": "oklch(48.2% 0.121 16.1)",
+        "tonalRamp": [
+          "#1E0104",
+          "#421218",
+          "#692B31",
+          "#94454C",
+          "#BF6269",
+          "#DE8A8F",
+          "#FDB2B6",
+          "#FFDCDE"
+        ]
+      },
+      "wine-dark": {
+        "role": "primary",
+        "displayName": "Tinto Wine (dark)",
+        "canonical": "oklch(75.5% 0.093 14.4)",
+        "tonalRamp": [
+          "#1A0306",
+          "#3C181C",
+          "#613236",
+          "#894D53",
+          "#B36B71",
+          "#D29195",
+          "#F2B8BB",
+          "#FFE0E3"
+        ]
+      },
+      "on-wine": {
+        "role": "primary",
+        "displayName": "On Wine",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#A5A5A5",
+          "#C9C9C9",
+          "#EEEEEE"
+        ]
+      },
+      "on-wine-dark": {
+        "role": "primary",
+        "displayName": "On Wine (dark)",
+        "canonical": "oklch(23.2% 0.027 3.0)",
+        "tonalRamp": [
+          "#10090B",
+          "#2C2224",
+          "#4C3E41",
+          "#6D5C60",
+          "#917C81",
+          "#B29FA3",
+          "#D5C4C8",
+          "#F8EAED"
+        ]
+      },
+      "wash": {
+        "role": "neutral",
+        "displayName": "Wash",
+        "canonical": "oklch(93.4% 0.016 12.8)",
+        "tonalRamp": [
+          "#0E0A0A",
+          "#2A2324",
+          "#483F40",
+          "#695E5F",
+          "#8C7F7F",
+          "#AEA2A2",
+          "#D1C6C7",
+          "#F5ECEC"
+        ]
+      },
+      "wash-dark": {
+        "role": "neutral",
+        "displayName": "Wash (dark)",
+        "canonical": "oklch(32.8% 0.033 357.3)",
+        "tonalRamp": [
+          "#11080B",
+          "#2D2125",
+          "#4D3D42",
+          "#6F5B61",
+          "#937B82",
+          "#B59EA5",
+          "#D7C3C9",
+          "#FAE9EE"
+        ]
+      },
+      "divider": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(86.7% 0.009 34.3)",
+        "tonalRamp": [
+          "#0D0A0A",
+          "#282423",
+          "#464140",
+          "#66605E",
+          "#88807F",
+          "#AAA3A2",
+          "#CDC8C6",
+          "#F2EDEC"
+        ]
+      },
+      "divider-dark": {
+        "role": "neutral",
+        "displayName": "Hairline (dark)",
+        "canonical": "oklch(37.7% 0.017 354.0)",
+        "tonalRamp": [
+          "#0E0A0B",
+          "#292325",
+          "#483F42",
+          "#685E62",
+          "#8B7E83",
+          "#ADA2A5",
+          "#D0C6CA",
+          "#F4ECEF"
+        ]
+      },
+      "outline": {
+        "role": "neutral",
+        "displayName": "Outline",
+        "canonical": "oklch(62.8% 0.019 4.0)",
+        "tonalRamp": [
+          "#0F0A0B",
+          "#2A2324",
+          "#493F41",
+          "#6A5E60",
+          "#8D7E81",
+          "#AEA1A4",
+          "#D1C6C8",
+          "#F5ECED"
+        ]
+      },
+      "outline-dark": {
+        "role": "neutral",
+        "displayName": "Outline (dark)",
+        "canonical": "oklch(59.2% 0.025 356.9)",
+        "tonalRamp": [
+          "#0F090B",
+          "#2B2225",
+          "#4B3E42",
+          "#6C5C61",
+          "#8F7C82",
+          "#B1A0A5",
+          "#D4C5C9",
+          "#F7EBEE"
+        ]
+      },
+      "origin": {
+        "role": "tertiary",
+        "displayName": "Origin Sand",
+        "canonical": "oklch(92.7% 0.023 84.6)",
+        "tonalRamp": [
+          "#0D0B06",
+          "#28251D",
+          "#464138",
+          "#676154",
+          "#898273",
+          "#ABA497",
+          "#CEC8BD",
+          "#F3EEE4"
+        ]
+      },
+      "origin-dark": {
+        "role": "tertiary",
+        "displayName": "Origin Sand (dark)",
+        "canonical": "oklch(33.6% 0.014 54.1)",
+        "tonalRamp": [
+          "#0E0A09",
+          "#292421",
+          "#47413D",
+          "#675F5B",
+          "#89807A",
+          "#ACA39E",
+          "#CFC7C3",
+          "#F3EDE9"
+        ]
+      },
+      "origin-ai": {
+        "role": "tertiary",
+        "displayName": "Origin Slate",
+        "canonical": "oklch(92.9% 0.014 258.3)",
+        "tonalRamp": [
+          "#090B0E",
+          "#232529",
+          "#3F4248",
+          "#5D6268",
+          "#7D838B",
+          "#A1A5AD",
+          "#C5C9D0",
+          "#EBEFF4"
+        ]
+      },
+      "origin-ai-dark": {
+        "role": "tertiary",
+        "displayName": "Origin Slate (dark)",
+        "canonical": "oklch(32.4% 0.027 261.6)",
+        "tonalRamp": [
+          "#080B11",
+          "#21252D",
+          "#3C424D",
+          "#5A626F",
+          "#798393",
+          "#9DA5B4",
+          "#C2CAD6",
+          "#E9EFFA"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "Tinto. in the title bar."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Home and welcome headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Dialog and panel titles."
+      },
+      "manuscript": {
+        "displayName": "Manuscript",
+        "purpose": "The text itself; size and leading set by the writer."
+      },
+      "manuscript-heading": {
+        "displayName": "Manuscript heading",
+        "purpose": "Chapters and sections inside the manuscript."
+      },
+      "body": {
+        "displayName": "Interface",
+        "purpose": "Every control and message."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Group labels in Settings, Home and the panel."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Commands, keys and agent prompts in the guide."
+      }
+    },
+    "shadows": [
+      {
+        "name": "lifted",
+        "value": "0 4px 16px light-dark(#20081622, #0000004D)",
+        "purpose": "Notices, context menus and the spelling menu."
+      },
+      {
+        "name": "sheet",
+        "value": "0 15px 70px light-dark(#170A1026, #00000066)",
+        "purpose": "Dialogs."
+      },
+      {
+        "name": "scrim",
+        "value": "light-dark(#1B101C45, #00000080)",
+        "purpose": "Backdrop behind a modal dialog."
+      }
+    ],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "910px"
+      },
+      {
+        "name": "compact",
+        "value": "580px"
+      },
+      {
+        "name": "toolbar-wrap",
+        "value": "460px (container)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one strong action in a dialog.",
+      "html": "<button class=\"ds-btn-primary\">Publish</button>",
+      "css": ".ds-btn-primary { background: var(--wine, #963C46); color: var(--on-wine, #fff); border: 1px solid var(--wine, #963C46); border-radius: 5px; padding: 8px 12px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; cursor: pointer; } .ds-btn-primary:hover { filter: brightness(.94); } .ds-btn-primary:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary dialog actions.",
+      "html": "<button class=\"ds-btn-outline\">Preview</button>",
+      "css": ".ds-btn-outline { background: transparent; color: var(--ink, #262123); border: 1px solid var(--outline, #938487); border-radius: 5px; padding: 8px 12px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; cursor: pointer; } .ds-btn-outline:hover { background: var(--wash, #F4E5E6); } .ds-btn-outline:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: 2px; }"
+    },
+    {
+      "name": "Toggle",
+      "kind": "button",
+      "refersTo": "toggle-pressed",
+      "description": "Format buttons and Show pasted and imported text.",
+      "html": "<button class=\"ds-toggle\" aria-pressed=\"true\"><b>B</b></button>",
+      "css": ".ds-toggle { width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--secondary, #695F60); font: bold 17px Georgia, serif; cursor: pointer; } .ds-toggle:hover { background: var(--wash, #F4E5E6); } .ds-toggle[aria-pressed=true] { background: var(--wash, #F4E5E6); color: var(--wine, #963C46); } .ds-toggle:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A labelled row with the control on the right.",
+      "html": "<label class=\"ds-field\">Title<input class=\"ds-input\" placeholder=\"The long way home\"></label>",
+      "css": ".ds-field { display: flex; align-items: center; justify-content: space-between; gap: 16px; font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; color: var(--ink, #262123); } .ds-input { width: min(320px, 64%); padding: 7px 10px; border: 1px solid var(--outline, #938487); border-radius: 4px; background: var(--paper, #FCFAF6); color: inherit; font: inherit; } .ds-input::placeholder { color: var(--secondary, #695F60); } .ds-input:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: 2px; }"
+    },
+    {
+      "name": "Document Tab",
+      "kind": "nav",
+      "refersTo": "tab-current",
+      "description": "Browser-style tabs that open into the page.",
+      "html": "<div class=\"ds-tabs\"><span class=\"ds-tab\">Home</span><span class=\"ds-tab ds-current\">The long way home</span></div>",
+      "css": ".ds-tabs { display: flex; gap: 3px; padding-top: 9px; background: var(--panel, #F2EEE9); box-shadow: inset 0 -1px var(--divider, #D9D1CF); font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-tab { padding: 8px 12px; color: var(--secondary, #695F60); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; } .ds-tab:hover { color: var(--ink, #262123); } .ds-current { color: var(--ink, #262123); background: var(--paper, #FCFAF6); border-color: var(--divider, #D9D1CF); }"
+    },
+    {
+      "name": "Alternative Option",
+      "kind": "custom",
+      "refersTo": "alternative-option-chosen",
+      "description": "A wording in the Alternatives panel; the chosen one fills with wine.",
+      "html": "<div class=\"ds-options\"><button class=\"ds-option\">I want to eat a cat.</button><button class=\"ds-option\" aria-pressed=\"true\">I want to eat cake.</button></div>",
+      "css": ".ds-options { display: grid; gap: 6px; } .ds-option { text-align: left; padding: 12px 36px 12px 12px; background: var(--paper, #FCFAF6); color: var(--ink, #262123); border: 1px solid var(--outline, #938487); border-radius: 5px; font: 16px/1.35 \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif; cursor: pointer; } .ds-option[aria-pressed=true] { background: var(--wine, #963C46); border-color: var(--wine, #963C46); color: var(--on-wine, #fff); } .ds-option:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: 2px; }"
+    },
+    {
+      "name": "Manuscript Marks",
+      "kind": "custom",
+      "refersTo": "manuscript",
+      "description": "Alternatives and origins as paper tints behind the ink.",
+      "html": "<p class=\"ds-prose\">The house was quiet. <span class=\"ds-wording\">I want to eat cake.</span> <span class=\"ds-origin\">“Come home before the rain,” the letter said.</span></p>",
+      "css": ".ds-prose { font: 21px/1.72 \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif; color: var(--ink, #262123); background: var(--paper, #FCFAF6); padding: 16px; } .ds-wording { padding-inline: .35em; border-radius: .2em; background: color-mix(in srgb, var(--wine, #963C46) 16%, transparent); } .ds-origin { background: var(--origin, #EEE6D6); border-radius: 2px; }"
+    },
+    {
+      "name": "Dialog Sheet",
+      "kind": "card",
+      "refersTo": "dialog",
+      "description": "A paper sheet lifted above the desk.",
+      "html": "<div class=\"ds-dialog\"><h2>Publish</h2><p>95% written in Tinto · 5% pasted · signed as Mara Ruiz</p></div>",
+      "css": ".ds-dialog { width: 420px; padding: 24px; background: var(--paper, #FCFAF6); color: var(--ink, #262123); border: 1px solid var(--outline, #938487); border-radius: 9px; box-shadow: 0 15px 70px #170A1026; font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-dialog h2 { margin: 0 0 16px; font: 500 29px/1.2 \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif; letter-spacing: -.7px; } .ds-dialog p { margin: 0; color: var(--secondary, #695F60); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Ink on Paper",
+    "overview": "**Creative North Star: \"Ink on Paper\"**\n\nTinto is a writing desk, not a dashboard. The manuscript is ink, set in a book serif at reading size on warm paper. Everything around it is paper too: tabs, toolbars, panels and dialogs sit in the same family of off-whites (or deep plum-greys at night), separated by hairlines rather than boxes. The only strong color is wine, the ink of the name *tinto*. It marks what the writer chose, where the caret is, and the one action that matters in a dialog.\n\nThe interface speaks quietly in the system sans at 13px, so the serif belongs to the writing and to a few titles. Density is calm: generous margins around the text, compact controls at the edges. Depth comes from tone and hairlines. Shadows appear only on things that float above the page: dialogs, menus and notices.\n\nAuthorship marks follow the same restraint. Where words came from is shown only when asked, as a faint tint of a different paper behind them. It is never a badge or a color on the ink itself.",
+    "keyCharacteristics": [
+      "A book serif for the manuscript and titles, and the system sans for the interface.",
+      "Warm paper and wine ink, in light and dark through `light-dark()` tokens.",
+      "Hairline dividers (`--divider`) and outlines (`--outline`) instead of filled cards.",
+      "Wine appears sparingly: the chosen option, the primary action, focus and the caret.",
+      "Text marks (alternatives, origins) are tints behind words, never changes to the words."
+    ],
+    "rules": [
+      {
+        "name": "The One Ink Rule",
+        "body": "Wine is the only saturated color. It marks a choice, an action or a focus, never decoration, and rarely covers more than a few percent of a screen.",
+        "section": "colors"
+      },
+      {
+        "name": "The Paper Marks Rule",
+        "body": "Anything Tinto says about the text (alternatives, origins) is a tint of paper behind the words. The ink of the manuscript is never recolored.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Voices Rule",
+        "body": "Serif for the writing and for titles; sans for the tool. Never set a button, field or message in the serif, and never set manuscript text in the sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Writer Sets the Measure Rule",
+        "body": "Size, leading and text width belong to the writer in Settings. Interface prose keeps its own measure (about 60ch in guides) and wraps with `text-wrap: pretty`.",
+        "section": "typography"
+      },
+      {
+        "name": "The Desk Rule",
+        "body": "Nothing on the page has a shadow. Only what floats above it does: dialogs, menus and notices.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do set the manuscript, dialog titles and Home headings in `var(--serif)`, and everything else in the system sans at 13px.",
+      "Do add every new color as a `light-dark()` token on `:root`, and check body and placeholder text at 4.5:1 on Paper in both appearances.",
+      "Do separate regions with `--divider` hairlines and tone, as the title bar, panel and footer already do.",
+      "Do keep one primary (wine) action per dialog; the rest are outline or quiet buttons.",
+      "Do show anything about the text as a paper tint behind the words, off by default when it is not part of writing."
+    ],
+    "donts": [
+      "Don't introduce a second saturated accent; wine is the only ink color.",
+      "Don't nest bordered cards inside dialogs or panels; use spacing, labels and hairlines.",
+      "Don't put shadows on anything that sits on the page.",
+      "Don't recolor manuscript text to mark state; tint behind it instead.",
+      "Don't set controls or messages in the serif, or manuscript text in the sans."
+    ]
+  }
+}

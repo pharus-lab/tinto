@@ -1,5 +1,5 @@
 import { postFilesEditor } from './post-files-ui'
-import type { PostState, PostStatus, SiteSummary } from './project-types'
+import type { AuthorshipPreview, CharacterCounts, PostState, PostStatus, SiteSummary } from './project-types'
 import { dialogHeader } from './settings'
 import { button, element, errorMessage as errorText } from './ui'
 
@@ -20,9 +20,26 @@ export function postState(post: PostState | null, siteName: string): string {
   return 'Published on ' + siteName + ' · ' + when + ' · ' + (post.url ?? post.slug) + (post.changed ? ' · Changed since the release' : '')
 }
 
+// Where the post's characters came from, as the credential will say it.
+export function originSummary(characters: CharacterCounts): string {
+  const total = characters.written + characters.pasted + characters.imported + characters.ai
+  if (!total) return ''
+  if (characters.written === total) return 'Original · written in Tinto'
+  const share = (count: number, what: string) => count ? Math.max(1, Math.round(count / total * 100)) + '% ' + what : ''
+  return [share(characters.written, 'written in Tinto'), share(characters.pasted, 'pasted'), share(characters.imported, 'imported'), share(characters.ai, 'AI-generated')]
+    .filter(Boolean).join(' · ')
+}
+function authorshipLine(authorship: AuthorshipPreview): string {
+  const parts = [originSummary(authorship.characters)]
+  if (authorship.author) parts.push('signed as ' + authorship.author.name)
+  if (!authorship.intact) parts.push('the writing record of this document was altered')
+  return parts.filter(Boolean).join(' · ')
+}
+const unverified = ' The website’s module does not record authorship yet. Update it with Settings → Websites → ? → Save module, then deploy the website.'
+
 export async function showPublish(dialog: HTMLDialogElement, target: PublishTarget, openSettings: () => void, notice: (text: string) => void, showAll: () => void) {
   const api = window.tinto
-  const [sites, posts] = await Promise.all([api.sites(), api.posts(target.documentId, target.headingId)])
+  const [sites, posts, authorship] = await Promise.all([api.sites(), api.posts(target.documentId, target.headingId), api.authorship(target.documentId, target.headingId)])
   const kind = target.headingId ? 'section' : 'document'
   if (!sites.length) {
     const actions = element('div', 'dialog-actions')
@@ -87,6 +104,22 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
     const tags = field('Tags', (known?.tags ?? []).join(', '))
     tags.placeholder = 'Separated by commas'
     form.append(element('p', '', 'Language · ' + target.languageName))
+    // Every post is signed. The first time, Tinto asks whose name to sign with.
+    const signer = authorship.author ? null : field('Sign as', '')
+    if (signer) {
+      signer.required = true
+      signer.maxLength = 100
+      signer.autocomplete = 'name'
+      signer.placeholder = 'Your name as the author'
+    }
+    const origins = element('p', 'publish-authorship', authorshipLine(authorship))
+    form.append(origins)
+    async function ensureAuthor() {
+      if (!signer || authorship.author) return
+      authorship.author = await api.createAuthor(signer.value)
+      signer.closest('.field')?.remove()
+      origins.textContent = authorshipLine(authorship)
+    }
 
     const status = element('p', 'publish-status')
     status.setAttribute('role', 'status')
@@ -96,15 +129,15 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
     const actions = element('div', 'dialog-actions')
     form.append(status, actions)
     const controls = () => form.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('button, input, textarea, select')
-    function run(task: () => Promise<unknown>, progress: string, done: () => string) {
+    function run<T>(task: () => Promise<T>, progress: string, done: (result: T) => string) {
       return async () => {
         controls().forEach(el => el.disabled = true)
         status.textContent = progress
         const stop = api.onPublishProgress((sent, total) => { status.textContent = 'Uploading ' + sent + ' of ' + total + ' files…' + (sent === total ? ' Sending the post…' : '') })
         try {
-          await task()
+          const result = await task()
           dialog.close()
-          notice(done())
+          notice(done(result))
         } catch (error) {
           controls().forEach(el => el.disabled = false)
           status.textContent = errorText(error)
@@ -126,6 +159,7 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
       status.textContent = 'Preparing the preview…'
       const stop = api.onPublishProgress((sent, total) => { status.textContent = 'Uploading ' + sent + ' of ' + total + ' files for the preview…' })
       try {
+        await ensureAuthor()
         await api.previewPost(request('draft'))
         status.textContent = 'Opened the preview of ' + site.name + ' in your browser. The link works for one hour.'
       } catch (error) { status.textContent = errorText(error) }
@@ -135,9 +169,9 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
       }
     }
     function send(state: PostStatus) {
-      return run(() => api.publishPost(request(state)), 'Preparing the post…', () => state === 'draft'
+      return run(async () => { await ensureAuthor(); return api.publishPost(request(state)) }, 'Preparing the post…', sent => (state === 'draft'
         ? 'Saved “' + title.value.trim() + '” as a draft on ' + site.name + '.'
-        : 'Published “' + title.value.trim() + '” on ' + site.name + '.')
+        : 'Published “' + title.value.trim() + '” on ' + site.name + '.') + (sent.verified ? '' : unverified))
     }
     function drawActions() {
       actions.replaceChildren(button('All posts', () => { dialog.close(); showAll() }, 'outline publish-all'))

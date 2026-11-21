@@ -18,7 +18,7 @@
   border-radius: 8px;
   background: light-dark(#fcfaf6, #292326);
   color: light-dark(#262123, #f4edea);
-  box-shadow: 0 4px 16px #20081624;
+  box-shadow: var(--shadow);
   font: 14px/1.4 system-ui, sans-serif;
 }
 

@@ -47,11 +47,18 @@ Tinto is a local manuscript editor that keeps a writer's undecided wordings, dra
 - **Drafts and preview.** Drafts on the site that stay off its pages, and a preview in the site's own design through a signed link that lasts one hour.
 - **Releases.** Each publication with new text is saved as a named version in History ("Released on <site>"), and Tinto shows when the text has changed since.
 
+**Authorship (shipped, v1):**
+- **Author key.** One Ed25519 key per installation, named as a `did:key`, kept in the system keychain, created in Settings → Author or on first publish. It can be exported and imported with a passphrase (scrypt, AES-256-GCM).
+- **Origin of the words.** An `origin` mark records pasted, dropped and imported text. Unmarked text was typed in Tinto, including corrections typed inside a pasted passage. *Show pasted and imported text* tints them quietly. Exports and posts leave the mark out.
+- **Writing record.** Counts and timing of typing (characters, active time, keystroke intervals by band; never the text or the keys), pasted and imported amounts, and the hash of every version and release. It is an append-only, hash-chained table in the project file (`user_version` 5).
+- **Signed posts.** Every post and preview carries a W3C Verifiable Credential 2.0 (`eddsa-jcs-2022`). Its subject is the post as a schema.org `CreativeWork`. It holds hashes of the text, each paragraph and each file, the origin of each paragraph as IPTC digital source types, a summary of the writing record, and a link to the previous release's credential.
+- **Sites bound to the author.** The Cloudflare module verifies the signature with Web Crypto. It accepts one author, from `tinto.config.mjs` or the first signed post, and refuses changed text. It publishes the credential at `<basePath>/credentials/<post>` and gives pages a quiet label (*Original · written by …*).
+
 **Constraints:**
 - The interface is in English. Writing and spell checking support English and Spanish.
 - Tinto does not use Git. Versions, drafts and releases live inside the project file.
 
-**Open decisions:** see Authorship and Provenance under Brand Commitments.
+**Open decisions:** the AI translation feature and its visible watermark; C2PA Content Credentials for published media; label design on each website.
 
 ## Brand Commitments
 
@@ -59,29 +66,29 @@ Tinto is a local manuscript editor that keeps a writer's undecided wordings, dra
 
 ### Authorship and provenance
 
-Authorship is paramount. This is a binding commitment; the mechanism is not built yet.
+Authorship is paramount. This is a binding commitment, and its first version is built (see Authorship under Capabilities).
 
-- **Installations are bound to an author.** Each distribution of the app is locked to one author, so its publications are attributable to that author and cannot be altered after publishing.
-- **Human writing is recorded.** In the age of AI, Tinto records which text the writer wrote by hand, in the spirit of photography's original-capture initiatives.
-- **AI output is labeled.** AI-produced content, such as a future AI translation, is allowed only when it is watermarked and shown as AI.
+- **Installations are bound to an author.** Each installation signs with one author key, and each website accepts one author. A post cannot be changed after signing without breaking its signature.
+- **Human writing is recorded.** Tinto records which text the writer typed, and evidence of how, in the spirit of photography's original-capture initiatives.
+- **AI output is labeled.** AI-produced content, such as a future AI translation, is allowed only when it is marked as AI. The credential then names it with the IPTC `trainedAlgorithmicMedia` source type, and sites always show it.
 - **Original work is labeled quietly.** The label is subtle and never distracts from the content.
-- **Integrity is hard to alter.** It rests on content hashes (SHA-256), signatures or version-control-like history. Tinto already names published files by their SHA-256 and keeps a hash of each release's text.
-- **Undecided:** the mechanism, the author identity model, and the label design.
+- **Established standards over our own.** W3C Verifiable Credentials 2.0 with Data Integrity `eddsa-jcs-2022`, `did:key`, schema.org `CreativeWork` and IPTC digital source types. Content hashes are SHA-256.
 
-Candidate open technologies, researched 2026-11-21 and not chosen:
-- **C2PA Content Credentials 2.3.** Manifests for plain-text documents, and a `c2pa.ai-disclosure` assertion that can mark specific paragraphs.
-- **c2patxt.** An unofficial Python library that embeds and verifies those manifests in Unicode text.
-- **Google's Credentio.** A C++ library that validates them.
-- **The IETF Proof of Process draft and Witnessd.** Evidence of keyboard writing, anchored to external timestamps.
-- **Writermark SDK.** An alpha-stage library that tracks per-character provenance.
-- **SynthID Text.** An open-source watermark for text that a model generates.
+Decided 2026-11-21:
+- **Adopted:** the standards above, implemented without dependencies in `modules/cloudflare/credential.mjs`. Tinto and every site share that file.
+- **Later:** C2PA Content Credentials for images, audio and video. `c2pa-node` (MIT) is about 50 MB, and its prebuilt binaries lack plain-text support. Its WASM build is too large for Workers.
+- **Not adopted:**
+  - the Witnessd engine, under AGPL-3.0;
+  - the IETF Proof of Process technology, under PolyForm Noncommercial;
+  - Writermark, which depends on a server;
+  - SynthID Text, which only marks text a model generates.
 
-Known limits of these approaches:
-- Evidence of typing shows that typing happened, not that the ideas are original.
-- A missing AI watermark is not proof of human authorship.
-- Text watermarks weaken under translation and heavy rewriting.
-
-Check each candidate's license before adopting it.
+Known limits:
+- Evidence of typing shows that typing happened in Tinto, not that the ideas are original.
+- Text typed elsewhere and imported, including the writer's own earlier work, is labeled as imported, not as original.
+- Whoever holds the author key can sign. The writer protects the key and its export passphrase.
+- The writing record is evidence kept by the writer's own computer, not by a third party. The chain shows edits to the record, but cannot prove that a complete record was never replaced.
+- Text watermarks weaken under translation and heavy rewriting, and a missing AI watermark is not proof of human authorship.
 
 ## Evidence on Hand
 

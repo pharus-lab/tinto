@@ -21,7 +21,14 @@ test('the module configuration gets the site name and address, safely quoted', a
   assert.equal(config.site, 'https://blog.example')
   assert.equal(config.languages, null)
   assert.equal(config.postPath, null)
+  assert.equal(config.author, null)
   assert.doesNotThrow(() => createTintoBlog(config))
+  // The writer's own author key locks a new site to them; anything else is left null.
+  const did = 'did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp'
+  const locked = await importConfig(moduleConfig(template, { name: 'a', site: 'https://a.example', author: did }))
+  assert.equal(locked.author, did)
+  assert.doesNotThrow(() => createTintoBlog(locked))
+  assert.equal((await importConfig(moduleConfig(template, { name: 'a', site: 'https://a.example', author: "x' + alert(1) + '" }))).author, null)
   assert.throws(() => moduleConfig(template.replace("name: 'Example'", "name: 'Changed'"), { name: 'a', site: 'https://a.example' }), /unexpected configuration file/)
   for (const values of [{ name: '', site: 'https://a.example' }, { name: 'a', site: 'a.example' }, { name: 'a', site: 'ftp://a.example' }]) {
     assert.throws(() => checkModuleSite(values))
@@ -95,7 +102,7 @@ test('the guide adds the module to a site, hands the agent its prompts, creates 
   await button('Save module to your site…').click()
   await guide.getByText('Saved in ' + join(site, 'tinto') + '.').waitFor()
   const files = (await readdir(join(site, 'tinto'))).sort()
-  assert.deepEqual(files, ['README.md', 'astro.mjs', 'files.mjs', 'shared.mjs', 'tinto.config.mjs', 'worker.mjs'])
+  assert.deepEqual(files, ['README.md', 'astro.mjs', 'credential.mjs', 'files.mjs', 'shared.mjs', 'tinto.config.mjs', 'worker.mjs'])
   for (const file of files.filter(file => file !== 'tinto.config.mjs')) {
     assert.equal(await readFile(join(site, 'tinto', file), 'utf8'), await readFile(join(source, file), 'utf8'), file)
   }
