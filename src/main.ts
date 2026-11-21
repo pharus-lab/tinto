@@ -5,6 +5,7 @@ import { basename, dirname, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { listPacks, readPack, installPack } from './dictionary-packs'
 import { registerBackups } from './backup-window'
+import { registerPublishing } from './publish-window'
 import { pickInputFile, exportFile } from './file-dialogs'
 import type { ExportFormat } from './exchange'
 import type { Manuscript } from './model'
@@ -133,6 +134,7 @@ if (primaryWindow) app.whenReady().then(async () => {
   library = new ProjectLibrary(join(app.getPath('userData'), 'projects.json'))
   registerProjectActions()
   registerBackups({ window: () => window!, project: () => library.activeProject, open: path => library.open(path), trusted })
+  registerPublishing({ window: () => window!, project: () => library.activeProject, trusted })
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
     { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' }

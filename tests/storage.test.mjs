@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -88,4 +89,29 @@ test('restore recovers hidden options and preserves the later state; named histo
   assert.ok(f.store.versions(f.doc.id).some(version => version.id === named.id))
   f.store.deleteVersion(f.doc.id, named.id)
   assert.ok(!f.store.versions(f.doc.id).some(version => version.id === named.id))
+})
+
+test('a version 2 project gains post records that survive restore, reopening and backup verification', t => {
+  const f = fixture(t)
+  const id = f.store.read().id
+  const db = new DatabaseSync(f.path)
+  db.exec('DROP TABLE posts; PRAGMA user_version = 2;')
+  db.close()
+  f.reopen()
+  const post = {
+    id: 'post-1', documentId: f.doc.id, headingId: 'the-kitchen', title: 'The kitchen', slug: 'the-kitchen', summary: '', date: '2026-11-20', tags: [],
+    locale: 'en', cover: null, images: [], obsolete: [], publishedAt: 1, deployPending: false, removed: false
+  }
+  f.store.snapshot(f.doc.id, 'Before publishing')
+  f.store.savePost(post)
+  f.store.savePost({ ...post, title: 'Updated' })
+  f.store.restore(f.doc.id, f.store.versions(f.doc.id)[0].id)
+  f.reopen()
+  assert.deepEqual(f.store.post(f.doc.id, 'the-kitchen'), { ...post, title: 'Updated' })
+  assert.equal(f.store.post(f.doc.id, null), null)
+  const copy = join(f.directory, 'copy.tinto')
+  f.store.backupTo(copy)
+  ProjectStore.verifyBackup(copy, id)
+  f.store.deletePost(post.id)
+  assert.equal(f.store.post(f.doc.id, 'the-kitchen'), null)
 })

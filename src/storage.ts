@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, openSync, unlinkSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { compareDraft, forkDraft, reconcileDraft, type DraftBaseline } from './drafts'
-import type { DocumentRecord, DraftChange, DraftResolution, Project, Version } from './project-types'
+import type { DocumentRecord, DraftChange, DraftResolution, PostRecord, Project, Version } from './project-types'
 
 const APPLICATION_ID = 0x54494e54 // TINT
 const VERSION_INTERVAL = 5 * 60_000
@@ -10,6 +10,15 @@ const RETENTION = 30 * 24 * 60 * 60_000
 const DRAFT_SCHEMA = `
   CREATE TABLE draft_baselines (draft_id TEXT PRIMARY KEY REFERENCES documents(id), content TEXT NOT NULL);
   PRAGMA user_version = 2;
+`
+// Publication details live beside the documents rather than inside them, so
+// restoring a version or creating a draft never forgets or copies a post's id.
+const POST_SCHEMA = `
+  CREATE TABLE posts (
+    id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id),
+    heading_id TEXT NOT NULL DEFAULT '', content TEXT NOT NULL, UNIQUE (document_id, heading_id)
+  );
+  PRAGMA user_version = 3;
 `
 
 function transaction<T>(db: DatabaseSync, action: () => T): T {
@@ -44,8 +53,9 @@ export class ProjectStore {
         throw new Error('This file is not a Tinto project.')
       }
       const version = this.db.prepare('PRAGMA user_version').get()?.user_version
-      if (version === 1) transaction(this.db, () => this.db.exec(DRAFT_SCHEMA))
-      else if (version !== 2) {
+      if (version === 1) transaction(this.db, () => { this.db.exec(DRAFT_SCHEMA); this.db.exec(POST_SCHEMA) })
+      else if (version === 2) transaction(this.db, () => this.db.exec(POST_SCHEMA))
+      else if (version !== 3) {
         throw new Error('This project requires a different version of Tinto.')
       }
       this.tick()
@@ -72,6 +82,7 @@ export class ProjectStore {
             );
             CREATE INDEX document_history ON versions(document_id, time);
             ${DRAFT_SCHEMA}
+            ${POST_SCHEMA}
           `)
           db.prepare('INSERT INTO project VALUES (?, ?)').run(randomUUID(), title)
           db.prepare('INSERT INTO documents (id, content) VALUES (?, ?)').run(firstDocument.id, JSON.stringify(firstDocument))
@@ -109,7 +120,7 @@ export class ProjectStore {
     `).run(doc.id, JSON.stringify(doc), time)
   }
 
-  private readDocument(id: string): DocumentRecord {
+  readDocument(id: string): DocumentRecord {
     const row = this.db.prepare('SELECT content FROM documents WHERE id = ?').get(id)
     if (!row) throw Error('This document is no longer in the project.')
     return documentFromRow(row)
@@ -156,6 +167,22 @@ export class ProjectStore {
       this.snapshotDueDocuments(time)
       return { source: result.source, draft: result.draft }
     })
+  }
+
+  post(documentId: string, headingId: string | null): PostRecord | null {
+    const row = this.db.prepare('SELECT content FROM posts WHERE document_id = ? AND heading_id = ?').get(documentId, headingId ?? '')
+    return row ? JSON.parse(String(row.content)) : null
+  }
+
+  savePost(post: PostRecord): void {
+    this.db.prepare(`
+      INSERT INTO posts (id, document_id, heading_id, content) VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET content = excluded.content
+    `).run(post.id, post.documentId, post.headingId ?? '', JSON.stringify(post))
+  }
+
+  deletePost(id: string): void {
+    this.db.prepare('DELETE FROM posts WHERE id = ?').run(id)
   }
 
   versions(docId: string): Version[] {
@@ -221,7 +248,7 @@ export class ProjectStore {
         throw Error('The downloaded file is not an intact backup of this project.')
       }
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version)
-      if (version !== 1 && version !== 2) throw Error('This backup requires a different version of Tinto.')
+      if (version < 1 || version > 3) throw Error('This backup requires a different version of Tinto.')
     } finally { db.close() }
   }
 

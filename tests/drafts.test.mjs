@@ -30,7 +30,7 @@ function project(t) {
     simulateV1() {
       store.close()
       const db = new DatabaseSync(path)
-      db.exec('DROP TABLE draft_baselines; PRAGMA user_version = 1')
+      db.exec('DROP TABLE draft_baselines; DROP TABLE posts; PRAGMA user_version = 1')
       db.close()
       store = new ProjectStore(path)
     }
@@ -141,6 +141,7 @@ test('a version-one project upgrades in place and keeps its documents and named 
   assert.equal(f.store.versions(draft.id)[0].name, 'Draft only')
   assert.equal(f.store.versions(f.source.id).length, 1)
   assert.deepEqual(f.store.reviewDraft(draft.id), [])
+  assert.equal(f.store.post(f.source.id, null), null)
 })
 
 test('matching edits establish a new baseline before a later original-only change', t => {

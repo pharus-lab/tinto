@@ -40,3 +40,7 @@ export function button(text: string, run: () => void, className = '', symbol?: s
   return el
 }
 export function $(id: string): HTMLElement { return document.getElementById(id)! }
+// Electron prefixes errors from the main process with the IPC channel name.
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : String(error)
+}

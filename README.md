@@ -29,10 +29,49 @@ Enable the Google Drive API for a Google Cloud project and create a desktop OAut
 
 Automatic backups are opt-in per local project. While Tinto is open it checks for changes every 15 minutes. **Back up now** takes an immediate snapshot. The **Tinto Backups** folder holds the five most recent completed backups per project. **Restore backup** downloads and verifies a whole project into a new local file. Use the same OAuth client on another computer to access the app’s backups. Tokens use Electron safeStorage with the operating system credential service. Linux backup connection requires a supported keyring.
 
+## Publish to a Cloudflare site
+
+**Publish** sends the open document or linked section to a website hosted on Cloudflare. Publishing happens in three steps:
+
+1. Tinto uploads the cover image and gallery to R2.
+2. Tinto saves the post's chosen wording as HTML in D1.
+3. Tinto starts a Workers Builds deploy hook, so the site rebuilds with the post.
+
+**Update post** republishes changes. **Unpublish** removes the row and images, then rebuilds the site. [docs/site-contract.md](docs/site-contract.md) describes the table and object layout that the website reads.
+
+Connect the site once in **Settings → Cloudflare site**. You need five values:
+
+- **Account ID** and **D1 database ID**: shown on the database's page in the Cloudflare dashboard.
+- **R2 bucket**: the bucket that holds the post images.
+- **Deploy Hook URL**: in the Worker, open **Settings → Builds → Deploy Hooks**, create a hook for the production branch, and copy the URL. Treat the URL as a password.
+- **API token**: an Account API token with only these two permissions:
+  - `D1 Edit` on the account. D1 permissions cannot be limited to one database.
+  - `Workers R2 Storage Bucket Item Write` on the site's bucket only.
+
+If the dashboard does not offer the bucket-level permission, create the token through the API. This requires a temporary token that can create API tokens:
+
+```sh
+curl -s "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/tokens/permission_groups" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | jq -r '.result[] | select(.name | test("^D1 (Write|Edit)$|^Workers R2 Storage Bucket Item Write$")) | "\(.id) \(.name)"'
+curl -s "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/tokens" -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' --data '{
+  "name": "Tinto publishing",
+  "policies": [
+    { "effect": "allow", "permission_groups": [{ "id": "<D1 group id>" }], "resources": { "com.cloudflare.api.account.<ACCOUNT_ID>": "*" } },
+    { "effect": "allow", "permission_groups": [{ "id": "<bucket item write group id>" }], "resources": { "com.cloudflare.edge.r2.bucket.<ACCOUNT_ID>_default_<BUCKET>": "*" } }
+  ]
+}'
+```
+
+Delete the temporary token afterwards.
+
+**Connect site** and **Test connection** create the D1 table if it is missing, then write and delete a small file in the bucket. Neither starts a build. If R2 rejects a token limited to one bucket, replace the bucket permission with `Workers R2 Storage Edit` on the account. That permission can also create and delete buckets.
+
+The token and the hook URL are encrypted with the operating system's credential service, in the same way as Drive tokens. Each project file stores the details of its published posts, so the address, images and pending rebuilds survive a restart. Opening a project with this version upgrades its file, and older Tinto builds cannot open the upgraded file.
+
 ## Build and check
 
 - `npm run typecheck` checks the TypeScript.
-- `npm test` runs the editor, desktop, storage, drafts, file exchange and backup checks. Browser tests use system Chrome on macOS. On Linux install Playwright Chromium with `npx playwright install chromium` or set `CHROME_PATH` to an existing Chromium executable. Desktop tests need a graphical session or Xvfb.
+- `npm test` runs the editor, desktop, storage, drafts, file exchange, backup and publishing checks. Browser tests use system Chrome on macOS. On Linux install Playwright Chromium with `npx playwright install chromium` or set `CHROME_PATH` to an existing Chromium executable. Desktop tests need a graphical session or Xvfb.
 - `TINTO_DICTIONARY_NETWORK_TEST=1 npm test` also downloads a pinned French pack and checks it in an offline process.
 - `npm run package` builds the app for the current machine. Use `npm run package -- linux x64` or `npm run package -- linux arm64` for a Linux folder. On Linux, run `sh scripts/linux-deb.sh amd64` or `sh scripts/linux-deb.sh arm64` to generate its installer.
 

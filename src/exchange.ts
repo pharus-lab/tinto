@@ -26,19 +26,25 @@ export const printStyles = `
 function activeRuns(nodes: InlineJSON[]): TextJSON[] {
   return nodes.flatMap(node => node.type === 'text' ? [node] : activeRuns(node.content ?? []))
 }
+function blockHTML(block: BlockJSON, empty: string): string {
+  const tag = block.type === 'heading' ? 'h' + Math.max(1, Math.min(6, block.attrs.level ?? 1)) : 'p'
+  const runs = activeRuns(block.content ?? []).map(run => {
+    let value = xml(run.text)
+    for (const mark of run.marks ?? []) {
+      const name = mark.type === 'highlight' ? 'mark' : mark.type
+      value = '<' + name + '>' + value + '</' + name + '>'
+    }
+    return value
+  })
+  return '<' + tag + '>' + (runs.join('') || empty) + '</' + tag + '>'
+}
 export function documentHTML(doc: Manuscript): string {
-  return doc.content.map(block => {
-    const tag = block.type === 'heading' ? 'h' + Math.max(1, Math.min(6, block.attrs.level ?? 1)) : 'p'
-    const runs = activeRuns(block.content ?? []).map(run => {
-      let value = xml(run.text)
-      for (const mark of run.marks ?? []) {
-        const name = mark.type === 'highlight' ? 'mark' : mark.type
-        value = '<' + name + '>' + value + '</' + name + '>'
-      }
-      return value
-    })
-    return '<' + tag + '>' + (runs.join('') || '<br>') + '</' + tag + '>'
-  }).join('\n')
+  return doc.content.map(block => blockHTML(block, '<br>')).join('\n')
+}
+// A post carries the chosen wording only. Blank paragraphs are spacing in a
+// manuscript, not content, so the site never receives empty elements.
+export function postHTML(blocks: BlockJSON[]): string {
+  return blocks.filter(block => activeRuns(block.content ?? []).some(run => run.text.trim())).map(block => blockHTML(block, '')).join('\n')
 }
 export function writeDocx(doc: Manuscript): Uint8Array {
   const paragraphs = doc.content.map(block => {

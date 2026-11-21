@@ -1,9 +1,10 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { safeStorage, shell } from 'electron'
+import { readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { shell } from 'electron'
+import { protect, reveal } from './secure-file'
 
 const scope = 'https://www.googleapis.com/auth/drive.file'
 interface Client { client_id: string; client_secret?: string }
@@ -81,27 +82,8 @@ export class DriveAuth {
   get configured() { return existsSync(this.clientFile) }
   get connected() { return existsSync(this.tokenFile) }
 
-  private async keyStore() {
-    if (!await safeStorage.isAsyncEncryptionAvailable() || (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')) {
-      throw Error('Unlock your system keychain or Linux keyring to connect Google Drive.')
-    }
-  }
-
-  private async protect(path: string, value: string) {
-    await this.keyStore()
-    const bytes = await safeStorage.encryptStringAsync(value)
-    const temporary = path + '.' + randomUUID()
-    await mkdir(dirname(path), { recursive: true })
-    try {
-      await writeFile(temporary, bytes, { mode: 0o600 })
-      await rename(temporary, path)
-    } finally { await rm(temporary, { force: true }) }
-  }
-
-  private async reveal(path: string): Promise<string> {
-    await this.keyStore()
-    return (await safeStorage.decryptStringAsync(await readFile(path))).result
-  }
+  private protect(path: string, value: string) { return protect(path, value, 'connect Google Drive') }
+  private reveal(path: string) { return reveal(path, 'connect Google Drive') }
 
   async connect(clientPath?: string): Promise<void> {
     if (this.connecting) throw Error('Google authorization is already open in your browser.')

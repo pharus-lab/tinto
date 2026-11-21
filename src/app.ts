@@ -9,6 +9,8 @@ import { loadSpelling, setSpellingLanguage, spellingPlugin } from './spelling'
 import { renderAlternatives } from './alternatives'
 import { showDraftReview, createDraftDialog } from './draft-ui'
 import { renderHome } from './home'
+import { showPublish } from './publish-ui'
+import { siteSettings } from './site-settings'
 import { showHistory } from './history'
 import { dialogHeader, applyPreferences, languageOptions, newDocumentDialog, preferences, showSettings } from './settings'
 import { $, button, element, icon } from './ui'
@@ -363,6 +365,7 @@ function settings() {
     saveSession()
     void api.library().then(next => loadLibrary(next)).catch(report)
   })
+  siteSettings(modal)
 }
 async function importDocument() {
   const workspace = library.workspace
@@ -400,6 +403,13 @@ function exportDialog() {
   actions.append(button('Word document (.docx)', () => void write('docx'), 'outline'), button('PDF (.pdf)', () => void write('pdf'), 'outline'))
   modal.replaceChildren(dialogHeader(modal, 'Export manuscript'), element('p', '', title), actions)
   modal.showModal()
+}
+function publishDialog() {
+  const doc = activeDocument()
+  if (!doc || !current || !flush()) return
+  const languageName = [...language.options].find(option => option.value === doc.language)?.text ?? doc.language
+  const title = current.headingId ? label(current) : doc.title
+  void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, settings, notice).catch(report)
 }
 
 function reloadRecord(next: DocumentRecord) {
@@ -450,6 +460,7 @@ function wire() {
   $('redo').onclick = () => { editor?.redo(); editor?.view.focus() }
   $('settings').onclick = settings
   $('export').onclick = exportDialog
+  $('publish').onclick = publishDialog
   $('draft-action').onclick = () => void drafts().catch(report)
   language.onchange = async () => {
     const doc = activeDocument()
