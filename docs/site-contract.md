@@ -35,7 +35,7 @@ Tinto uploads every new image of a post before it sends the post. It does not up
   "summary": "A short note.",
   "date": "2026-11-21",
   "tags": ["research", "notes"],
-  "html": "<p>Some <strong>bold</strong> &amp; <mark>marked</mark> text.</p>",
+  "html": "<p>Some <strong>bold</strong> &amp; <u>underlined</u> text.</p>",
   "cover": { "file": "3f2a…9c.png", "type": "image/png", "alt": "A bench in the park" },
   "images": [{ "file": "a71d…04.jpg", "type": "image/jpeg", "alt": "" }],
   "updatedAt": "2026-11-21T18:00:00.000Z"
@@ -49,7 +49,7 @@ Tinto uploads every new image of a post before it sends the post. It does not up
 | `title`, `summary` | Plain text, up to 200 and 500 characters. Escape them when rendering. |
 | `date` | The writer's publication date, `YYYY-MM-DD`. |
 | `tags` | Up to 20 plain-text strings of up to 40 characters. |
-| `html` | The chosen wording only. It contains just `<p>`, `<h1>` to `<h6>`, `<strong>`, `<em>` and `<mark>`, without attributes, and all text is escaped. For a linked section, the section heading becomes `title` and is left out of the body. |
+| `html` | The chosen wording only. It contains just `<p>`, `<h1>` to `<h6>`, `<strong>`, `<em>` and `<u>` (the author's underline), without attributes, and all text is escaped. Accept `<mark>` as well, which earlier Tinto versions sent for the same mark. For a linked section, the section heading becomes `title` and is left out of the body. |
 | `cover` | `{ "file", "type", "alt" }` or `null`. `file` names an image uploaded for this post. |
 | `images` | The gallery, in the writer's order, with the same shape as `cover`. |
 | `updatedAt` | The ISO 8601 time of this publication. |

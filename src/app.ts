@@ -1,18 +1,19 @@
+import { redoDepth, undoDepth } from 'prosemirror-history'
 import { backupSettings } from './backup-settings'
 import { importFile, type ExportFormat } from './exchange'
 import { WritingEditor, type Format } from './editor'
 import { newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
-import type { DocumentRecord, LibraryState, Workspace } from './project-types'
+import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
 import type { DictionaryPack } from './dictionary-packs'
 import './desktop'
 import { loadSpelling, setSpellingLanguage, spellingPlugin } from './spelling'
 import { renderAlternatives } from './alternatives'
 import { showDraftReview, createDraftDialog } from './draft-ui'
-import { renderHome } from './home'
+import { homeItemDialog, renderHome, type HomeItem } from './home'
 import { showPublish } from './publish-ui'
 import { siteSettings } from './site-settings'
 import { showHistory } from './history'
-import { dialogHeader, applyPreferences, languageOptions, newDocumentDialog, preferences, showSettings } from './settings'
+import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks } from './settings'
 import { $, button, element, icon } from './ui'
 
 interface Tab { documentId: string; headingId: string | null; scroll: number; review: string | null }
@@ -22,6 +23,8 @@ const prefs = preferences()
 const modal = $('modal') as HTMLDialogElement
 const language = $('language') as HTMLSelectElement
 const blockStyle = $('block-style') as HTMLSelectElement
+const undoButton = $('undo') as HTMLButtonElement
+const redoButton = $('redo') as HTMLButtonElement
 const scroll = $('scroll')
 const editors = new Map<string, WritingEditor>()
 const pending = new Map<string, { projectId: string; path: string; doc: DocumentRecord }>()
@@ -38,11 +41,25 @@ let packs: DictionaryPack[] = []
 
 function record(id: string) { return library.workspace!.project.documents.find(doc => doc.id === id)! }
 function activeDocument() { return current ? record(current.documentId) : null }
-function notice(text: string) {
-  $('notice').textContent = text
-  $('notice').hidden = false
+function notice(text: string, undo?: () => Promise<void>) {
+  const banner = $('notice')
+  banner.textContent = text
+  banner.hidden = false
   clearTimeout(noticeTimer)
-  noticeTimer = setTimeout(() => { $('notice').hidden = true }, 7000)
+  function dismissLater() {
+    clearTimeout(noticeTimer)
+    if (undo && banner.matches(':hover, :focus-within')) return
+    noticeTimer = setTimeout(() => { banner.hidden = true }, 7000)
+  }
+  banner.onpointerenter = undo ? () => clearTimeout(noticeTimer) : null
+  banner.onpointerleave = undo ? dismissLater : null
+  if (undo) {
+    const action = button('Undo', () => void undo().catch(report), 'outline')
+    action.onfocus = () => clearTimeout(noticeTimer)
+    action.onblur = dismissLater
+    banner.append(action)
+  }
+  dismissLater()
 }
 function report(error: unknown) { notice(error instanceof Error ? error.message : String(error)) }
 function status(text: string, saved = false) {
@@ -90,6 +107,7 @@ function drawTabs() {
     const wrap = element('div', 'tab' + (tab === current ? ' current' : ''))
     const title = tab ? label(tab) : 'Home'
     const select = button('', () => void selectTab(tab).catch(report), '', !tab ? 'home' : tab.headingId ? 'link' : 'book')
+    select.title = title
     select.dataset.tabKey = key
     select.append(element('span', 'tab-label', title))
     if (tab === current) select.setAttribute('aria-current', 'page')
@@ -167,11 +185,13 @@ function drawPanel() {
 function updateToolbar() {
   if (!editor || !current || inspecting) return
   const { state } = editor.view
+  undoButton.disabled = undoDepth(state) === 0
+  redoButton.disabled = redoDepth(state) === 0
   const { $from } = state.selection
   const block = $from.depth ? $from.node(1) : state.doc.firstChild!
   blockStyle.value = block.type.name === 'heading' ? 'h' + block.attrs.level : 'paragraph'
   for (const el of document.querySelectorAll<HTMLElement>('[data-format]')) {
-    const name = ({ bold: 'strong', italic: 'em', highlight: 'highlight' } as Record<string, string>)[el.dataset.format!]
+    const name = ({ bold: 'strong', italic: 'em', underline: 'highlight' } as Record<string, string>)[el.dataset.format!]
     const mark = state.schema.marks[name]
     const enabled = state.selection.empty ? !!mark.isInSet(state.storedMarks ?? $from.marks()) : state.doc.rangeHasMark(state.selection.from, state.selection.to, mark)
     el.setAttribute('aria-pressed', String(enabled))
@@ -206,9 +226,10 @@ async function switchTab(tab: Tab | null) {
   $('language-label').hidden = !tab
   $('panel').hidden = !tab || !panelOpen
   drawTabs()
+  $('tabs').querySelector('.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   if (!tab) {
     renderHome($('home'), library, {
-      openDocument, createDocument, importFile: () => void importDocument().catch(report),
+      openDocument, createDocument, moveDocument, rename: renameHomeItem, remove: deleteHomeItem, importFile: () => void importDocument().catch(report),
       chooseFolder: path => void changeFolder('choose', path).catch(report),
       newFolder: () => void changeFolder('new').catch(report),
       openProject: path => void changeProject('open', path).catch(report),
@@ -231,8 +252,9 @@ async function switchTab(tab: Tab | null) {
       instance = new WritingEditor(host, doc.manuscript, {
         plugins: [spellingPlugin(spelling)], message: notice,
         change(manuscript) {
-          doc.manuscript = manuscript
-          changed(doc)
+          const updated = record(tab.documentId)
+          updated.manuscript = manuscript
+          changed(updated)
           drawCount()
           if (tabs.some(tab => tab.documentId === doc.id && tab.headingId)) drawTabs()
           drawTrail()
@@ -301,9 +323,9 @@ async function loadLibrary(next: LibraryState, showHome = false) {
   }
   const doc = workspace.project.documents[0]
   const saved: Session | null = JSON.parse(localStorage.getItem('tabs:' + workspace.project.id) ?? 'null')
-  tabs = saved?.tabs.filter(item => workspace.project.documents.some(doc => doc.id === item.documentId)) ?? [{ documentId: doc.id, headingId: null, scroll: 0, review: SAMPLE_SENTENCE }]
+  tabs = saved?.tabs.filter(item => workspace.project.documents.some(doc => doc.id === item.documentId)) ?? (doc ? [{ documentId: doc.id, headingId: null, scroll: 0, review: SAMPLE_SENTENCE }] : [])
   panelOpen = saved?.panel ?? true
-  const selected = saved ? tabs[saved.current] ?? null : tabs[0]
+  const selected = tabs[saved ? saved.current : 0] ?? null
   await switchTab(showHome ? null : selected)
   status('Saved locally', true)
 }
@@ -323,20 +345,86 @@ async function changeProject(action: 'open'|'create'|'sample', path?: string) {
   saveSession()
   let next: Workspace | null
   if (action === 'open') next = await api.open(path)
-  else if (action === 'create') next = await api.create(prefs.defaultLanguage)
+  else if (action === 'create') next = await api.create()
   else next = await api.sample()
   if (next && next.path !== library.workspace?.path) await loadLibrary(await api.library())
 }
 function createDocument() {
   const workspace = library.workspace
   if (!workspace) return
-  newDocumentDialog(modal, title => {
+  homeItemDialog(modal, 'Create', 'document', '', title => {
     const doc: DocumentRecord = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: { type: 'doc', content: [newBlock()] } }
     const error = api.save(workspace.path, workspace.project.id, doc)
-    if (error) return notice(error)
+    if (error) throw Error(error)
     workspace.project.documents.push(doc)
     openDocument(doc.id)
   })
+}
+
+async function refreshHome(next: LibraryState) {
+  if (!next.workspace || next.workspace.project.id !== library.workspace?.project.id) return loadLibrary(next, true)
+  library = next
+  const remaining = new Set(next.workspace.project.documents.map(doc => doc.id))
+  tabs = tabs.filter(tab => remaining.has(tab.documentId))
+  for (const id of editors.keys()) if (!remaining.has(id)) removeEditor(id)
+  await switchTab(current && remaining.has(current.documentId) ? current : null)
+}
+
+async function undoMove() {
+  if (!flush()) return
+  document.body.inert = true
+  try {
+    await refreshHome(await api.undoMove())
+    notice('Move undone.')
+  } finally { document.body.inert = false }
+}
+
+function moveDocument(doc: DocumentRecord, destination: RecentProject) {
+  const workspace = library.workspace!
+  if (!flush()) return
+  const move = async () => {
+    document.body.inert = true
+    try {
+      const next = await api.moveDocument(workspace.path, doc.id, destination.path)
+      await refreshHome(next)
+      notice('Moved “' + doc.title + '” to “' + destination.title + '”.', undoMove)
+    } finally { document.body.inert = false }
+  }
+  const details: string[] = []
+  if (doc.source) details.push('This draft will become a standalone document.')
+  if (workspace.project.documents.some(draft => draft.source?.documentId === doc.id)) {
+    details.push('Its drafts will stay in “' + workspace.project.title + '” as standalone documents.')
+  }
+  if (details.length) {
+    const question = 'Move “' + doc.title + '” to “' + destination.title + '”? '
+    homeItemDialog(modal, 'Move', 'document', doc.title, move, question + details.join(' '))
+  } else void move().catch(report)
+}
+
+function renameHomeItem(item: HomeItem) {
+  if (!flush()) return
+  homeItemDialog(modal, 'Rename', item.kind, item.title, async title => {
+    if (item.kind === 'project') return refreshHome(await api.renameProject(item.path, title))
+    const workspace = library.workspace!
+    const doc = record(item.id)
+    const error = api.save(workspace.path, workspace.project.id, { ...doc, title })
+    if (error) throw Error(error)
+    doc.title = title
+    await switchTab(null)
+  })
+}
+
+function deleteHomeItem(item: HomeItem) {
+  if (!flush()) return
+  let detail = 'Move “' + item.title + '” and all its documents to the Trash?'
+  if (item.kind === 'document') {
+    detail = 'Permanently delete “' + item.title + '” and its version history?'
+    if (library.workspace!.project.documents.some(doc => doc.source?.documentId === item.id)) detail += ' Its drafts will stay in the project as standalone documents.'
+  }
+  homeItemDialog(modal, 'Delete', item.kind, item.title, async () => {
+    const next = item.kind === 'project' ? await api.deleteProject(item.path) : await api.deleteDocument(library.workspace!.path, item.id)
+    await refreshHome(next)
+  }, detail)
 }
 function togglePanel(open: boolean) {
   panelOpen = open
@@ -348,24 +436,23 @@ async function updateLanguages() {
   packs = await api.listPacks()
   language.replaceChildren(...languageOptions(packs).map(([code, name]) => new Option(name, code)))
   language.value = activeDocument()?.language ?? prefs.defaultLanguage
+  const content = modal.querySelector<HTMLElement>('.settings-body')
+  if (content) updateSettingsPacks(content, packs, prefs.defaultLanguage)
 }
 function settings() {
-  showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
-    try {
-      await api.installPack(code)
-      await updateLanguages()
-      for (const [id, instance] of editors) {
-        if (record(id).language === code) setSpellingLanguage(instance.view, await checker(code))
-      }
-      settings()
-    } catch (error) { report(error) }
+  const body = showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
+    await api.installPack(code)
+    await updateLanguages()
+    for (const [id, instance] of editors) {
+      if (record(id).language === code) setSpellingLanguage(instance.view, await checker(code))
+    }
   })
-  if (library.workspace) backupSettings(modal, flush, () => {
+  if (library.workspace) backupSettings(body, flush, () => {
     modal.close()
     saveSession()
     void api.library().then(next => loadLibrary(next)).catch(report)
   })
-  siteSettings(modal)
+  siteSettings(body)
 }
 async function importDocument() {
   const workspace = library.workspace
@@ -412,13 +499,17 @@ function publishDialog() {
   void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, settings, notice).catch(report)
 }
 
-function reloadRecord(next: DocumentRecord) {
-  Object.assign(record(next.id), next)
-  const instance = editors.get(next.id)
+function removeEditor(id: string) {
+  const instance = editors.get(id)
   const host = instance?.view.dom.parentElement
   instance?.destroy()
   host?.remove()
-  editors.delete(next.id)
+  editors.delete(id)
+}
+
+function reloadRecord(next: DocumentRecord) {
+  Object.assign(record(next.id), next)
+  removeEditor(next.id)
 }
 
 async function drafts() {
@@ -456,8 +547,8 @@ function wire() {
   }
   document.querySelectorAll<HTMLElement>('[data-format]').forEach(el => { el.onclick = () => editor?.format(el.dataset.format as Format) })
   blockStyle.onchange = () => editor?.format(blockStyle.value as Format)
-  $('undo').onclick = () => { editor?.undo(); editor?.view.focus() }
-  $('redo').onclick = () => { editor?.redo(); editor?.view.focus() }
+  undoButton.onclick = () => { editor?.undo(); editor?.view.focus() }
+  redoButton.onclick = () => { editor?.redo(); editor?.view.focus() }
   $('settings').onclick = settings
   $('export').onclick = exportDialog
   $('publish').onclick = publishDialog

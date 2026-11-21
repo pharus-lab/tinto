@@ -9,8 +9,9 @@ const paths: Record<string, string> = {
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/>',
   panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
   settings: '<path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',
-  highlight: '<path d="m5 15 9-11 5 4-9 11-5-4Zm1 2-2 4 5-2m-5 3h14"/>',
+  underline: '<path d="M6 4v6a6 6 0 0 0 12 0V4M4 21h16"/>',
   branch: '<circle cx="6" cy="5" r="2"/><circle cx="18" cy="7" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10m0-3c0-5 12 1 12-5"/>',
+  pencil: '<path d="m15 5 4 4M4 20l4.5-1L20 7.5a2.8 2.8 0 0 0-4-4L4.8 15Z"/>',
   undo: '<path d="M4 6v6h6M4 12l3-3c5-5 13-2 13 6v2"/>',
   redo: '<path d="M20 6v6h-6m6 0-3-3C12 4 4 7 4 15v2"/>',
   globe: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
@@ -44,4 +45,49 @@ export function $(id: string): HTMLElement { return document.getElementById(id)!
 // Electron prefixes errors from the main process with the IPC channel name.
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : String(error)
+}
+
+export function contextMenu(): HTMLElement {
+  const menu = element('div', 'context-menu')
+  menu.popover = 'auto'
+  menu.setAttribute('role', 'menu')
+  menu.addEventListener('focusout', event => { if (!menu.contains(event.relatedTarget as Node)) menu.hidePopover() })
+  return menu
+}
+
+export function attachMenu(row: HTMLButtonElement, menu: HTMLElement, title: string, commands: [string, () => void][]) {
+  row.setAttribute('aria-haspopup', 'menu')
+  function open(x: number, y: number) {
+    row.focus({ preventScroll: true })
+    function command(label: string, run: () => void) {
+      const entry = button(label, () => { menu.hidePopover(); run() })
+      entry.setAttribute('role', 'menuitem')
+      return entry
+    }
+    const entries = commands.map(([label, run]) => command(label, run))
+    menu.replaceChildren(...entries)
+    menu.setAttribute('aria-label', 'Actions for ' + title)
+    menu.showPopover({ source: row })
+    menu.style.left = Math.max(4, Math.min(x, innerWidth - menu.offsetWidth - 4)) + 'px'
+    menu.style.top = Math.max(4, Math.min(y, innerHeight - menu.offsetHeight - 4)) + 'px'
+    const container = menu.parentElement!
+    const scrollTop = container.scrollTop
+    container.onscroll = () => { if (container.scrollTop !== scrollTop && menu.matches(':popover-open')) menu.hidePopover() }
+    entries[0].focus({ preventScroll: true })
+    menu.onkeydown = event => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const direction = event.key === 'ArrowDown' ? 1 : -1
+        const index = entries.indexOf(document.activeElement as HTMLButtonElement)
+        entries[(index + direction + entries.length) % entries.length].focus()
+      }
+    }
+  }
+  row.oncontextmenu = event => { event.preventDefault(); open(event.clientX, event.clientY) }
+  row.onkeydown = event => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+    event.preventDefault()
+    const { left, bottom } = row.getBoundingClientRect()
+    open(left, bottom)
+  }
 }

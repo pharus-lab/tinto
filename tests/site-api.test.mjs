@@ -248,5 +248,5 @@ test('post HTML carries only the chosen wording with escaped text and author mar
   assert.match(html, /^<p>The house was quiet/)
   assert.match(html, /I want to eat cake\./)
   assert.doesNotMatch(html, /a cat|ice cream|<br>|<p><\/p>/)
-  assert.match(html, /<h2><mark><strong>&lt;script&gt;alert\(1\)&lt;\/script&gt; &amp; <\/strong><\/mark><\/h2>$/)
+  assert.match(html, /<h2><u><strong>&lt;script&gt;alert\(1\)&lt;\/script&gt; &amp; <\/strong><\/u><\/h2>$/)
 })

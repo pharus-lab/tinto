@@ -1,4 +1,6 @@
-export type MarkJSON = { type: "strong" | "em" | "highlight" };
+// Keep the original highlight key so existing manuscripts and versions open with underlines.
+export const markTags = { strong: "strong", em: "em", highlight: "u" } as const;
+export type MarkJSON = { type: keyof typeof markTags };
 export type TextJSON = { type: "text"; text: string; marks?: MarkJSON[] };
 export type OptionJSON = { id: string; content?: InlineJSON[] };
 export type ChoiceJSON = { type: "choice"; attrs: { id: string; active: string; options: OptionJSON[] }; content?: InlineJSON[] };

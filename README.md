@@ -10,18 +10,22 @@ A local manuscript editor for macOS and Linux. Each project is a portable SQLite
 
 ## Try a wording
 
-On first launch, choose an existing Tinto folder or create one. To try the editor in an empty folder, click **Open sample project**. This creates **The long way home** in that folder and opens its alternatives panel. Switch to “I want to eat a cat.” and back. Under **Within this passage**, choose “ice cream” or “cake”. **Edit wording** selects the active text in the manuscript. Type to replace it and use the ordinary Undo shortcut to bring it back.
+On first launch, choose an existing Tinto folder or create one. To try the editor in an empty folder, click **Open sample project**. This creates **The long way home** in that folder and opens its alternatives panel. Switch to “I want to eat a cat.” and back. Under **Within this passage**, choose “ice cream” or “cake”. **Edit in manuscript** selects the active text in the manuscript. Type to replace it and use the ordinary Undo shortcut to bring it back.
 
 Select text in one paragraph and click **Add alternative** to start a new group. **Add option** makes another copy in the same group. Select text around a whole group to nest it. Use **Option+Right** on macOS or **Alt+Right** on Linux to leave an alternative before starting a new paragraph.
 
+Erase an option’s wording to leave an empty highlighted box. Keep it empty to try the passage without those words, or click inside and type a replacement. Press Backspace or Delete again inside the empty box to remove the whole group. In the Alternatives sidebar, click the pencil to edit any option in place, or right-click a wording to delete it. When only one option remains, its wording stays in the manuscript as ordinary text.
+
 ## Writing and projects
 
-- **Settings** in the title bar controls font size, line spacing, appearance, and the default spelling language. The footer language selector belongs to the current document.
+- A rose tint marks text with alternatives. The tint deepens where alternatives are nested. To underline your own text, click **Underline** or press **⌘U** on macOS or **Ctrl+U** on Linux. Existing highlights appear as underlines.
+- **Settings** in the title bar controls font size, line spacing, text width, appearance, and the default spelling language. The footer language selector belongs to the current document.
+- Under **Text width**, **Fixed Margin** starts with 48 px on each side and lets the column resize with the window. **Fixed Width** centers a column of your chosen width (initially 680 px). Tinto remembers both measurements when you switch modes.
 - **Home** creates and opens projects, adds documents, imports files, and opens linked sections by heading. Home lists the projects in your selected folder. Use **Choose folder** to browse, **New folder** to create another folder, or the **Tinto folder** menu to return to a previous one. New projects default to the selected folder. Settings shows the current project file path.
 - **Create draft** copies the current document or linked section. **Review draft** compares each changed paragraph. Applying a choice updates both copies and their common baseline. A conflict needs an explicit decision.
 - **History** lets you name, preview, restore, and delete versions. Tinto autosaves after 450 ms of idle typing and flushes on close. Changed work gets an automatic version after five minutes. Automatic versions stay for 30 days. Named versions stay until deleted.
 - **Import file** accepts TXT, DOCX, and text-based PDFs. PDF import reports pages requiring OCR. **Export** writes the open document, section, or draft as DOCX or PDF, with its chosen wording and author formatting.
-- English and Spanish dictionaries ship with the app. In **Settings**, download French or UK English and then select it as the document language. Right-click an underlined word or press **Shift+F10** to choose a correction.
+- English and Spanish dictionaries ship with the app. In **Settings**, download French or UK English and then select it as the document language. Right-click a word with a wavy underline or press **Shift+F10** to choose a correction.
 
 ## Optional Google Drive backup
 
@@ -54,6 +58,6 @@ Original Tinto code is released under the MIT license. Packaged applications inc
 
 ## Verification record
 
-- **macOS, Apple silicon.** The full 30-test suite passed, including first-open folder selection, folder creation, and switching folders across restarts. The packaged editor passed the nested-choice edit, undo, save, close, and reopen sequence. Desktop checks also covered English and Spanish spelling, linked-section renaming and scroll, reading settings, version restoration, partial draft reconciliation, and local file exchange. A downloaded French dictionary worked after relaunch offline. Pages and Preview opened the exported files. Rendered text retained the gold highlight in both formats.
+- **macOS, Apple silicon.** The full 30-test suite passed, including first-open folder selection, folder creation, and switching folders across restarts. The packaged editor passed the nested-choice edit, undo, save, close, and reopen sequence. Desktop checks also covered English and Spanish spelling, linked-section renaming and scroll, reading settings, version restoration, partial draft reconciliation, and local file exchange. A downloaded French dictionary worked after relaunch offline. Pages and Preview opened the exported files. The Underline tool was also checked in the installed app, in the exported PDF, and after a DOCX round trip.
 - **Ubuntu 24.04.** The ARM64 and amd64 installers were installed in separate offline Docker environments. Seven installed-app checks on each architecture covered choosing and creating folders, nested editing and reopening, bilingual spelling, draft review, local file exchange, tab navigation, keyboard focus, reading preferences, and saving to the correct file after a restore. ARM64 ran natively in the Linux VM. The amd64 run used emulation. The automated Chromium launcher required its test sandbox setting in Docker. A regular graphical Linux desktop launch with the distribution's sandbox and keyring still needs a device check.
 - **Drive.** A loopback authorization test exercised state, PKCE, token refresh, and disconnect against a simulated Google endpoint. Backup tests restored a complete SQLite project, including pending draft conflicts and hidden wording, and kept five previous backups after a failed upload. A live Google-account backup and restore still requires personal authorization.

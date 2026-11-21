@@ -74,7 +74,7 @@ function site({ hook = '' } = {}) {
 }
 const post = (fields = {}) => ({
   slug: 'first-light', language: 'en', title: 'First light', summary: 'A short note.', date: '2026-11-21', tags: ['notes'],
-  html: '<p>Some <strong>bold</strong> &amp; <mark>marked</mark> text.</p>', cover: null, images: [], updatedAt: '2026-11-21T18:00:00.000Z', ...fields
+  html: '<p>Some <strong>bold</strong> &amp; <u>underlined</u> and <mark>older</mark> text.</p>', cover: null, images: [], updatedAt: '2026-11-21T18:00:00.000Z', ...fields
 })
 
 test('the module answers only under its base path and only to the right key', async () => {

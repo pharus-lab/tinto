@@ -1,6 +1,9 @@
-import type { LibraryState } from './project-types'
+import type { DocumentRecord, LibraryState, RecentProject } from './project-types'
 import { visibleText } from './model'
-import { button, element } from './ui'
+import { dialogHeader } from './settings'
+import { attachMenu, button, contextMenu, element } from './ui'
+
+export type HomeItem = { kind: 'project'; path: string; title: string } | { kind: 'document'; id: string; title: string }
 
 interface FolderActions {
   chooseFolder(folder?: string): void
@@ -11,8 +14,47 @@ export interface HomeActions extends FolderActions {
   openProject(path?: string): void
   createProject(): void
   createDocument(): void
+  moveDocument(doc: DocumentRecord, destination: RecentProject): void
   importFile(): void
   openSample(): void
+  rename(item: HomeItem): void
+  remove(item: HomeItem): void
+}
+
+export function homeItemDialog(dialog: HTMLDialogElement, action: 'Create' | 'Rename' | 'Delete' | 'Move', kind: HomeItem['kind'], title: string, apply: (name: string) => void | Promise<void>, detail = '') {
+  const form = element('form')
+  const name = element('input')
+  const confirm = action === 'Delete' || action === 'Move'
+  if (confirm) form.append(element('p', '', detail))
+  else {
+    const label = element('label', 'field', kind === 'project' ? 'Project name' : 'Document title')
+    name.type = 'text'
+    name.required = true
+    name.value = title
+    label.append(name)
+    form.append(label)
+  }
+  const actions = element('div', 'dialog-actions')
+  const cancel = button('Cancel', () => dialog.close(), 'outline')
+  const submit = element('button', 'primary', action === 'Create' ? 'Create document' : action)
+  submit.type = 'submit'
+  actions.append(cancel, submit)
+  const error = element('p')
+  error.setAttribute('role', 'alert')
+  form.append(error, actions)
+  form.onsubmit = async event => {
+    event.preventDefault()
+    if (!confirm && !name.value.trim()) { name.focus(); return }
+    dialog.inert = true
+    try { await apply(name.value.trim()); dialog.close() }
+    catch (problem) { error.textContent = problem instanceof Error ? problem.message : String(problem) }
+    finally { dialog.inert = false }
+  }
+  const heading = action === 'Create' ? 'New document' : action + ' ' + kind
+  dialog.replaceChildren(dialogHeader(dialog, heading), form)
+  dialog.showModal()
+  if (confirm) cancel.focus()
+  else { name.focus(); name.select() }
 }
 
 export function renderWelcome(host: HTMLElement, actions: FolderActions) {
@@ -68,25 +110,61 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   }
 
   const columns = element('div', 'home-columns')
+  const menu = contextMenu()
+  function itemMenu(row: HTMLButtonElement, item: HomeItem) {
+    attachMenu(row, menu, item.title, [['Rename', () => actions.rename(item)], ['Delete', () => actions.remove(item)]])
+  }
   const projects = element('div')
+  let dragged: DocumentRecord | null = null
   projects.append(element('h2', '', 'Projects in this folder'))
   for (const project of library.projects) {
     const row = button(project.title, () => actions.openProject(project.path), 'project-entry', 'folder')
     row.title = project.path
     row.setAttribute('aria-current', String(workspace?.path === project.path))
+    itemMenu(row, { kind: 'project', ...project })
+    if (workspace && project.path !== workspace.path) {
+      row.ondragover = event => {
+        if (!dragged) return
+        event.preventDefault()
+        event.dataTransfer!.dropEffect = 'move'
+        row.classList.add('drop-target')
+      }
+      row.ondragleave = event => {
+        if (!row.contains(event.relatedTarget as Node)) row.classList.remove('drop-target')
+      }
+      row.ondrop = event => {
+        if (!dragged) return
+        event.preventDefault()
+        row.classList.remove('drop-target')
+        actions.moveDocument(dragged, project)
+      }
+    }
     projects.append(row)
   }
   columns.append(projects)
-  host.append(columns)
+  host.append(columns, menu)
   if (!workspace) return
 
   const list = element('div', 'document-list')
   const heading = element('div', 'doc-heading')
   heading.append(element('h2', '', workspace.project.title), button('New document', actions.createDocument, '', 'plus'))
   list.append(heading)
+  if (!workspace.project.documents.length) list.append(element('p', '', 'No documents yet.'))
   for (const doc of workspace.project.documents) {
     const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'branch' : 'book')
     if (doc.source) row.append(element('small', 'draft-label', 'Independent draft'))
+    itemMenu(row, { kind: 'document', id: doc.id, title: doc.title })
+    row.draggable = library.projects.length > 1
+    if (row.draggable) row.title = 'Drag to another project to move this document'
+    row.ondragstart = event => {
+      dragged = doc
+      event.dataTransfer!.effectAllowed = 'move'
+      event.dataTransfer!.setData('application/x-tinto-document', doc.id)
+    }
+    row.ondragend = () => {
+      dragged = null
+      projects.querySelector('.drop-target')?.classList.remove('drop-target')
+    }
     list.append(row)
     for (const block of doc.manuscript.content) {
       if (block.type !== 'heading') continue

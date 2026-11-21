@@ -1,4 +1,7 @@
-import type { ChoiceContext, WritingEditor } from './editor'
+import { Plugin, TextSelection } from 'prosemirror-state'
+import { type ChoiceContext, WritingEditor } from './editor'
+import { newBlock } from './model'
+import { attachMenu, button, contextMenu, element, icon } from './ui'
 
 function panelButton(label: string, className: string, key: string, action: () => void): HTMLButtonElement {
   const button = document.createElement('button')
@@ -13,11 +16,65 @@ function panelButton(label: string, className: string, key: string, action: () =
   return button
 }
 
+function editWording(row: HTMLElement, editor: WritingEditor, groupId: string, option: ChoiceContext['options'][number], onReview: (id: string) => void) {
+  const dialog = element('dialog', 'alt-editor')
+  dialog.setAttribute('aria-label', 'Edit wording')
+  const prose = element('div', 'alt-editor-prose')
+  const notice = element('div', 'alt-editor-notice')
+  notice.setAttribute('role', 'status')
+  const block = newBlock()
+  block.content = option.content
+  const draft = new WritingEditor(prose, { type: 'doc', content: [block] }, {
+    message(message) { notice.textContent = message },
+    plugins: [new Plugin({ filterTransaction(tr) {
+      if (tr.doc.childCount === 1) return true
+      notice.textContent = 'Keep this wording in one paragraph.'
+      return false
+    } })]
+  })
+  const original = draft.view.state.doc
+  draft.view.dom.setAttribute('aria-label', 'Option wording')
+  function save() {
+    dialog.close()
+    if (!draft.view.state.doc.eq(original)) {
+      editor.editOption(groupId, option.id, draft.json().content[0].content ?? [])
+      onReview(groupId)
+    }
+  }
+  const actions = element('div', 'alt-editor-actions')
+  actions.append(button('Cancel', () => dialog.close()), button('Save wording', save, 'primary'))
+  dialog.append(prose, notice, actions)
+  dialog.onclose = () => { draft.destroy(); dialog.remove() }
+  dialog.addEventListener('keydown', event => {
+    if (event.isComposing) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      dialog.close()
+    } else if (event.key === 'Enter' && prose.contains(event.target as Node)) {
+      event.preventDefault()
+      event.stopPropagation()
+      save()
+    }
+  }, true)
+  const box = row.getBoundingClientRect()
+  document.body.append(dialog)
+  dialog.style.width = box.width + 'px'
+  dialog.style.left = box.left + 'px'
+  dialog.showModal()
+  const top = Math.max(4, Math.min(box.top, innerHeight - dialog.offsetHeight - 4))
+  dialog.style.top = top + 'px'
+  dialog.style.maxHeight = `calc(100vh - ${top + 4}px)`
+  draft.view.dispatch(draft.view.state.tr.setSelection(TextSelection.create(original, 1, original.content.size - 1)))
+  draft.view.focus()
+}
+
 export function renderAlternatives(host: HTMLElement, editor: WritingEditor, groupId: string | null, onReview: (id: string) => void) {
   const focus = document.activeElement
   const focusKey = focus instanceof HTMLElement && host.contains(focus) ? focus.dataset.panelKey : undefined
   const selected = groupId ? editor.context(groupId) : null
   const contents = document.createDocumentFragment()
+  const menu = contextMenu()
 
   function groupSection(group: ChoiceContext, nested: boolean): HTMLElement {
     const label = nested ? 'Within this passage' : 'Passage'
@@ -66,13 +123,21 @@ export function renderAlternatives(host: HTMLElement, editor: WritingEditor, gro
       text.className = 'alt-wording'
       text.textContent = option.text || '(Empty wording)'
       button.append(check, text)
-      options.append(button)
+      const row = element('div', 'alt-option-row')
+      const edit = () => editWording(row, editor, group.id, option, onReview)
+      const pencil = panelButton('', 'alt-pencil', option.id + 'edit', edit)
+      pencil.title = 'Edit this wording in the sidebar'
+      pencil.setAttribute('aria-label', 'Edit ' + (option.text || 'empty wording') + ' in sidebar')
+      pencil.append(icon('pencil'))
+      attachMenu(button, menu, option.text || 'empty wording', [['Edit wording', edit], ['Delete wording', () => editor.deleteOption(group.id, option.id)]])
+      row.append(button, pencil)
+      options.append(row)
     }
 
     const actions = document.createElement('div')
     actions.className = 'alt-actions'
     actions.append(
-      panelButton('Edit wording', 'alt-edit', group.id + 'edit', () => {
+      panelButton('Edit in manuscript', 'alt-edit', group.id + 'edit', () => {
         onReview(group.id)
         editor.selectOptionText(group.id)
       }),
@@ -112,7 +177,7 @@ export function renderAlternatives(host: HTMLElement, editor: WritingEditor, gro
     contents.append(hint, add)
   }
 
-  host.replaceChildren(contents)
+  host.replaceChildren(contents, menu)
   if (focusKey) {
     const replacement = Array.from(host.querySelectorAll('button')).find(button => button.dataset.panelKey === focusKey)
     ;(replacement ?? host.querySelector('button'))?.focus({ preventScroll: true })

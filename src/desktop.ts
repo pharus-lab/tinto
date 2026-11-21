@@ -45,7 +45,12 @@ export interface Desktop {
   sample(): Promise<Workspace>
   workspace(): Promise<Workspace>
   open(item?: number | string): Promise<Workspace | null>
-  create(language: string): Promise<Workspace | null>
+  create(): Promise<Workspace | null>
+  renameProject(path: string, title: string): Promise<LibraryState>
+  deleteProject(path: string): Promise<LibraryState>
+  deleteDocument(path: string, id: string): Promise<LibraryState>
+  moveDocument(source: string, id: string, destination: string): Promise<LibraryState>
+  undoMove(): Promise<LibraryState>
   save(path: string, projectId: string, document: DocumentRecord): string | null
   versions(documentId: string): Promise<Version[]>
   nameVersion(documentId: string, name: string): Promise<void>

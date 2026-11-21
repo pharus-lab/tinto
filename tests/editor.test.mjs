@@ -8,7 +8,7 @@ import { build } from 'esbuild'
 import { chromium } from 'playwright'
 
 const root = new URL('../', import.meta.url)
-const html = `<!doctype html><meta charset="utf-8">
+const html = `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/styles.css">
 <main></main>
 <nav>
   <button id="add">Add alternative</button><button id="review">Review wording</button>
@@ -46,6 +46,7 @@ async function prepareProof(t) {
       const pathname = new URL(route.request().url()).pathname
       if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: html })
       if (pathname === '/editor.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
+      if (pathname === '/styles.css') return route.fulfill({ contentType: 'text/css', body: await readFile(new URL('src/styles.css', root)) })
       if (/^\/dictionaries\/en\.(dic|aff)$/.test(pathname)) {
         const extension = path.extname(pathname)
         const data = await readFile(new URL('node_modules/dictionary-en/index' + extension, root))
@@ -67,8 +68,8 @@ async function prepareProof(t) {
 
 // Place a native browser selection over the visible words, including text
 // split into several DOM nodes by spelling underlines or formatting.
-async function selectWords(page, phrase) {
-  await page.locator('.ProseMirror').evaluate((editor, words) => {
+async function selectWords(page, phrase, editor = page.locator('main .ProseMirror')) {
+  await editor.evaluate((editor, words) => {
     editor.focus()
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT)
     const nodes = []
@@ -95,6 +96,123 @@ async function selectWords(page, phrase) {
 const paragraph = page => page.locator('.ProseMirror p').first()
 const button = (page, name) => page.getByRole('button', { name, exact: true })
 const undo = process.platform === 'darwin' ? 'Meta+z' : 'Control+z'
+
+test('backspacing the last letter leaves an editable empty alternative until the next deletion', async t => {
+  const openManuscript = await prepareProof(t)
+  let page = await openManuscript()
+  await selectWords(page, 'cat')
+  await button(page, 'Add alternative').click()
+  let choice = paragraph(page).locator('[data-choice-id]')
+  const end = await choice.evaluate(el => {
+    const box = el.getBoundingClientRect()
+    return { x: box.right - 1, y: box.top + box.height / 2 }
+  })
+  await page.mouse.click(end.x, end.y)
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Backspace')
+  assert.equal(await paragraph(page).textContent(), 'I want to eat a .')
+  assert.equal(await choice.count(), 1, 'the empty alternative stays in the manuscript')
+  assert.equal(await choice.evaluate(el => el.contains(getSelection().anchorNode)), true)
+  assert.ok((await choice.boundingBox()).width > 4)
+  await button(page, 'cat').click()
+  assert.equal(await choice.textContent(), 'cat')
+  await button(page, '(Empty wording)').click()
+  await button(page, 'Save').click()
+  await page.getByText('Saved', { exact: true }).waitFor()
+  await page.context().close()
+  page = await openManuscript()
+  choice = paragraph(page).locator('[data-choice-id]')
+  await choice.click()
+  assert.equal(await choice.evaluate(el => el.contains(getSelection().anchorNode)), true)
+  await page.keyboard.type('dog')
+  assert.equal(await choice.textContent(), 'dog')
+  await selectWords(page, 'dog')
+  await page.keyboard.press('Backspace')
+  assert.equal(await choice.count(), 1)
+  await page.keyboard.press('Backspace')
+  assert.equal(await choice.count(), 0)
+  assert.equal(await paragraph(page).textContent(), 'I want to eat a .')
+  await page.keyboard.press(undo)
+  assert.equal(await choice.count(), 1)
+  assert.equal(await choice.textContent(), '')
+})
+
+test('forward deletion from inside a wording preserves its empty box and adjacent prose', async t => {
+  const page = await (await prepareProof(t))()
+  await selectWords(page, 'cat')
+  await button(page, 'Add alternative').click()
+  const choice = paragraph(page).locator('[data-choice-id]')
+  await choice.click()
+  const offset = await choice.evaluate(() => getSelection().anchorOffset)
+  assert.ok(offset > 0 && offset < 3)
+  for (let i = 0; i < offset; i++) await page.keyboard.press('Backspace')
+  for (let i = offset; i <= 3; i++) await page.keyboard.down('Delete')
+  await page.keyboard.up('Delete')
+  assert.equal(await choice.count(), 1)
+  assert.equal(await choice.textContent(), '')
+  await page.keyboard.press('Delete')
+  assert.equal(await choice.count(), 0)
+  assert.equal(await paragraph(page).textContent(), 'I want to eat a .')
+})
+
+test('sidebar editing and deletion work on inactive and active options and can be undone', async t => {
+  const page = await (await prepareProof(t))()
+  await selectWords(page, 'cat')
+  await button(page, 'Add alternative').click()
+  await page.keyboard.type('dog')
+  await button(page, 'Add option').click()
+  await page.keyboard.type('fox')
+
+  await button(page, 'Edit dog in sidebar').click()
+  const draft = page.getByRole('textbox', { name: 'Option wording' })
+  await page.keyboard.type('hound')
+  await button(page, 'Save wording').click()
+  assert.equal(await button(page, 'hound').getAttribute('aria-pressed'), 'false')
+  assert.equal(await paragraph(page).textContent(), 'I want to eat a fox.')
+
+  async function menuAction(wording, command) {
+    await button(page, wording).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: command }).click()
+  }
+  await menuAction('fox', 'Edit wording')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Escape')
+  assert.equal(await paragraph(page).textContent(), 'I want to eat a fox.')
+  await menuAction('fox', 'Edit wording')
+  await page.keyboard.press('Backspace')
+  await draft.press('Enter')
+  assert.equal(await button(page, '(Empty wording)').getAttribute('aria-pressed'), 'true')
+  await menuAction('cat', 'Delete wording')
+  assert.equal(await button(page, 'cat').count(), 0)
+  await menuAction('(Empty wording)', 'Delete wording')
+  assert.equal(await paragraph(page).textContent(), 'I want to eat a hound.')
+  assert.equal(await paragraph(page).locator('[data-choice-id]').count(), 0)
+  await page.locator('main .ProseMirror').focus()
+  await page.keyboard.press(undo)
+  assert.equal(await paragraph(page).locator('[data-choice-id]').count(), 1)
+  assert.equal(await button(page, 'hound').count(), 1)
+  assert.equal(await button(page, '(Empty wording)').getAttribute('aria-pressed'), 'true')
+})
+
+test('editing a hidden passage in the sidebar preserves its nested alternatives and marks', async t => {
+  const page = await (await prepareProof(t))()
+  await selectWords(page, 'cat')
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+b' : 'Control+b')
+  await button(page, 'Add alternative').click()
+  await page.keyboard.type('dog')
+  await selectWords(page, 'eat a dog.')
+  await button(page, 'Add alternative').click()
+  await page.keyboard.type('sleep.')
+  await button(page, 'Edit eat a dog. in sidebar').click()
+  await selectWords(page, 'eat', page.getByRole('textbox', { name: 'Option wording' }))
+  await page.keyboard.type('feed')
+  await button(page, 'Save wording').click()
+  assert.equal(await paragraph(page).textContent(), 'I want to sleep.')
+  await button(page, 'feed a dog.').click()
+  assert.equal(await paragraph(page).locator('strong').textContent(), 'dog')
+  await button(page, 'cat').click()
+  assert.equal(await paragraph(page).textContent(), 'I want to feed a cat.')
+  assert.equal(await paragraph(page).locator('strong').textContent(), 'cat')
+})
 
 test('nested wording survives real typing, undo, option switching, save and reopen', async t => {
   const openManuscript = await prepareProof(t)

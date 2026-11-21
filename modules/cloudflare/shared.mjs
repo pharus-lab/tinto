@@ -12,9 +12,10 @@ export const IMAGE_FILE = /^([0-9a-f]{32})\.(png|jpg|webp|gif|avif)$/
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const LANGUAGE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/
 const LOCALE = /^[A-Za-z0-9-]{1,20}$/
-// Tinto sends escaped text inside these bare tags. Anything else is refused,
-// so a page can render the body as HTML.
-const POST_TAGS = /<\/?(?:p|h[1-6]|strong|em|mark)>/g
+// Tinto sends escaped text inside these bare tags (u is the author's underline;
+// mark came from earlier versions). Anything else is refused, so a page can
+// render the body as HTML.
+const POST_TAGS = /<\/?(?:p|h[1-6]|strong|em|u|mark)>/g
 
 /**
  * @typedef {{ file: string, type: string, alt: string, url: string }} TintoImage

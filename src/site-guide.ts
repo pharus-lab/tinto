@@ -29,7 +29,7 @@ ${where} Follow the "For coding agents" section of tinto/README.md. In short:
 export function pagesPrompt(values: GuideValues): string {
   return `Show the posts that Tinto publishes on this website (${values.site}), in the site's own design. Follow "Showing posts in the site's design" in tinto/README.md:
 - Add a post list and a post page that reuse the site's existing layout, components, typography and styles. Do not add a new visual style.
-- Render post.html as HTML (only p, h1–h6, strong, em and mark, without attributes). Render the title, summary and tags as text.
+- Render post.html as HTML (only p, h1–h6, strong, em and u, without attributes). Render the title, summary and tags as text.
 - Show the cover and images with their alt text. Their url is on this site.
 - Follow the site's language routes, and set postPath in tinto/tinto.config.mjs to match the post page.
 Do not deploy, commit or push. Run the build and tests and show me the result.`

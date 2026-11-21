@@ -119,4 +119,10 @@ export function registerBackups(context: BackupContext) {
   const timer = setInterval(() => void run(true), 15 * 60_000)
   timer.unref()
   if (auth.connected) void run(true)
+  return function updateBackupPath(path: string, destination?: string) {
+    if (!optedIn.includes(path)) return
+    const remaining = optedIn.filter(item => item !== path && item !== destination)
+    if (destination) remaining.push(destination)
+    saveChoices(remaining)
+  }
 }

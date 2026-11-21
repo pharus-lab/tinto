@@ -1,5 +1,5 @@
 import type { ChoiceJSON, InlineJSON, Manuscript } from './model'
-import { visibleText } from './model'
+import { markTags, visibleText } from './model'
 import type { DocumentRecord, Version } from './project-types'
 import { button, element } from './ui'
 
@@ -27,7 +27,7 @@ export function formattedText(content: InlineJSON[]): DocumentFragment {
     }
     let node: Node = document.createTextNode(inline.text)
     for (const mark of inline.marks ?? []) {
-      const container = element(mark.type === 'highlight' ? 'mark' : mark.type)
+      const container = element(markTags[mark.type])
       container.append(node)
       node = container
     }
@@ -55,7 +55,7 @@ function versionPreview(manuscript: Manuscript): HTMLElement {
 }
 
 export function showHistory(dialog: HTMLDialogElement, doc: DocumentRecord, restored: (doc: DocumentRecord) => void, notice: (message: string) => void) {
-  const content = element('section')
+  const content = element('section', 'history-body')
   const heading = element('header', 'dialog-head')
   const title = element('h2', '', 'Version history')
   title.id = 'dialog-title'

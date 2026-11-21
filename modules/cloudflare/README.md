@@ -78,7 +78,7 @@ Connect this module to the site you are working in. Only change what the steps a
 
 Only do this when asked.
 - Add a post list and a post page that reuse the site's existing layout, components, typography and styles.
-- Render `post.html` as HTML. It contains only `p`, `h1`–`h6`, `strong`, `em` and `mark`, with no attributes, and the module checks it again on every build. Render `title`, `summary` and `tags` as text.
+- Render `post.html` as HTML. It contains only `p`, `h1`–`h6`, `strong`, `em` and `u` (the author's underline; posts from older Tinto versions may use `mark`), with no attributes, and the module checks it again on every build. Render `title`, `summary` and `tags` as text.
 - Show `cover` and `images` with their `alt`. Their `url` is on the same origin, so a strict CSP such as `img-src 'self'` keeps working.
 - Follow the site's language routes, and set `postPath` to match the new post page.
 

@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
-import { ProjectStore } from './storage'
+import { ProjectStore, type MoveOrigin } from './storage'
 
 interface LibraryPreferences {
   folder: string | null
@@ -12,6 +12,7 @@ interface LibraryPreferences {
 export class ProjectLibrary {
   private preferences: LibraryPreferences = { folder: null, folders: [], recent: [] }
   private current: { path: string; id: string; store: ProjectStore } | null = null
+  private lastMove: { source: string; destination: string; id: string; origin: MoveOrigin } | null = null
 
   constructor(private readonly file: string) {
     if (!existsSync(file)) return
@@ -116,10 +117,80 @@ export class ProjectLibrary {
     return path === this.current?.path ? this.workspace() : this.activate(path, new ProjectStore(path))
   }
 
-  openListed(item: number | string): Workspace {
+  private listedPath(item: number | string): string {
     const path = typeof item === 'number' ? this.preferences.recent[item]?.path : this.projects(this.activeFolder).find(project => project.path === item)?.path
     if (!path) throw Error('Choose a project from the current folder.')
-    return this.open(path)
+    return path
+  }
+
+  openListed(item: number | string): Workspace {
+    return this.open(this.listedPath(item))
+  }
+
+  moveDocument(source: string, id: string, destination: string): LibraryState {
+    if (source !== this.current?.path) throw Error('Open the original project first.')
+    if (destination === source) throw Error('Choose another project.')
+    if (typeof destination !== 'string') throw Error('Choose a project from the current folder.')
+    const origin = this.store.moveDocument(id, this.listedPath(destination))
+    this.lastMove = { source, destination, id, origin }
+    return this.state()
+  }
+
+  undoMove(): LibraryState {
+    const move = this.lastMove
+    if (!move) throw Error('There is no move to undo.')
+    const store = new ProjectStore(move.destination)
+    try { store.moveDocument(move.id, move.source, move.origin) }
+    finally { store.close() }
+    this.lastMove = null
+    return this.state()
+  }
+
+  renameProject(path: string, name: string): string {
+    this.listedPath(path)
+    const title = name.trim().replace(/\.tinto$/i, '').trim()
+    if (!title || title.includes('/') || title.includes('\0')) throw Error('Enter a project name without a slash.')
+    const destination = join(this.activeFolder, title + '.tinto')
+    const existing = lstatSync(destination, { throwIfNoEntry: false })
+    if (existing && existing.ino !== lstatSync(path).ino) throw Error('A file with that name already exists.')
+
+    const current = this.current?.path === path ? this.current : null
+    const previous = this.preferences
+    const recent = previous.recent.filter(item => item.path === path || item.path !== destination)
+      .map(item => item.path === path ? { path: destination, title } : item)
+    this.remember({ ...previous, recent })
+    if (current) this.close()
+    let moved = false
+    let store: ProjectStore | undefined
+    try {
+      renameSync(path, destination)
+      moved = true
+      store = new ProjectStore(destination)
+      store.renameProject(title)
+      if (current) this.current = { ...current, path: destination, store }
+      else store.close()
+    } catch (error) {
+      store?.close()
+      if (moved) renameSync(destination, path)
+      if (current) this.current = { ...current, store: new ProjectStore(path) }
+      this.remember(previous)
+      throw error
+    }
+    if (this.lastMove?.source === path) this.lastMove.source = destination
+    if (this.lastMove?.destination === path) this.lastMove.destination = destination
+    return destination
+  }
+
+  async deleteProject(path: string, trash: (path: string) => Promise<void>) {
+    this.listedPath(path)
+    const current = this.current?.path === path ? this.current : null
+    if (current) this.close()
+    try { await trash(path) }
+    catch (error) {
+      if (current) this.current = { ...current, store: new ProjectStore(path) }
+      throw error
+    }
+    this.remember({ ...this.preferences, recent: this.preferences.recent.filter(item => item.path !== path) })
   }
 
   save(path: string, id: string, doc: DocumentRecord) {
