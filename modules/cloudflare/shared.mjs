@@ -268,7 +268,7 @@ const EACH = /<template\s+data-tinto-each="(cover|images|tags|attachments)"\s*>(
 export function renderPreview(template, post, site) {
   const fields = {
     title: post.title, summary: post.summary, date: post.date, language: post.language,
-    category: post.category ? site.categories?.[post.category] ?? post.category : '', authorship: authorshipLabel(post.authorship)
+    category: post.category ? site.categories?.[post.category] ?? post.category : '', authorship: authorshipLabel(post.authorship, post.language)
   }
   const lists = {
     cover: post.cover ? [{ url: post.cover.url, alt: post.cover.alt }] : [],

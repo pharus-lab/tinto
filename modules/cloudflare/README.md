@@ -92,7 +92,7 @@ Only do this when asked.
 
   Every `url` is on the same origin, so a strict CSP such as `default-src 'self'` keeps working.
 - When the site has categories, use `post.category` to place each post on its page or section.
-- Show who wrote the post, quietly, near the title or the date: `authorshipLabel(post.authorship)` from `tinto/credential.mjs` returns a line such as *Original · written by Ana*, or an empty string for a post without a verified credential. Style it like the site's other small metadata. Never hide it when `post.authorship.ai` is true. Link it to `post.authorship.credential` if the owner wants readers to check the signature.
+- Show who wrote the post, quietly, near the title or the date: `authorshipLabel(post.authorship, post.language)` from `tinto/credential.mjs` returns a line such as *Original · written by Ana* (or *Original · escrito por Ana* for a Spanish post), or an empty string for a post without a verified credential. Style it like the site's other small metadata. Never hide it when `post.authorship.ai` is true. Link it to `post.authorship.credential` if the owner wants readers to check the signature.
 - Follow the site's language routes, and set `postPath` to match the new post page.
 - Add the preview page described below, built from the same post layout.
 
@@ -100,7 +100,7 @@ Only do this when asked.
 
 Tinto's **Preview** shows a post in the site's design before it is published. The site provides one page, at `previewPath` (`/tinto-preview` by default). Build it from the same layout and components as a real post page, with markers in place of the values. The module fills the markers for each preview and returns 404 to anyone who opens the page directly.
 
-- **Fields.** Use `%%title%%`, `%%summary%%`, `%%date%%`, `%%category%%`, `%%language%%` and `%%authorship%%` (the quiet authorship line) in text or attributes. They are filled in as escaped text. Use `%%body%%` inside a `div` for the post HTML.
+- **Fields.** Use `%%title%%`, `%%summary%%`, `%%date%%`, `%%category%%`, `%%language%%` and `%%authorship%%` (the quiet authorship line, in English or Spanish to match the post) in text or attributes. They are filled in as escaped text. Use `%%body%%` inside a `div` for the post HTML.
 - **Repeated or optional parts.** Wrap the markup for one item in `<template data-tinto-each="…">`. The module repeats it for each item and removes it when there is none.
 
 | Block | Item markers |

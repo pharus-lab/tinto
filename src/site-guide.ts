@@ -33,7 +33,7 @@ export function pagesPrompt(values: GuideValues): string {
 - Render post.html as HTML (only p, h1–h6, strong, em and u without attributes, plus mark, which older posts use for the same underline). Render the title, summary and tags as text.
 - Show the cover and images with their alt text, and list post.attachments by their title with a link to their url (use the download attribute for ZIP and CSV, and audio or video elements for media). All urls are on this site.
 - If the site has categories, use post.category to place each post on the right page or section.
-- Show the authorship line quietly near the title or date, styled like the site's other small metadata: authorshipLabel(post.authorship) from tinto/credential.mjs (for example "Original · written by …"). Never hide it when the post includes AI-generated text.
+- Show the authorship line quietly near the title or date, styled like the site's other small metadata: authorshipLabel(post.authorship, post.language) from tinto/credential.mjs (for example "Original · written by …", or the Spanish line for Spanish posts). Never hide it when the post includes AI-generated text.
 - Add the preview page from "Preview page" in tinto/README.md at previewPath (/tinto-preview): the same post layout with %%title%%, %%authorship%%, %%body%% and the other markers, kept out of the sitemap and with noindex.
 - Follow the site's language routes, and set postPath in tinto/tinto.config.mjs to match the post page.
 Do not deploy, commit or push. Run the build and tests and show me the result.`

@@ -173,7 +173,14 @@ export function createTintoBlog(config, { now = Date.now } = {}) {
   }
   /** @param {any} env @param {string} origin */
   async function previewTemplate(env, origin) {
-    const response = env.ASSETS ? await env.ASSETS.fetch(new Request(origin + site.previewPath)) : null
+    let response = env.ASSETS ? await env.ASSETS.fetch(new Request(origin + site.previewPath)) : null
+    // Static hosts often redirect a page to its folder form, such as /tinto-preview/. Follow it once, on this site only.
+    const location = response && response.status >= 300 && response.status < 400 ? response.headers.get('Location') : null
+    if (location) {
+      const next = new URL(location, origin + site.previewPath)
+      await response?.body?.cancel?.()
+      response = next.origin === origin ? await env.ASSETS.fetch(new Request(next)) : null
+    }
     if (!response?.ok) {
       await response?.body?.cancel?.()
       throw new Rejection(422, 'This site has no preview page yet. Ask your agent to add one (see "Preview page" in tinto/README.md).')

@@ -190,15 +190,21 @@ export async function describePost(credential, post, id, files) {
   }
 }
 
+const LABELS = {
+  en: { author: 'its author', ai: 'AI-generated · published by ', withAI: ['Written by ', ' · includes AI-generated text'], original: 'Original · written by ', other: ['Written by ', ' · includes text from other sources'] },
+  es: { author: 'su autor', ai: 'Generado con IA · publicado por ', withAI: ['Escrito por ', ' · incluye texto generado con IA'], original: 'Original · escrito por ', other: ['Escrito por ', ' · incluye texto de otras fuentes'] }
+}
 /**
- * A short, quiet line for a post page. AI-generated text is always named.
- * @param {Authorship | null | undefined} authorship
+ * A short, quiet line for a post page, in English or Spanish (by language
+ * code, such as es-MX). AI-generated text is always named.
+ * @param {Authorship | null | undefined} authorship @param {string} [language]
  */
-export function authorshipLabel(authorship) {
+export function authorshipLabel(authorship, language = 'en') {
   if (!authorship?.verified) return ''
-  const name = authorship.author.name || 'its author'
-  if (authorship.digitalSourceType === SOURCE_TYPES.ai) return 'AI-generated · published by ' + name
-  if (authorship.ai) return 'Written by ' + name + ' · includes AI-generated text'
-  if (authorship.original) return 'Original · written by ' + name
-  return 'Written by ' + name + ' · includes text from other sources'
+  const text = String(language).toLowerCase().startsWith('es') ? LABELS.es : LABELS.en
+  const name = authorship.author.name || text.author
+  if (authorship.digitalSourceType === SOURCE_TYPES.ai) return text.ai + name
+  if (authorship.ai) return text.withAI[0] + name + text.withAI[1]
+  if (authorship.original) return text.original + name
+  return text.other[0] + name + text.other[1]
 }

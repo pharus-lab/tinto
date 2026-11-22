@@ -309,6 +309,23 @@ test('a preview is stored beside the live post and shown through a signed, expir
   assert.equal((await call('PUT', '/api/tinto/previews/' + id, { body: JSON.stringify(post({ cover })), type: 'application/json', auth: null })).status, 401)
 })
 
+test('a preview page in folder form is found through the static host redirect, on the same site only', async () => {
+  const redirecting = target => ({
+    async fetch(request) {
+      const path = new URL(request.url).pathname
+      if (path === '/tinto-preview') return new Response(null, { status: 307, headers: { Location: target } })
+      if (path === '/tinto-preview/') return new Response(previewTemplate, { headers: { 'Content-Type': 'text/html' } })
+      return new Response('Not found', { status: 404 })
+    }
+  })
+  for (const [target, status] of [['/tinto-preview/', 200], ['https://elsewhere.example/tinto-preview/', 422]]) {
+    const local = site()
+    local.env.ASSETS = redirecting(target)
+    const response = await local.call('PUT', '/api/tinto/previews/' + id, { body: JSON.stringify(post()), type: 'application/json' })
+    assert.equal(response.status, status, target)
+  }
+})
+
 test('a site without a preview page says so before anything is stored', async () => {
   const { call } = site({ pages: {} })
   const response = await call('PUT', '/api/tinto/previews/' + id, { body: JSON.stringify(post()), type: 'application/json' })
@@ -515,6 +532,7 @@ test('a site accepts posts only from its author, and only when the credential de
   const [shown] = (await (await locked.call('GET', '/api/tinto/feed', { auth: null })).json()).posts
   assert.deepEqual([shown.authorship.original, shown.authorship.ai, shown.authorship.parts[1].origin], [false, true, 'ai'])
   assert.equal(authorshipLabel(shown.authorship), 'Written by Someone else · includes AI-generated text')
+  assert.equal(authorshipLabel(shown.authorship, 'es-MX'), 'Escrito por Someone else · incluye texto generado con IA')
   assert.throws(() => createTintoBlog({ ...config, author: 'did:web:example.com' }), /author must be null or the did:key/)
 })
 
