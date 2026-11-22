@@ -29,8 +29,8 @@ test('local import and export preserve active prose, headings and author formatt
   const output = process.env.TINTO_EXCHANGE_OUTPUT ?? directory
   await mkdir(output, { recursive: true })
   const prose = page.locator('#editors .ProseMirror:visible')
-  await button(page, 'Home').click()
-  await button(page.locator('#home'), 'The kitchen').click()
+  await button(page, 'Headings').click()
+  await button(page.locator('#heading-list'), 'Create spawn for The kitchen').click()
   await prose.locator('[data-choice-id="kitchen-food"]').click()
   const nested = page.getByRole('region', { name: 'Within this passage' })
   await button(nested, 'Edit in manuscript').click()

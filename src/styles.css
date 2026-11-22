@@ -97,7 +97,8 @@ body.mac .titlebar { padding-left: 88px; }
 .titlebar button { -webkit-app-region: no-drag; }
 .wordmark { font: italic 600 27px/1 var(--book-serif); letter-spacing: -1.8px; margin-right: 8px; }
 .wordmark span { color: var(--wine); }
-#tabs { display: flex; height: 100%; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; gap: 3px; padding-top: 9px; }
+#tabs { display: flex; height: 100%; min-width: 0; flex: 1; gap: 3px; padding-top: 9px; }
+#document-tabs { display: flex; min-width: 0; flex: 1; gap: 3px; overflow-x: auto; scrollbar-width: none; }
 .tab { display: inline-flex; flex: none; max-width: 260px; color: var(--secondary); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; }
 .tab:hover { color: var(--ink); background: color-mix(in srgb, var(--wine) 9%, var(--panel)); box-shadow: inset 0 -1px var(--divider); }
 .tab.current { color: var(--ink); background: var(--paper); border-color: var(--divider); box-shadow: none; }
@@ -111,6 +112,18 @@ body.mac .titlebar { padding-left: 88px; }
 .tab > .close-tab:hover svg { stroke-width: 2.8; }
 .icon-button { width: 30px; height: 30px; padding: 6px; }
 .location { flex: none; display: flex; align-items: center; gap: 16px; justify-content: space-between; padding: 0 24px; height: 50px; border-bottom: 1px solid var(--divider); }
+.location-start { display: flex; align-items: center; min-width: 0; gap: 12px; }
+#headings { flex: none; anchor-name: --headings; }
+.down-chevron svg { width: 10px; height: 10px; transform: rotate(90deg); }
+#heading-list {
+  position: fixed; position-anchor: --headings; inset: anchor(bottom) auto auto anchor(left); margin: 4px 0 0;
+  width: min(320px, 90vw); max-height: min(60vh, 420px); overflow: auto; padding: 5px;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: var(--shadow);
+}
+#heading-list p { margin: 8px; color: var(--secondary); }
+.heading-entry { display: flex; align-items: center; gap: 4px; }
+.heading-jump { min-width: 0; justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
+.spawn-button { flex: none; width: 28px; height: 28px; padding: 5px; color: var(--wine); }
 #trail, .tools { display: flex; align-items: center; gap: 8px; }
 #trail { min-width: 0; overflow: hidden; white-space: nowrap; color: var(--secondary); }
 #trail span { text-overflow: ellipsis; overflow: hidden; }
@@ -166,6 +179,11 @@ select {
 .ProseMirror h1 { font-size: 2.15em; letter-spacing: -.045em; }
 .ProseMirror h2 { font-size: 1.65em; }
 .ProseMirror h3 { font-size: 1.35em; }
+#editors .ProseMirror > :is(h1,h2,h3,h4,h5,h6) { position: relative; scroll-margin-top: 12px; }
+#editors .ProseMirror > :has(> .spawn-button) { padding-inline-end: 32px; }
+/* The widget follows the last character. Its static position follows the last line of wrapped headings. */
+.ProseMirror .spawn-button { position: absolute; margin-inline-start: 4px; margin-block-start: calc((1lh - 28px) / 2); visibility: hidden; }
+.ProseMirror :hover > .spawn-button { visibility: visible; }
 .ProseMirror > :first-child, .ProseMirror > .section-start { margin-top: 0; }
 .ProseMirror p { margin: 0 0 .95em; }
 .ProseMirror u, .version-text u, .draft-review u { text-decoration-thickness: .065em; text-underline-offset: .14em; }
@@ -241,7 +259,14 @@ body.welcome :is(.location, footer, #tabs, #settings, #writing, #panel) { displa
 .context-menu { position: fixed; inset: auto; margin: 0; min-width: 9rem; padding: 4px; background: var(--paper); color: var(--ink); border: 1px solid var(--outline); border-radius: 6px; box-shadow: var(--shadow); }
 .context-menu button { width: 100%; justify-content: flex-start; }
 .context-menu button:focus-visible { outline-offset: -2px; }
-.section-row { color: var(--secondary); margin-left: 20px; width: calc(100% - 20px); }
+.spawn-tree { list-style: none; margin: 0; padding: 0; }
+.spawn-tree .spawn-tree { padding-inline-start: 20px; }
+.tree-entry { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; }
+.tree-entry > :is(.doc-row, .section-row) { grid-column: 2; grid-row: 1; }
+.tree-toggle { grid-column: 1; grid-row: 1; padding: 5px; color: var(--secondary); }
+.tree-toggle svg { width: 12px; height: 12px; }
+.tree-toggle[aria-expanded=true] svg { transform: rotate(90deg); }
+.section-row { color: var(--secondary); }
 dialog { max-height: 82vh; width: min(560px,90vw); overflow-wrap: anywhere; border: 1px solid var(--outline); border-radius: 9px; padding: 24px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-dialog); }
 dialog::backdrop { background: var(--scrim); }
 .dialog-head { margin-bottom: 24px; }
@@ -326,6 +351,8 @@ dialog:has(> .history-body) { width: min(900px, 94vw); max-height: calc(100% - 3
   .home-columns { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .document-list { padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--divider); }
   .location { padding: 0 10px; gap: 6px; }
+  #headings span { display: none; }
+  .location-start { gap: 4px; }
   .tools { gap: 0; }
   .tools button { gap: 4px; padding-inline: 5px; }
   #history span { display: none; }

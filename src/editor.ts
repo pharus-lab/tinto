@@ -387,6 +387,16 @@ export class WritingEditor {
     return this.view.state.doc.toJSON() as Manuscript;
   }
 
+  jumpToHeading(id: string) {
+    const { state } = this.view;
+    const section = findSection(state.doc, id);
+    if (!section) return;
+    this.view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, section.from + 1)));
+    this.view.focus();
+    const heading = this.view.nodeDOM(section.from);
+    if (heading instanceof HTMLElement) heading.scrollIntoView({ block: "start", inline: "nearest" });
+  }
+
   showSection(headingId: string | null): boolean {
     const { state } = this.view;
     const section = headingId && findSection(state.doc, headingId);

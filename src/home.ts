@@ -92,7 +92,27 @@ function folderBar(library: LibraryState, actions: FolderActions) {
   return bar
 }
 
-export function renderHome(host: HTMLElement, library: LibraryState, actions: HomeActions) {
+interface SpawnBranch { id: string; title: string; level: number; children: SpawnBranch[] }
+
+function spawnTree(doc: DocumentRecord) {
+  const roots: SpawnBranch[] = []
+  const ancestors: SpawnBranch[] = []
+  const spawned = new Set(doc.spawnedHeadingIds)
+  for (const block of doc.manuscript.content) {
+    if (block.type !== 'heading') continue
+    const { id, level = 1 } = block.attrs
+    // Even an unspawned heading can end the previous spawn's section.
+    while (ancestors.length && ancestors.at(-1)!.level >= level) ancestors.pop()
+    if (!spawned.has(id)) continue
+    const branch: SpawnBranch = { id, title: visibleText(block) || 'Untitled heading', level, children: [] }
+    const siblings = ancestors.at(-1)?.children ?? roots
+    siblings.push(branch)
+    ancestors.push(branch)
+  }
+  return roots
+}
+
+export function renderHome(host: HTMLElement, library: LibraryState, expanded: Set<string>, actions: HomeActions) {
   if (!library.folder) return renderWelcome(host, actions)
   const workspace = library.workspace
   const header = element('div', 'home-heading')
@@ -149,6 +169,8 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
   const heading = element('div', 'doc-heading')
   heading.append(element('h2', '', workspace.project.title), button('New document', actions.createDocument, '', 'plus'))
   list.append(heading)
+  const documents = element('ul', 'spawn-tree')
+  list.append(documents)
   if (!workspace.project.documents.length) list.append(element('p', '', 'No documents yet.'))
   for (const doc of workspace.project.documents) {
     const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'draft' : 'book')
@@ -165,13 +187,35 @@ export function renderHome(host: HTMLElement, library: LibraryState, actions: Ho
       dragged = null
       projects.querySelector('.drop-target')?.classList.remove('drop-target')
     }
-    list.append(row)
-    for (const block of doc.manuscript.content) {
-      if (block.type !== 'heading') continue
-      const section = button(visibleText(block) || 'Untitled heading', () => actions.openDocument(doc.id, block.attrs.id), 'section-row', 'link')
-      section.title = 'Open linked section'
-      list.append(section)
+    function treeItem(link: HTMLButtonElement, title: string, key: string, children: SpawnBranch[]) {
+      const item = element('li')
+      const entry = element('div', 'tree-entry')
+      item.append(entry)
+      entry.append(link)
+      if (children.length) {
+        const group = element('ul', 'spawn-tree')
+        for (const child of children) {
+          const section = button(child.title, () => actions.openDocument(doc.id, child.id), 'section-row', 'link')
+          group.append(treeItem(section, child.title, doc.id + '/' + child.id, child.children))
+        }
+        const toggle = button('', () => {
+          if (expanded.has(key)) expanded.delete(key)
+          else expanded.add(key)
+          update()
+        }, 'tree-toggle', 'chev')
+        function update() {
+          const open = expanded.has(key)
+          group.hidden = !open
+          toggle.setAttribute('aria-expanded', String(open))
+          toggle.setAttribute('aria-label', (open ? 'Collapse ' : 'Expand ') + title)
+        }
+        update()
+        entry.prepend(toggle)
+        item.append(group)
+      }
+      return item
     }
+    documents.append(treeItem(row, doc.title, doc.id, spawnTree(doc)))
   }
   columns.append(list)
 }

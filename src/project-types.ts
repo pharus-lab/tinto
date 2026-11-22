@@ -5,6 +5,7 @@ export interface DocumentRecord {
   title: string
   language: string
   manuscript: Manuscript
+  spawnedHeadingIds?: string[]
   source?: { documentId: string; headingId: string | null }
 }
 

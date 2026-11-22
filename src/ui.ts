@@ -4,6 +4,7 @@ const paths: Record<string, string> = {
   book: '<path d="M4 4h14a2 2 0 0 1 2 2v15H6a2 2 0 0 1-2-2V4Zm0 14c0-1 1-2 3-2h13M8 5v11"/>',
   folder: '<path d="M3 7V5h6l2 3h10v11H3V7Z"/>',
   link: '<path d="m10 13 4-4m-6 7-1 1a4 4 0 0 1-5-5l4-4a4 4 0 0 1 6 0m0 8a4 4 0 0 0 6 0l4-4a4 4 0 0 0-5-5l-1 1"/>',
+  outline: '<path d="M4 5h16M8 12h12M8 19h12"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   chev: '<path d="m9 5 7 7-7 7"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/>',
@@ -46,6 +47,13 @@ export function button(text: string, run: () => void, className = '', symbol?: s
   return el
 }
 export function $(id: string): HTMLElement { return document.getElementById(id)! }
+
+export function spawnButton(title: string, exists: boolean, open: () => void) {
+  const action = button('', open, 'spawn-button', exists ? 'link' : 'plus')
+  action.title = (exists ? 'Open spawn for ' : 'Create spawn for ') + title
+  action.setAttribute('aria-label', action.title)
+  return action
+}
 // Electron prefixes errors from the main process with the IPC channel name.
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : String(error)

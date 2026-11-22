@@ -11,11 +11,18 @@
 <body class="welcome">
   <header class="titlebar">
     <span class="wordmark">Tinto<span>.</span></span>
-    <nav id="tabs" aria-label="Open documents"></nav>
+    <nav id="tabs" aria-label="Open documents">
+      <div class="tab" id="home-tab"><button type="button" title="Home" data-tab-key="home"><i data-icon="home"></i><span class="tab-label">Home</span></button></div>
+      <div id="document-tabs"></div>
+    </nav>
     <button id="settings" title="Reading and project settings" aria-label="Reading and project settings" ><i data-icon="settings"></i>Settings</button>
   </header>
   <div class="location">
-    <nav id="trail" aria-label="Location"></nav>
+    <div class="location-start">
+      <button id="headings" popovertarget="heading-list" aria-label="Headings" title="Navigate headings" hidden><i data-icon="outline"></i><span>Headings</span><i class="down-chevron" data-icon="chev"></i></button>
+      <nav id="trail" aria-label="Location"></nav>
+    </div>
+    <nav id="heading-list" aria-label="Manuscript headings" popover></nav>
     <div class="tools" id="document-tools">
       <button id="export" title="Export this document or section">Export</button>
       <button id="publish" title="Publish this document or section to a website">Publish</button>

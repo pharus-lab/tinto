@@ -9,7 +9,7 @@ test('the macOS title bar leaves the space beside the tabs draggable', { skip: p
   const page = await fixture.open()
   const region = await page.locator('#tabs').evaluate(tabs => {
     const strip = tabs.getBoundingClientRect()
-    const lastTab = tabs.lastElementChild.getBoundingClientRect()
+    const lastTab = tabs.querySelector('#document-tabs .tab:last-child').getBoundingClientRect()
     let target = document.elementFromPoint((lastTab.right + strip.right) / 2, strip.top + strip.height / 2)
     while (target && getComputedStyle(target).appRegion === 'none') target = target.parentElement
     return target && getComputedStyle(target).appRegion
@@ -18,6 +18,32 @@ test('the macOS title bar leaves the space beside the tabs draggable', { skip: p
   for (const control of await page.locator('.titlebar button').all()) {
     assert.equal(await control.evaluate(node => getComputedStyle(node).appRegion), 'no-drag')
   }
+})
+
+test('Home stays visible while the document tabs scroll', async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const home = button(page.locator('#tabs'), 'Home')
+  const initialX = (await home.boundingBox()).x
+  for (let n = 1; n <= 5; n++) {
+    await home.click()
+    await button(page, 'New document').click()
+    await page.getByLabel('Document title').fill('Manuscript with a long title ' + n)
+    await button(page, 'Create document').click()
+    await page.locator('#document-tabs .current').filter({ hasText: 'long title ' + n }).waitFor()
+  }
+  const strip = page.locator('#document-tabs')
+  const offset = await strip.evaluate(el => el.scrollLeft)
+  assert.ok(offset > 0)
+  assert.equal((await home.boundingBox()).x, initialX)
+  await home.click()
+  await page.locator('#home').waitFor()
+  assert.equal(await home.getAttribute('aria-current'), 'page')
+  assert.equal(await strip.evaluate(el => el.scrollLeft), offset)
+  await strip.evaluate(el => { el.scrollLeft = 0 })
+  await button(strip, 'The long way home').click()
+  assert.equal(await strip.locator('.current .tab-label').textContent(), 'The long way home')
+  assert.equal((await home.boundingBox()).x, initialX)
 })
 
 test('closing and reopening the macOS window restores the manuscript with its last edit', { skip: process.platform !== 'darwin' }, async t => {
@@ -223,8 +249,8 @@ async function appendToParagraph(page, paragraph, text) {
 test('a chapter draft applies a hidden change and leaves a conflict for review after reopening', async t => {
   const { open, close } = await desktopFixture(t)
   let page = await open()
-  await button(page, 'Home').click()
-  await button(page.locator('#home'), 'The kitchen').click()
+  await button(page, 'Headings').click()
+  await button(page.locator('#heading-list'), 'Create spawn for The kitchen').click()
   await button(page, 'Create draft').click()
   const creation = page.getByRole('dialog', { name: 'Create independent draft' })
   await creation.getByRole('textbox', { name: 'Draft name' }).fill('Kitchen revision')

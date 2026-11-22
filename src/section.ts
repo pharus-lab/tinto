@@ -1,6 +1,7 @@
 import type { Node } from "prosemirror-model";
 import { Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { Decoration, DecorationSet } from "prosemirror-view";
+import { spawnButton } from "./ui";
 
 interface Section {
   id: string;
@@ -9,6 +10,32 @@ interface Section {
 }
 
 export const sectionKey = new PluginKey<Section | null>("linkedSection");
+
+export function headingSpawns(spawnedIds: () => readonly string[], open: (id: string) => void): Plugin {
+  return new Plugin({
+    props: {
+      decorations(state) {
+        const section = sectionKey.getState(state);
+        const spawned = new Set(spawnedIds());
+        const controls: Decoration[] = [];
+        state.doc.forEach((block, pos) => {
+          if (block.type.name !== "heading" || (section && (pos < section.from || pos >= section.to))) return;
+          const id = block.attrs.id;
+          const title = block.textContent || "Untitled heading";
+          const exists = spawned.has(id);
+          if (section?.id === id && exists) return;
+          controls.push(Decoration.widget(pos + 1 + block.content.size, () => {
+            const action = spawnButton(title, exists, () => open(id));
+            action.tabIndex = -1; // Keyboard access is provided by the Headings dropdown.
+            action.onmousedown = event => event.preventDefault();
+            return action;
+          }, { side: 1, marks: [], key: JSON.stringify([id, title, exists]), stopEvent: () => true, ignoreSelection: true }));
+        });
+        return DecorationSet.create(state.doc, controls);
+      },
+    },
+  });
+}
 
 export function findSection(doc: Node, id: string): Section | null {
   let section: Section | null = null;

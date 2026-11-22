@@ -2,6 +2,7 @@ import { redoDepth, undoDepth } from 'prosemirror-history'
 import { backupSettings } from './backup-settings'
 import { importFile, type ExportFormat } from './exchange'
 import { WritingEditor, type Format } from './editor'
+import { headingSpawns } from './section'
 import { manuscriptWithOrigin, newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
 import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
 import type { DictionaryPack } from './dictionary-packs'
@@ -19,7 +20,7 @@ import { listCharacters, manuscriptCharacters, registerFontFaces } from './typog
 import { trackWriting } from './writing-evidence'
 import { showHistory } from './history'
 import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks } from './settings'
-import { $, button, element, errorMessage, icon } from './ui'
+import { $, button, element, errorMessage, icon, spawnButton } from './ui'
 
 interface Tab { documentId: string; headingId: string | null; scroll: number; review: string | null }
 interface Session { tabs: Tab[]; current: number; panel: boolean }
@@ -32,6 +33,7 @@ const undoButton = $('undo') as HTMLButtonElement
 const redoButton = $('redo') as HTMLButtonElement
 const scroll = $('scroll')
 const editors = new Map<string, WritingEditor>()
+const expandedSpawns = new Set<string>()
 const evidence = new Map<WritingEditor, ReturnType<typeof trackWriting>>()
 const pending = new Map<string, { projectId: string; path: string; doc: DocumentRecord }>()
 let library: LibraryState = { folder: null, folders: [], projects: [], workspace: null }
@@ -108,25 +110,25 @@ function label(tab: Tab) {
 function drawTabs() {
   const host = $('tabs')
   const focused = host.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.tabKey : undefined
-  function item(tab: Tab | null) {
-    const key = tab ? tab.documentId + '/' + (tab.headingId ?? '') : 'home'
+  const home = $('home-tab')
+  home.classList.toggle('current', !current)
+  home.querySelector('button')!.ariaCurrent = current ? null : 'page'
+  function item(tab: Tab) {
+    const key = tab.documentId + '/' + (tab.headingId ?? '')
     const wrap = element('div', 'tab' + (tab === current ? ' current' : ''))
-    const title = tab ? label(tab) : 'Home'
-    const select = button('', () => void selectTab(tab).catch(report), '', !tab ? 'home' : tab.headingId ? 'link' : 'book')
+    const title = label(tab)
+    const select = button('', () => void selectTab(tab).catch(report), '', tab.headingId ? 'link' : 'book')
     select.title = title
     select.dataset.tabKey = key
     select.append(element('span', 'tab-label', title))
     if (tab === current) select.setAttribute('aria-current', 'page')
-    wrap.append(select)
-    if (tab) {
-      const close = button('', () => closeTab(tab), 'close-tab', 'close')
-      close.dataset.tabKey = 'close:' + key
-      close.setAttribute('aria-label', 'Close ' + title)
-      wrap.append(close)
-    }
+    const close = button('', () => closeTab(tab), 'close-tab', 'close')
+    close.dataset.tabKey = 'close:' + key
+    close.setAttribute('aria-label', 'Close ' + title)
+    wrap.append(select, close)
     return wrap
   }
-  host.replaceChildren(item(null), ...tabs.map(item))
+  $('document-tabs').replaceChildren(...tabs.map(item))
   if (focused) {
     const next = host.querySelector<HTMLElement>('[data-tab-key="' + CSS.escape(focused) + '"]') ?? host.querySelector<HTMLElement>('[aria-current=page]')
     next?.focus({ preventScroll: true })
@@ -166,6 +168,42 @@ function drawTrail() {
     if (index) { const separator = icon('chev'); separator.setAttribute('class','separator'); trail.append(separator) }
     trail.append(element('span', '', name))
   })
+}
+function openSpawn(id: string) {
+  const doc = activeDocument()
+  if (!doc) return
+  if (!doc.spawnedHeadingIds?.includes(id)) {
+    const workspace = library.workspace!
+    const spawnedHeadingIds = [...(doc.spawnedHeadingIds ?? []), id]
+    const error = api.save(workspace.path, workspace.project.id, { ...doc, spawnedHeadingIds })
+    if (error) return notice(error)
+    doc.spawnedHeadingIds = spawnedHeadingIds
+  }
+  openDocument(doc.id, id)
+  editor?.view.focus()
+}
+function drawHeadingList() {
+  const list = $('heading-list')
+  const doc = activeDocument()
+  if (!doc || !current) return
+  const range = current.headingId && sectionRange(doc.manuscript, current.headingId)
+  const blocks = range ? doc.manuscript.content.slice(range.from, range.to) : doc.manuscript.content
+  const baseLevel = range ? blocks[0]?.attrs.level ?? 1 : 1
+  list.replaceChildren()
+  for (const block of blocks) {
+    if (block.type !== 'heading') continue
+    const { id, level = 1 } = block.attrs
+    const title = visibleText(block) || 'Untitled heading'
+    const row = element('div', 'heading-entry')
+    row.style.paddingInlineStart = (level - baseLevel) * 12 + 'px'
+    const jump = button(title, () => { list.hidePopover(); editor?.jumpToHeading(id) }, 'heading-jump')
+    jump.autofocus = !list.childElementCount
+    row.append(jump)
+    const exists = doc.spawnedHeadingIds?.includes(id) ?? false
+    if (id !== current.headingId || !exists) row.append(spawnButton(title, exists, () => { list.hidePopover(); openSpawn(id) }))
+    list.append(row)
+  }
+  if (!list.childElementCount) list.append(element('p', '', 'No headings yet.'))
 }
 function drawCount() {
   const doc = activeDocument()
@@ -229,12 +267,14 @@ async function switchTab(tab: Tab | null) {
   $('writing').hidden = !tab
   $('home').hidden = !!tab
   $('document-tools').hidden = !tab
+  $('heading-list').hidePopover()
+  $('headings').hidden = !tab
   $('language-label').hidden = !tab
   $('panel').hidden = !tab || !panelOpen
   drawTabs()
   $('tabs').querySelector('.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   if (!tab) {
-    renderHome($('home'), library, {
+    renderHome($('home'), library, expandedSpawns, {
       openDocument, createDocument, moveDocument, rename: renameHomeItem, remove: deleteHomeItem, importFile: () => void importDocument().catch(report),
       chooseFolder: path => void changeFolder('choose', path).catch(report),
       newFolder: () => void changeFolder('new').catch(report),
@@ -256,7 +296,7 @@ async function switchTab(tab: Tab | null) {
       const host = element('div')
       $('editors').append(host)
       instance = new WritingEditor(host, doc.manuscript, {
-        plugins: [spellingPlugin(spelling)], message: notice,
+        plugins: [spellingPlugin(spelling), headingSpawns(() => record(doc.id).spawnedHeadingIds ?? [], openSpawn)], message: notice,
         change(manuscript) {
           const updated = record(tab.documentId)
           updated.manuscript = manuscript
@@ -324,6 +364,7 @@ function destroyEditor(instance: WritingEditor) {
 async function loadLibrary(next: LibraryState, showHome = false) {
   for (const instance of editors.values()) destroyEditor(instance)
   editors.clear()
+  expandedSpawns.clear()
   $('editors').replaceChildren()
   current = null
   library = next
@@ -592,6 +633,8 @@ async function drafts() {
 function wire() {
   document.body.classList.toggle('mac', api.platform === 'darwin')
   document.querySelectorAll<HTMLElement>('[data-icon]').forEach(el => el.append(icon(el.dataset.icon!)))
+  $('home-tab').querySelector('button')!.onclick = () => void selectTab(null).catch(report)
+  $('heading-list').addEventListener('beforetoggle', event => { if (event.newState === 'open') drawHeadingList() })
   $('toolbar').onmousedown = event => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }
   $('toggle-alternatives').onclick = () => togglePanel(!panelOpen)
   $('close-panel').onclick = () => { togglePanel(false); $('toggle-alternatives').focus() }
