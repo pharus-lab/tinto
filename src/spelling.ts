@@ -42,7 +42,7 @@ export function loadSpelling(language: string, load: DictionaryLoader = bundledD
 interface Word { from: number; to: number; word: string }
 export interface Correction extends Word { suggestions: string[] }
 interface CheckedDocument { checker: Spelling; decorations: DecorationSet }
-const spellingKey = new PluginKey<CheckedDocument>('tintoSpelling')
+export const spellingKey = new PluginKey<CheckedDocument>('tintoSpelling')
 
 // Adjacent text nodes can divide a single word wherever the writer used emphasis.
 function checkBlock(block: Node, checker: Spelling): Word[] {

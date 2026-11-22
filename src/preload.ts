@@ -43,7 +43,7 @@ const desktop: Desktop = {
   },
   unpublishPost: (siteId, documentId, headingId) => ipcRenderer.invoke('post:unpublish', siteId, documentId, headingId),
   pickFile: () => ipcRenderer.invoke('file:pick'),
-  exportFile: (format, title, doc) => ipcRenderer.invoke('file:export', format, title, doc),
+  exportFile: (format, title, doc, language) => ipcRenderer.invoke('file:export', format, title, doc, language),
   createDraft: (id, headingId, title) => ipcRenderer.invoke('draft:create', id, headingId, title),
   reviewDraft: id => ipcRenderer.invoke('draft:review', id),
   applyDraft: (id, resolutions) => ipcRenderer.invoke('draft:apply', id, resolutions),

@@ -30,7 +30,7 @@ try {
     optionsForFile: () => ({ timestamp: 'none', hardenedRuntime: false })
   } : undefined
   const icon = platform === 'darwin' ? resolve('assets/Tinto.icns') : undefined
-  const output = await packager({ osxSign, icon, dir: staging, out: resolve('out'), name: 'Tinto', appBundleId: 'org.tinto.editor', electronVersion: runtime.version, platform, arch, asar: true, overwrite: true, prune: false })
+  const output = await packager({ osxSign, icon, dir: staging, out: resolve('out'), name: 'Tinto', appBundleId: 'org.tinto.editor', electronVersion: runtime.version, platform, arch, asar: { unpack: '**/{file-dialogs.mjs,pandoc.wasm}' }, overwrite: true, prune: false })
   if (platform === 'darwin') {
     const bundle = join(output[0], 'Tinto.app')
     execFileSync('/usr/bin/codesign', ['--verify', '--deep', bundle])

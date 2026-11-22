@@ -1,12 +1,14 @@
+import { parser as markdownParser } from '@lezer/markdown'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { formatMarks, markTags, newBlock, originOf, type BlockJSON, type InlineJSON, type Manuscript, type MarkJSON, type TextJSON } from './model'
+import { formatMarks, markTags, newBlock, originOf, visibleText, type BlockJSON, type InlineJSON, type Manuscript, type MarkJSON, type TextJSON } from './model'
 
 const word = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 const rels = 'http://schemas.openxmlformats.org/package/2006/relationships'
 const office = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 export interface ImportedFile { manuscript: Manuscript; notes: string[] }
-export interface InputFile { name: string; bytes: Uint8Array }
-export type ExportFormat = 'docx' | 'pdf'
+export interface InputFile { name: string; bytes: Uint8Array; convertedToHTML?: boolean; markdownSource?: string }
+export const exportFormats = { docx: 'Word document', pdf: 'PDF', txt: 'Plain text', md: 'Markdown', html: 'HTML', rtf: 'Rich text', odt: 'OpenDocument text', epub: 'EPUB' } as const
+export type ExportFormat = keyof typeof exportFormats
 const xml = (value: string) => value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
 const xmlFile = (value: string) => strToU8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + value)
 const descendants = (el: XMLDocument | Element, name: string) => [...el.getElementsByTagNameNS(word, name)]
@@ -38,8 +40,158 @@ function blockHTML(block: BlockJSON, empty: string): string {
   })
   return '<' + tag + '>' + (runs.join('') || empty) + '</' + tag + '>'
 }
-export function documentHTML(doc: Manuscript): string {
-  return doc.content.map(block => blockHTML(block, '<br>')).join('\n')
+export function documentHTML(doc: Manuscript, empty = '<br>'): string {
+  return doc.content.map(block => blockHTML(block, empty)).join('\n')
+}
+// The editable spelling of each block travels with the manuscript. Keep choice
+// nodes and text origins in the source so editing prose preserves both.
+export function markdownInlines(block: BlockJSON): InlineJSON[] {
+  if (block.markdown) return block.markdown.content
+  function encode(nodes: InlineJSON[]): InlineJSON[] {
+    const out: InlineJSON[] = []
+    // Markdown emphasis delimiters cannot enclose leading or trailing spaces.
+    const useTags = nodes.some(node => node.type === 'text' && formatMarks(node.marks).length && /^\s|\s$/.test(node.text))
+    const delimiters = { strong: useTags ? '<strong>' : '**', em: useTags ? '<em>' : '*', highlight: '<u>' }
+    let open: (keyof typeof delimiters)[] = []
+    function changeMarks(next: typeof open) {
+      let shared = 0
+      while (shared < open.length && shared < next.length && open[shared] === next[shared]) shared++
+      for (const mark of open.slice(shared).reverse()) out.push({ type: 'text', text: delimiters[mark].replace('<', '</') })
+      for (const mark of next.slice(shared)) out.push({ type: 'text', text: delimiters[mark] })
+      open = next
+    }
+    for (const node of nodes) {
+      changeMarks(formatMarks(node.marks).map(mark => mark.type))
+      if (node.type === 'choice') out.push({ ...node, content: encode(node.content ?? []) })
+      else out.push({ ...node, text: node.text.replace(/[\\*_`<>\[\]~]/g, '\\$&'), marks: node.marks?.filter(mark => mark.type === 'origin') })
+    }
+    changeMarks([])
+    return out
+  }
+  const content = encode(block.content ?? [])
+  if (block.type === 'heading') content.unshift({ type: 'text', text: '#'.repeat(block.attrs.level ?? 1) + ' ' })
+  else if (content[0]?.type === 'text') {
+    content[0].text = content[0].text.replace(/^( {0,3})(#{1,6}|-+|\+)(?=\s|$)/, '$1\\$2').replace(/^( {0,3}\d{1,9})([.)])(?=\s)/, '$1\\$2')
+  }
+  return content
+}
+
+export function markdownText(doc: Manuscript) {
+  return doc.content.map((block, index) => {
+    const gap = block.markdown?.separator
+    const separator = index === doc.content.length - 1 ? gap ?? '' : gap || '\n\n'
+    return markdownInlines(block).map(visibleText).join('') + separator
+  }).join('')
+}
+
+export function markdownFormatting(source: string) {
+  const tree = markdownParser.parse(source)
+  const heading = /^(?:ATX|Setext)Heading([1-6])$/.exec(tree.topNode.firstChild?.name ?? '')
+  // The parser supplies source offsets. Slice the original runs at delimiters
+  // so that neighbouring imported, typed and pasted words keep their marks.
+  const hidden = new Uint8Array(source.length)
+  const styles = { strong: new Uint8Array(source.length), em: new Uint8Array(source.length), highlight: new Uint8Array(source.length) }
+  const opens = new Map<string, number[]>()
+  tree.iterate({ enter(node) {
+    if (node.name === 'HeaderMark' && heading) {
+      let { from, to } = node
+      if (from <= 3 && !source.slice(0, from).trim()) {
+        from = 0
+        while (to < source.length && /[ \t]/.test(source[to])) to++
+      } else while (from > 0 && /\s/.test(source[from - 1])) from--
+      hidden.fill(1, from, to)
+    } else if (node.name === 'FencedCode') {
+      const code = node.node.getChildren('CodeText')
+      hidden.fill(1, node.from, code[0]?.from ?? node.to)
+      hidden.fill(1, code.at(-1)?.to ?? node.to, node.to)
+      return false
+    } else if (node.name === 'EmphasisMark' || node.name === 'CodeMark') hidden.fill(1, node.from, node.to)
+    else if (node.name === 'Link') {
+      const [open, close] = node.node.getChildren('LinkMark')
+      if (open && close) { hidden.fill(1, open.from, open.to); hidden.fill(1, close.from, node.to) }
+    } else if (node.name === 'ListMark' || node.name === 'QuoteMark') {
+      let end = node.to
+      if (source[end] === ' ') end++
+      hidden.fill(1, node.from, end)
+    } else if (node.name === 'Escape') hidden[node.from] = 1
+    else if (node.name === 'StrongEmphasis' || node.name === 'Emphasis') styles[node.name === 'Emphasis' ? 'em' : 'strong'].fill(1, node.from, node.to)
+    else if (node.name === 'HTMLTag' || node.name === 'HTMLBlock') {
+      const tag = /^<(\/?)(u|strong|em)>$/i.exec(source.slice(node.from, node.to))
+      if (!tag) return
+      const name = tag[2].toLowerCase()
+      const stack = opens.get(name) ?? []
+      if (!tag[1]) { stack.push(node.from); opens.set(name, stack); return }
+      const start = stack.pop()
+      if (start === undefined) return
+      hidden.fill(1, start, start + name.length + 2)
+      hidden.fill(1, node.from, node.to)
+      styles[name === 'u' ? 'highlight' : name as 'strong' | 'em'].fill(1, start, node.to)
+    }
+  } })
+  function* runs(from: number, to: number) {
+    while (from < to) {
+      const start = from++
+      while (from < to && hidden[from] === hidden[start] && styles.strong[from] === styles.strong[start] && styles.em[from] === styles.em[start] && styles.highlight[from] === styles.highlight[start]) from++
+      const marks = (['strong', 'em', 'highlight'] as const).filter(type => styles[type][start])
+      yield { from: start, to: from, hidden: !!hidden[start], marks }
+    }
+  }
+  return { level: heading ? Number(heading[1]) : null, runs }
+}
+
+export function readMarkdownBlock(content: InlineJSON[], id: string): BlockJSON {
+  const source = content.map(visibleText).join('')
+  const { level, runs } = markdownFormatting(source)
+  const block: BlockJSON = level ? { type: 'heading', attrs: { id, level } } : { type: 'paragraph', attrs: { id } }
+  let offset = 0
+  function decode(nodes: InlineJSON[]): InlineJSON[] {
+    const out: InlineJSON[] = []
+    for (const node of nodes) {
+      if (node.type === 'choice') { out.push({ ...node, content: decode(node.content ?? []) }); continue }
+      const end = offset + node.text.length
+      for (const run of runs(offset, end)) {
+        if (run.hidden) continue
+        const marks: MarkJSON[] = [...(node.marks?.filter(mark => mark.type === 'origin') ?? [])]
+        for (const type of run.marks) marks.push({ type })
+        out.push({ type: 'text', text: source.slice(run.from, run.to), ...(marks.length ? { marks } : {}) })
+      }
+      offset = end
+    }
+    return out
+  }
+  block.content = decode(content)
+  block.markdown = { content }
+  return block
+}
+
+function importedMarkdown(source: string): Manuscript {
+  const blocks: BlockJSON[] = []
+  // Keep multiline paragraphs and fenced code intact. List items and quoted
+  // paragraphs remain individually editable, with their original prefixes.
+  const ends: number[] = []
+  markdownParser.parse(source).iterate({ enter(node) {
+    if (node.type.is('LeafBlock')) { ends.push(node.to); return false }
+  } })
+  let from = 0
+  for (const to of ends) {
+    const text = source.slice(from, to)
+    const content: InlineJSON[] = text ? [{ type: 'text', text }] : []
+    const block = readMarkdownBlock(content, crypto.randomUUID())
+    const separator = /^(?:[ \t]*\n)+/.exec(source.slice(to))?.[0] ?? ''
+    block.markdown!.separator = separator
+    blocks.push(block)
+    from = to + separator.length
+  }
+  if (blocks.length && from < source.length) blocks.at(-1)!.markdown!.separator += source.slice(from)
+  return { type: 'doc', content: blocks.length ? blocks : [readMarkdownBlock(source ? [{ type: 'text', text: source }] : [], crypto.randomUUID())] }
+}
+export function ebookHTML(doc: Manuscript, title: string) {
+  const first = doc.content[0]
+  const titleHeading = first?.type === 'heading' && first.attrs.level === 1 ? '' : '<h1 class="tinto-book-title">' + xml(title) + '</h1>'
+  return titleHeading + documentHTML(doc)
+}
+export function standaloneHTML(doc: Manuscript, title: string) {
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="generator" content="Tinto"><title>' + xml(title) + '</title><style>' + printStyles + '</style></head><body>' + documentHTML(doc) + '</body></html>'
 }
 // A post carries the chosen wording only. Blank paragraphs are spacing in a
 // manuscript, not content, so the site never receives empty elements.
@@ -139,6 +291,76 @@ function readDocx(bytes: Uint8Array): ImportedFile {
   }
   return { manuscript: { type: 'doc', content: blocks.length ? blocks : [newBlock()] }, notes }
 }
+function readODT(bytes: Uint8Array): ImportedFile {
+  const ns = 'urn:oasis:names:tc:opendocument:xmlns:'
+  const textNS = ns + 'text:1.0', styleNS = ns + 'style:1.0', officeNS = ns + 'office:1.0', foNS = ns + 'xsl-fo-compatible:1.0'
+  const files = unzipSync(bytes, { filter: file => ['content.xml', 'styles.xml'].includes(file.name) })
+  const parse = (name: string) => files[name] && new DOMParser().parseFromString(strFromU8(files[name]), 'application/xml')
+  const content = parse('content.xml')
+  const body = content?.getElementsByTagNameNS(officeNS, 'text')[0]
+  if (!body) throw Error('Choose an unencrypted OpenDocument text file.')
+
+  const styles = new Map<string, Element>()
+  for (const doc of [parse('styles.xml'), content]) {
+    for (const style of doc?.getElementsByTagNameNS(styleNS, 'style') ?? []) {
+      styles.set(style.getAttributeNS(styleNS, 'family') + '/' + style.getAttributeNS(styleNS, 'name'), style)
+    }
+  }
+  // A named style can inherit its bold, italic and underline independently.
+  function styledMarks(el: Element, family: string, inherited: MarkJSON[]) {
+    const name = el.getAttributeNS(textNS, 'style-name')
+    if (!name) return inherited
+    const chain: Element[] = []
+    let style = styles.get(family + '/' + name)
+    while (style && !chain.includes(style)) {
+      chain.unshift(style)
+      style = styles.get(family + '/' + style.getAttributeNS(styleNS, 'parent-style-name'))
+    }
+    const marks = new Set(formatMarks(inherited).map(mark => mark.type))
+    for (const style of chain) {
+      const props = style.getElementsByTagNameNS(styleNS, 'text-properties')[0]
+      if (!props) continue
+      const weight = props.getAttributeNS(foNS, 'font-weight')
+      const italic = props.getAttributeNS(foNS, 'font-style')
+      const underline = props.getAttributeNS(styleNS, 'text-underline-style')
+      if (weight) { if (weight === 'bold' || Number(weight) >= 600) marks.add('strong'); else marks.delete('strong') }
+      if (italic) { if (italic === 'italic' || italic === 'oblique') marks.add('em'); else marks.delete('em') }
+      if (underline) { if (underline === 'none') marks.delete('highlight'); else marks.add('highlight') }
+    }
+    return [...marks].map(type => ({ type }))
+  }
+  const blocks: BlockJSON[] = []
+  function readParagraph(p: Element) {
+    const level = Number(p.getAttributeNS(textNS, 'outline-level')) || 1
+    let block = newBlock('', p.localName === 'h' ? Math.min(6, level) : undefined)
+    blocks.push(block)
+    function append(text: string, marks: MarkJSON[]) {
+      if (text) (block.content ??= []).push({ type: 'text', text, marks })
+    }
+    function readInlines(parent: Element, marks: MarkJSON[]) {
+      for (const node of parent.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE) { append(node.textContent ?? '', marks); continue }
+        if (!(node instanceof Element) || node.namespaceURI !== textNS) continue
+        switch (node.localName) {
+          case 's': append(' '.repeat(Number(node.getAttributeNS(textNS, 'c')) || 1), marks); break
+          case 'tab': append('\t', marks); break
+          case 'line-break': block = newBlock(); blocks.push(block); break
+          case 'note': break
+          default: readInlines(node, styledMarks(node, 'text', marks))
+        }
+      }
+    }
+    readInlines(p, styledMarks(p, 'paragraph', []))
+  }
+  function visit(parent: Element) {
+    for (const el of parent.children) {
+      if (el.namespaceURI === textNS && (el.localName === 'p' || el.localName === 'h')) readParagraph(el)
+      else if (![ns + 'drawing:1.0', officeNS].includes(el.namespaceURI ?? '') && el.localName !== 'tracked-changes') visit(el)
+    }
+  }
+  visit(body)
+  return { manuscript: { type: 'doc', content: blocks.length ? blocks : [newBlock()] }, notes: [] }
+}
 async function readPDF(bytes: Uint8Array): Promise<ImportedFile> {
   const pdfModule = new URL('pdf.mjs', document.baseURI).href
   const { getDocument, GlobalWorkerOptions }: typeof import('pdfjs-dist') = await import(pdfModule)
@@ -178,8 +400,22 @@ async function readPDF(bytes: Uint8Array): Promise<ImportedFile> {
 }
 export async function importFile(file: InputFile): Promise<ImportedFile> {
   const extension = file.name.split('.').at(-1)?.toLowerCase()
+  if (file.convertedToHTML || extension === 'html' || extension === 'htm') {
+    const { manuscriptFromHTML } = await import('./editor')
+    let manuscript = manuscriptFromHTML(new TextDecoder().decode(file.bytes), extension === 'epub')
+    if (file.markdownSource !== undefined) {
+      const original = importedMarkdown(file.markdownSource.replace(/\r\n?/g, '\n'))
+      // Keep the converter's rich rendering when the source blocks line up.
+      // A compound Markdown block can expand to several rich paragraphs.
+      if (original.content.length === manuscript.content.length && original.content.every((block, index) => block.type === manuscript.content[index].type)) {
+        manuscript.content.forEach((block, index) => { block.markdown = original.content[index].markdown })
+      } else manuscript = original
+    }
+    return { manuscript, notes: [] }
+  }
   if (extension === 'docx') return readDocx(file.bytes)
+  if (extension === 'odt') return readODT(file.bytes)
   if (extension === 'pdf') return readPDF(file.bytes)
-  if (extension !== 'txt') throw Error('Choose a TXT, DOCX, or PDF file.')
+  if (extension !== 'txt') throw Error('Choose a supported manuscript file.')
   return { manuscript: { type: 'doc', content: new TextDecoder().decode(file.bytes).split(/\r\n?|\n/).map(line => newBlock(line)) }, notes: [] }
 }

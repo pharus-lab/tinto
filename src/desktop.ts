@@ -45,7 +45,7 @@ export interface Desktop {
   onPublishProgress(listener: (done: number, total: number) => void): () => void
   unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>
   pickFile(): Promise<InputFile | null>
-  exportFile(format: ExportFormat, title: string, doc: Manuscript): Promise<boolean>
+  exportFile(format: ExportFormat, title: string, doc: Manuscript, language: string): Promise<boolean>
   listPacks(): Promise<DictionaryPack[]>
   readPack(code: string): Promise<DictionaryData>
   installPack(code: string): Promise<void>

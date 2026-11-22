@@ -9,6 +9,7 @@ export interface Preferences {
   size: number
   leading: number
   lineNumbers: boolean
+  markdownImports: boolean
   textWidth: 'fixed-width' | 'fixed-margin'
   columnWidth: number
   sideMargin: number
@@ -18,7 +19,7 @@ export function preferences(): Preferences {
   const saved = JSON.parse(localStorage.getItem('reading') ?? '{}')
   return {
     appearance: 'system', theme: 'tinto', font: 'book', size: 21, leading: 1.72, defaultLanguage: 'en',
-    columnWidth: 680, sideMargin: 48, lineNumbers: false, ...saved,
+    columnWidth: 680, sideMargin: 48, lineNumbers: false, markdownImports: false, ...saved,
     textWidth: saved?.textWidth === 'fixed-width' ? 'fixed-width' : 'fixed-margin'
   }
 }
@@ -70,13 +71,16 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
   field('Appearance', [['system','System'], ['light','Light'], ['dark','Dark']], prefs.appearance, value => { prefs.appearance = value })
   field('Manuscript font size', [17,19,21,23,25].map(size => [String(size), size + ' px']), String(prefs.size), value => { prefs.size = Number(value) })
   field('Line spacing', [['1.5','Compact'], ['1.72','Regular'], ['1.95','Spacious']], String(prefs.leading), value => { prefs.leading = Number(value) })
-  const numbers = element('label', 'field', 'Show line numbers')
-  const toggle = element('input')
-  toggle.type = 'checkbox'
-  toggle.checked = prefs.lineNumbers
-  toggle.onchange = () => { prefs.lineNumbers = toggle.checked; applyPreferences(prefs) }
-  numbers.append(toggle)
-  content.append(numbers)
+  function checkbox(label: string, key: 'lineNumbers' | 'markdownImports') {
+    const row = element('label', 'field', label)
+    const toggle = element('input')
+    toggle.type = 'checkbox'
+    toggle.checked = prefs[key]
+    toggle.onchange = () => { prefs[key] = toggle.checked; applyPreferences(prefs) }
+    row.append(toggle)
+    content.append(row)
+  }
+  checkbox('Show line numbers', 'lineNumbers')
   const widthRow = element('label', 'field')
   function showWidthValue() {
     const fixedColumn = prefs.textWidth === 'fixed-width'
@@ -101,6 +105,7 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
   })
   showWidthValue()
   content.append(widthRow)
+  checkbox('Automatically activate markdown editing for imported .md files', 'markdownImports')
   field('Default spelling language', [], prefs.defaultLanguage, value => { prefs.defaultLanguage = value }).name = 'default-language'
   const row = element('div', 'field')
   const select = element('select')

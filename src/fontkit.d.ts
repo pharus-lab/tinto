@@ -14,3 +14,7 @@ declare module 'fontkit' {
   export interface FontCollection { type: 'TTC' | 'DFont'; fonts: Font[] }
   export function create(buffer: Uint8Array, postscriptName?: string): Font | FontCollection
 }
+
+declare module 'pandoc-wasm' {
+  export function convert(options: Record<string, unknown>, stdin: string | null, files: Record<string, Blob | string>): Promise<{ stderr: string; files: Record<string, Blob> }>
+}

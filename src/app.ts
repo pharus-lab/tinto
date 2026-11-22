@@ -1,6 +1,6 @@
 import { redoDepth, undoDepth } from 'prosemirror-history'
 import { backupSettings } from './backup-settings'
-import { importFile, type ExportFormat } from './exchange'
+import { exportFormats, importFile, type ExportFormat } from './exchange'
 import { WritingEditor, type Format } from './editor'
 import { headingSpawns } from './section'
 import { manuscriptWithOrigin, newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
@@ -155,7 +155,8 @@ function drawTrail() {
     for (const heading of headings) {
       if (heading.getBoundingClientRect().top > edge) break
       passed.length = Number(heading.tagName.slice(1)) - 1
-      passed.push(heading.textContent || 'Untitled heading')
+      const block = editor.markdown && doc.manuscript.content.find(block => block.attrs.id === heading.dataset.blockId)
+      passed.push((block ? visibleText(block) : heading.textContent) || 'Untitled heading')
     }
     if (current?.headingId && passed.length) {
       const level = doc.manuscript.content.find(b => b.attrs.id === current?.headingId)?.attrs.level ?? 1
@@ -219,7 +220,7 @@ function review(id: string) {
   drawPanel()
 }
 function drawPanel() {
-  const visible = !!current && panelOpen
+  const visible = !!current && panelOpen && !editor?.markdown
   $('panel').hidden = !visible
   $('toggle-alternatives').setAttribute('aria-expanded', String(visible))
   if (!editor || !current) return
@@ -229,6 +230,10 @@ function drawPanel() {
 function updateToolbar() {
   if (!editor || !current || inspecting) return
   const { state } = editor.view
+  const markdown = editor.markdown
+  $('markdown').setAttribute('aria-pressed', String(markdown))
+  blockStyle.disabled = markdown
+  for (const control of document.querySelectorAll<HTMLButtonElement>('[data-format], #add-alternative, #toggle-alternatives')) control.disabled = markdown
   undoButton.disabled = undoDepth(state) === 0
   redoButton.disabled = redoDepth(state) === 0
   const { $from } = state.selection
@@ -319,6 +324,7 @@ async function switchTab(tab: Tab | null) {
     editor = instance
     instance.view.dom.parentElement!.hidden = false
     inspecting = true
+    instance.setMarkdown(localStorage.getItem('markdown:' + doc.id) === '1')
     const found = instance.showSection(tab.headingId)
     inspecting = false
     if (!found && tab.headingId) {
@@ -546,6 +552,7 @@ async function importDocument() {
   const workspace = library.workspace
   if (!workspace) return
   const projectPath = workspace.path
+  const markdownImport = prefs.markdownImports
   const file = await api.pickFile()
   if (!file) return
   const imported = await importFile(file)
@@ -555,6 +562,7 @@ async function importDocument() {
   const doc = { id: crypto.randomUUID(), title, language: prefs.defaultLanguage, manuscript: manuscriptWithOrigin(imported.manuscript, 'imported') }
   const error = api.save(workspace.path, workspace.project.id, doc)
   if (error) return notice(error)
+  if (markdownImport && /\.(md|markdown)$/i.test(file.name)) localStorage.setItem('markdown:' + doc.id, '1')
   api.recordWriting(workspace.path, workspace.project.id, doc.id, 'import', { characters: [...doc.manuscript.content.map(visibleText).join('')].length })
   workspace.project.documents.push(doc)
   openDocument(doc.id)
@@ -571,13 +579,16 @@ function exportDialog() {
   const range = current.headingId && sectionRange(doc.manuscript, current.headingId)
   const manuscript = range ? { ...doc.manuscript, content: doc.manuscript.content.slice(range.from, range.to) } : doc.manuscript
   const title = label(current)
+  const language = doc.language
   async function write(format: ExportFormat) {
     modal.close()
-    try { if (await api.exportFile(format, title, manuscript)) notice('Exported ' + title + ' as ' + format.toUpperCase() + '.') }
+    try { if (await api.exportFile(format, title, manuscript, language)) notice('Exported ' + title + ' as ' + format.toUpperCase() + '.') }
     catch (error) { report(error) }
   }
-  const actions = element('div', 'home-actions')
-  actions.append(button('Word document (.docx)', () => void write('docx'), 'outline'), button('PDF (.pdf)', () => void write('pdf'), 'outline'))
+  const actions = element('div', 'export-formats')
+  for (const format of Object.keys(exportFormats) as ExportFormat[]) {
+    actions.append(button(exportFormats[format] + ' (.' + format + ')', () => void write(format), 'outline'))
+  }
   modal.replaceChildren(dialogHeader(modal, 'Export manuscript'), element('p', '', title), actions)
   modal.showModal()
 }
@@ -637,6 +648,15 @@ function wire() {
   $('heading-list').addEventListener('beforetoggle', event => { if (event.newState === 'open') drawHeadingList() })
   $('toolbar').onmousedown = event => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }
   $('toggle-alternatives').onclick = () => togglePanel(!panelOpen)
+  $('markdown').onclick = () => {
+    if (!editor || !current) return
+    editor.setMarkdown(!editor.markdown)
+    localStorage.setItem('markdown:' + current.documentId, editor.markdown ? '1' : '0')
+    updateToolbar()
+    drawPanel()
+    drawTrail()
+    editor.view.focus()
+  }
   $('close-panel').onclick = () => { togglePanel(false); $('toggle-alternatives').focus() }
   $('add-alternative').onclick = () => {
     const id = editor?.addAlternative()

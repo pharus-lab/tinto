@@ -48,7 +48,7 @@ export function trackWriting(view: EditorView, target: EvidenceTarget, send: Sen
     timer ??= setTimeout(flush, FLUSH_AFTER)
   }
   function pasted(data: DataTransfer | null) {
-    if (!data || data.types.includes(PASSAGE)) return
+    if (!data || data.types.includes(PASSAGE) || data.types.includes('application/x-tinto-markdown+json')) return
     const characters = [...data.getData('text/plain')].length
     if (characters) send(target, 'paste', { characters })
   }

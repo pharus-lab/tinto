@@ -155,7 +155,7 @@ select {
 .format { height: 28px; width: 28px; }
 .bold { font: bold 17px Georgia,serif; }
 .italic { font: italic 17px Georgia,serif; }
-.format[aria-pressed=true], #show-origins[aria-pressed=true] { background: var(--wash); color: var(--wine); }
+.format[aria-pressed=true], #markdown[aria-pressed=true], #show-origins[aria-pressed=true] { background: var(--wash); color: var(--wine); }
 .tool-rule { height: 16px; width: 1px; background: var(--divider); margin: 0 6px; }
 .tool-fill { flex: 1; }
 #scroll, #home, #panel { overflow: auto; overscroll-behavior: contain; }
@@ -176,6 +176,18 @@ select {
 }
 .ProseMirror { outline: 0; white-space: pre-wrap; overflow-wrap: break-word; font-variant-ligatures: common-ligatures; caret-color: var(--wine); min-height: 180px; }
 .ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6 { line-height: 1.15; font-weight: 500; margin: 1.2em 0 .65em; text-wrap: pretty; }
+#editors .markdown-source > p, #editors .markdown-source:focus > .markdown-current-heading {
+  font: .9em/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: normal; margin: 0 0 var(--markdown-gap, 1lh); text-wrap: wrap;
+}
+.markdown-source > :is(h1,h2,h3,h4,h5,h6) { min-height: 1lh; }
+.markdown-source:not(:focus) > .markdown-current-heading, .markdown-source > :not(.markdown-current-heading) {
+  .markdown-marker { display: none; }
+  .markdown-strong { font-weight: bold; }
+  .markdown-em { font-style: italic; }
+  .markdown-u { text-decoration: underline; }
+}
+#editors .markdown-source .spawn-button { display: none; }
 .ProseMirror h1 { font-size: 2.15em; letter-spacing: -.045em; }
 .ProseMirror h2 { font-size: 1.65em; }
 .ProseMirror h3 { font-size: 1.35em; }
@@ -270,6 +282,8 @@ body.welcome :is(.location, footer, #tabs, #settings, #writing, #panel) { displa
 dialog { max-height: 82vh; width: min(560px,90vw); overflow-wrap: anywhere; border: 1px solid var(--outline); border-radius: 9px; padding: 24px; background: var(--paper); color: var(--ink); box-shadow: var(--shadow-dialog); }
 dialog::backdrop { background: var(--scrim); }
 .dialog-head { margin-bottom: 24px; }
+.export-formats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 8px; }
+.export-formats button { justify-content: flex-start; }
 .dialog-head h2 { font-size: 29px; }
 .dialog-actions { margin-top: 20px; justify-content: flex-end; }
 .field { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; }
@@ -339,7 +353,7 @@ dialog:has(> .history-body) { width: min(900px, 94vw); max-height: calc(100% - 3
   #toolbar { padding: 8px; }
   .titlebar { gap: 8px; }
 }
-@container (max-width: 460px) {
+@container (max-width: 550px) {
   #toolbar { flex-wrap: wrap; height: auto; min-height: 44px; }
   #toolbar .tool-rule { margin: 0 2px; }
   #add-alternative span { display: none; }

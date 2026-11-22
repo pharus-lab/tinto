@@ -1,10 +1,13 @@
-import { DOMSerializer, Fragment, Schema, Slice, type Node as PMNode, type ResolvedPos } from "prosemirror-model";
+import { DOMParser as ManuscriptParser, DOMSerializer, Fragment, Schema, Slice, type Node as PMNode, type ResolvedPos } from "prosemirror-model";
 import { EditorState, Plugin, TextSelection, type Command, type Selection, type Transaction } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
 import { baseKeymap, toggleMark } from "prosemirror-commands";
 import { closeHistory, history, redo, undo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
-import { copyInlines, markTags, visibleText, type ChoiceJSON, type InlineJSON, type Manuscript, type OptionJSON } from "./model";
+import { copyInlines, markTags, newBlock, visibleText, type BlockJSON, type ChoiceJSON, type InlineJSON, type Manuscript, type OptionJSON, type TextJSON } from "./model";
+import { diffChars } from "diff";
+import { spellingKey } from "./spelling";
+import { markdownFormatting, markdownInlines, readMarkdownBlock } from "./exchange";
 import { findSection, linkedSection, sectionKey } from "./section";
 
 const parseUnderline = (value: string): null | false => value.split(/\s+/).includes("underline") ? null : false;
@@ -13,11 +16,11 @@ export const schema = new Schema({
   nodes: {
     doc: { content: "block+" },
     paragraph: {
-      group: "block", content: "inline*", attrs: { id: { default: null } },
+      group: "block", content: "inline*", attrs: { id: { default: null }, sourceGap: { default: null } },
       parseDOM: [{ tag: "p" }], toDOM: node => ["p", { "data-block-id": node.attrs.id }, 0],
     },
     heading: {
-      group: "block", content: "inline*", defining: true, attrs: { id: { default: null }, level: { default: 1 } },
+      group: "block", content: "inline*", defining: true, attrs: { id: { default: null }, level: { default: 1 }, sourceGap: { default: null } },
       parseDOM: [1, 2, 3, 4, 5, 6].map(level => ({ tag: "h" + level, attrs: { level } })),
       toDOM: node => ["h" + node.attrs.level, { "data-block-id": node.attrs.id }, 0],
     },
@@ -29,7 +32,7 @@ export const schema = new Schema({
     },
   },
   marks: {
-    strong: { parseDOM: [{ tag: "strong" }, { tag: "b" }, { style: "font-weight=bold" }], toDOM: () => ["strong", 0] },
+    strong: { parseDOM: [{ tag: "strong" }, { tag: "b" }, { style: "font-weight", getAttrs: value => value === "bold" || Number(value) >= 600 ? null : false }], toDOM: () => ["strong", 0] },
     em: { parseDOM: [{ tag: "em" }, { tag: "i" }, { style: "font-style=italic" }], toDOM: () => ["em", 0] },
     highlight: {
       parseDOM: [{ tag: "u" }, { tag: "mark" }, { style: "text-decoration", getAttrs: parseUnderline }, { style: "text-decoration-line", getAttrs: parseUnderline }],
@@ -43,6 +46,55 @@ export const schema = new Schema({
     },
   },
 });
+
+export function manuscriptFromHTML(html: string, ebook: boolean): Manuscript {
+  // Template contents stay inert, including scripts, images and external styles.
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const content = template.content;
+  const fromTinto = !!content.querySelector('meta[name="generator"][content="Tinto"]');
+  content.querySelectorAll("head, title, meta, link, base, style, script, noscript, template, iframe, object, svg, [hidden]").forEach(el => el.remove());
+  if (ebook) {
+    content.querySelectorAll("h1.tinto-book-title").forEach(el => el.remove());
+    for (const anchor of content.querySelectorAll("p > span[id]:only-child:empty")) {
+      if (!anchor.parentElement!.textContent?.trim()) anchor.parentElement!.remove();
+    }
+  }
+  for (const cell of content.querySelectorAll("td, th")) {
+    const block = cell.ownerDocument.createElement("div");
+    block.append(...cell.childNodes);
+    cell.replaceWith(block);
+  }
+  for (const p of content.querySelectorAll("p")) {
+    if (p.textContent === "\u00a0") p.replaceChildren();
+  }
+  for (const br of content.querySelectorAll("br")) {
+    if (br.parentNode?.childNodes.length === 1 && br.parentElement?.matches("p, h1, h2, h3, h4, h5, h6")) br.remove();
+    else br.replaceWith("\u2028");
+  }
+  const parser = ManuscriptParser.fromSchema(schema);
+  // Our HTML uses pre-wrap within paragraphs. Parse the blocks separately so
+  // whitespace between tags never becomes part of the manuscript.
+  const parsed = fromTinto ? [...content.querySelectorAll("p,h1,h2,h3,h4,h5,h6")].map(el => {
+    const wrapper = document.createElement("template");
+    wrapper.content.append(el);
+    return parser.parse(wrapper.content, { preserveWhitespace: "full" });
+  }) : [parser.parse(content)];
+  const blocks: BlockJSON[] = [];
+  for (const doc of parsed) doc.forEach(node => {
+    let block = newBlock("", node.type === schema.nodes.heading ? node.attrs.level : undefined);
+    blocks.push(block);
+    node.forEach(run => {
+      const json: TextJSON = run.toJSON();
+      for (const [index, text] of json.text.split("\u2028").entries()) {
+        if (index) { block = newBlock(); blocks.push(block); }
+        if (text) (block.content ??= []).push({ ...json, text });
+      }
+    });
+  });
+  if (ebook && !blocks.some(block => visibleText(block).trim())) throw Error("This EPUB has no readable text. Choose a text-based, DRM-free EPUB.");
+  return { type: "doc", content: blocks.length ? blocks : [newBlock()] };
+}
 
 // Pasted or dropped text from outside Tinto is marked as pasted. Moving text
 // within the manuscript, and Tinto's own clipboard, keep the origin it had.
@@ -124,6 +176,7 @@ function wordingRange(selection: Selection): { start: ResolvedPos; end: Resolved
 const selectionMessage = "Select wording within one paragraph. Include each alternative in full, or select text inside one option.";
 const splitMessage = "Keep this wording in one paragraph. Press Alt/Option + → to move outside the alternative, then start a new paragraph.";
 const passageMime = "application/x-tinto-passage+json";
+const markdownMime = "application/x-tinto-markdown+json";
 
 function transferRange(selection: Selection, includeWholeChoice: boolean) {
   let start = selection.$from;
@@ -160,7 +213,7 @@ function readPassage(raw: string): Slice | null {
   } catch { return null; }
 }
 
-function writePassage(view: EditorView, event: ClipboardEvent, notice: (text: string) => void): boolean {
+function writePassage(view: EditorView, event: ClipboardEvent, notice: (text: string) => void, markdown: boolean): boolean {
   const { state } = view;
   if (state.selection.empty || !event.clipboardData) return false;
   event.preventDefault();
@@ -172,9 +225,17 @@ function writePassage(view: EditorView, event: ClipboardEvent, notice: (text: st
   html.append(DOMSerializer.fromSchema(schema).serializeFragment(slice.content));
   for (const span of html.querySelectorAll("[data-choice-id]")) span.replaceWith(...span.childNodes);
   for (const block of html.querySelectorAll("[data-block-id]")) block.removeAttribute("data-block-id");
-  event.clipboardData.setData("text/plain", slice.content.textBetween(0, slice.content.size, "\n"));
-  event.clipboardData.setData("text/html", html.innerHTML);
-  event.clipboardData.setData(passageMime, JSON.stringify(slice.toJSON()));
+  let plain = slice.content.textBetween(0, slice.content.size, "\n");
+  if (markdown && slice.content.firstChild?.isBlock) {
+    plain = "";
+    slice.content.forEach((block, _pos, index) => {
+      plain += block.textContent;
+      if (index < slice.content.childCount - 1) plain += block.attrs.sourceGap || "\n\n";
+    });
+  }
+  event.clipboardData.setData("text/plain", plain);
+  if (!markdown) event.clipboardData.setData("text/html", html.innerHTML);
+  event.clipboardData.setData(markdown ? markdownMime : passageMime, JSON.stringify(slice.toJSON()));
   if (event.type === "cut") view.dispatch(closeHistory(state.tr.deleteRange(start.pos, end.pos)).setMeta("uiEvent", "cut").scrollIntoView());
   return true;
 }
@@ -208,13 +269,53 @@ function blockIdentifiers(): Plugin {
   });
 }
 
+function headingPreview(block: PMNode) {
+  const { runs } = markdownFormatting(block.textContent);
+  const spans: { from: number; to: number; className: string }[] = [];
+  let offset = 0;
+  block.descendants((node, pos) => {
+    if (!node.isText) return;
+    // Markdown offsets count characters. Editor positions also count choice boundaries.
+    const end = offset + node.nodeSize;
+    for (const run of runs(offset, end)) {
+      const className = run.hidden ? "markdown-marker" : run.marks.map(type => "markdown-" + markTags[type]).join(" ");
+      if (className) spans.push({ from: pos + run.from - offset, to: pos + run.to - offset, className });
+    }
+    offset = end;
+  });
+  return spans;
+}
+
 export class WritingEditor {
+  markdown = false;
+  private otherState?: EditorState;
+  private readonly sourceByRich = new WeakMap<PMNode, { node: PMNode; authored: boolean }>();
+  private readonly richBySource = new WeakMap<PMNode, PMNode>();
+  private readonly headingPreviews = new WeakMap<PMNode, ReturnType<typeof headingPreview>>();
   readonly view: EditorView;
   private reviewId: string | null = null;
   private hooks: EditorHooks;
 
   constructor(host: HTMLElement, doc: Manuscript, hooks: EditorHooks = {}) {
     this.hooks = hooks;
+    const initial = schema.nodeFromJSON(doc);
+    initial.forEach((rich, _pos, index) => {
+      const source = doc.content[index].markdown;
+      if (!source) return;
+      const node = rich.type.create({ ...rich.attrs, sourceGap: source.separator }, Fragment.fromJSON(schema, source.content));
+      this.sourceByRich.set(rich, { node, authored: true });
+      this.richBySource.set(node, rich);
+    });
+    // Source blocks retain their identity as the writer changes the heading prefix.
+    const markdownHeadings = new Plugin({ appendTransaction: (transactions, _old, state) => {
+      if (!this.markdown || !transactions.some(tr => tr.docChanged)) return null;
+      const tr = state.tr;
+      state.doc.forEach((node, pos) => {
+        const rich = this.richBlock(node);
+        if (rich.type !== node.type || rich.attrs.level !== node.attrs.level) tr.setNodeMarkup(pos, rich.type, { ...rich.attrs, sourceGap: node.attrs.sourceGap });
+      });
+      return tr.docChanged ? tr : null;
+    } });
     const bindings: Record<string, Command> = {
       "Mod-z": undo, "Shift-Mod-z": redo, "Mod-y": redo,
       "Mod-b": () => this.format("bold"), "Mod-i": () => this.format("italic"), "Mod-u": () => this.format("underline"),
@@ -225,14 +326,31 @@ export class WritingEditor {
 
     this.view = new EditorView(host, {
       state: EditorState.create({
-        schema, doc: schema.nodeFromJSON(doc),
-        plugins: [history(), blockIdentifiers(), linkedSection(hooks.message), keymap(bindings), keymap(baseKeymap), ...(hooks.plugins ?? [])],
+        schema, doc: initial,
+        plugins: [history(), blockIdentifiers(), markdownHeadings, linkedSection(hooks.message), keymap(bindings), keymap(baseKeymap), ...(hooks.plugins ?? [])],
       }),
-      attributes: { role: "textbox", "aria-label": "Manuscript", "aria-multiline": "true", spellcheck: "false" },
+      attributes: () => ({ role: "textbox", "aria-label": this.markdown ? "Markdown source" : "Manuscript", class: this.markdown ? "markdown-source" : "", "aria-multiline": "true", spellcheck: "false" }),
       decorations: state => {
         const found = this.reviewId ? locate(state.doc, this.reviewId) : enclosingChoice(state.selection.$from);
-        if (!found) return null;
-        return DecorationSet.create(state.doc, [Decoration.node(found.pos, found.pos + found.node.nodeSize, { class: "reviewed-wording" })]);
+        const ranges: Decoration[] = [];
+        if (found) ranges.push(Decoration.node(found.pos, found.pos + found.node.nodeSize, { class: "reviewed-wording" }));
+        if (this.markdown) {
+          const { $from, to } = state.selection;
+          const current = $from.sharedDepth(to) > 0 ? $from.node(1) : null;
+          state.doc.forEach((block, pos) => {
+            const gap: string | null = block.attrs.sourceGap;
+            if (gap !== null) ranges.push(Decoration.node(pos, pos + block.nodeSize, { style: "--markdown-gap: " + Math.max(0, gap.split("\n").length - 2) + "lh" }));
+            if (block.type !== schema.nodes.heading) return;
+            if (block === current) ranges.push(Decoration.node(pos, pos + block.nodeSize, { class: "markdown-current-heading" }));
+            let spans = this.headingPreviews.get(block);
+            if (!spans) {
+              spans = headingPreview(block);
+              this.headingPreviews.set(block, spans);
+            }
+            for (const span of spans) ranges.push(Decoration.inline(pos + 1 + span.from, pos + 1 + span.to, { class: span.className }));
+          });
+        }
+        return ranges.length ? DecorationSet.create(state.doc, ranges) : null;
       },
       handleClick: (view, pos, event) => {
         if (event.shiftKey || event.metaKey || event.ctrlKey || !(event.target instanceof Element)) return false;
@@ -249,9 +367,19 @@ export class WritingEditor {
       handleKeyDown: (view, event) => {
         const selection = view.state.selection;
         if (event.key === "Enter" && (enclosingChoice(selection.$from) || enclosingChoice(selection.$to))) return this.explain(splitMessage);
+        if (this.markdown && event.key === "Enter" && !event.isComposing) {
+          const tr = view.state.tr.deleteSelection();
+          const at = tr.selection.$from;
+          if (at.depth !== 1) return false;
+          tr.split(at.pos, 1, [{ type: schema.nodes.paragraph, attrs: { sourceGap: at.parent.attrs.sourceGap } }]);
+          tr.setNodeMarkup(at.before(), undefined, { ...at.parent.attrs, sourceGap: "\n" });
+          view.dispatch(tr.scrollIntoView());
+          return true;
+        }
         if (event.key === "Backspace" || event.key === "Delete") {
           if (partialGroup(selection)) return this.explain(selectionMessage);
           if (event.repeat && selection.$from.parent.type === schema.nodes.choice && !selection.$from.parent.content.size) return true;
+          if (this.markdown && this.deleteMarkdownBreak(event.key === "Backspace")) return true;
         }
         return false;
       },
@@ -274,22 +402,34 @@ export class WritingEditor {
         const selection = view.state.selection;
         const range = transferRange(selection, false);
         if (!range) return this.explain(selectionMessage);
-        const internal = readPassage(event.clipboardData?.getData(passageMime) ?? "");
+        const internal = readPassage(event.clipboardData?.getData(this.markdown ? markdownMime : passageMime) ?? "");
         let content = internal ?? slice;
+        if (this.markdown && !internal) {
+          const text = (event.clipboardData?.getData("text/plain") ?? "").replace(/\r\n?/g, "\n");
+          const paragraphs = text.split("\n").map(line => schema.nodes.paragraph.create({ sourceGap: "\n" }, line ? schema.text(line) : null));
+          content = Slice.maxOpen(markPasted(Fragment.fromArray(paragraphs)));
+        }
         const multipleLines = (content.content.firstChild?.isBlock && content.content.childCount > 1) || /[\r\n]/.test(event.clipboardData?.getData("text/plain") ?? "");
         if (enclosingChoice(range.start)) {
           if (multipleLines) return this.explain(splitMessage);
           if (content.content.childCount === 1 && content.content.firstChild!.isTextblock) content = new Slice(content.content.firstChild!.content, 0, 0);
         }
-        if (!internal && range.start.pos === selection.from && range.end.pos === selection.to) return false;
+        if (!this.markdown && !internal && range.start.pos === selection.from && range.end.pos === selection.to) return false;
         const tr = view.state.tr;
         if (range.start.pos !== selection.from || range.end.pos !== selection.to) tr.setSelection(TextSelection.create(tr.doc, range.start.pos, range.end.pos));
-        view.dispatch(closeHistory(tr.replaceSelection(content)).setMeta("paste", true).setMeta("uiEvent", "paste").scrollIntoView());
+        tr.replaceSelection(content);
+        if (this.markdown && content.content.childCount > 1 && content.content.firstChild?.isBlock) {
+          const start = tr.doc.resolve(0).posAtIndex(range.start.index(0));
+          tr.setNodeAttribute(start, "sourceGap", content.content.firstChild.attrs.sourceGap);
+          const last = tr.selection.$to;
+          if (last.depth) tr.setNodeAttribute(last.before(1), "sourceGap", range.end.depth ? range.end.node(1).attrs.sourceGap : null);
+        }
+        view.dispatch(closeHistory(tr).setMeta("paste", true).setMeta("uiEvent", "paste").scrollIntoView());
         return true;
       },
       handleDOMEvents: {
-        copy: (view, event) => writePassage(view, event, message => this.explain(message)),
-        cut: (view, event) => writePassage(view, event, message => this.explain(message)),
+        copy: (view, event) => writePassage(view, event, message => this.explain(message), this.markdown),
+        cut: (view, event) => writePassage(view, event, message => this.explain(message), this.markdown),
         beforeinput: (view, event) => {
           const selection = view.state.selection;
           const split = ["insertParagraph", "insertLineBreak"].includes(event.inputType);
@@ -350,6 +490,22 @@ export class WritingEditor {
     return true;
   }
 
+  private deleteMarkdownBreak(backward: boolean): boolean {
+    const { state } = this.view;
+    const { empty, $from } = state.selection;
+    if (!empty || $from.depth !== 1 || $from.parentOffset !== (backward ? 0 : $from.parent.content.size)) return false;
+    const right = $from.index(0) + (backward ? 0 : 1);
+    if (!right || right >= state.doc.childCount) return false;
+    const leftPos = $from.posAtIndex(right - 1, 0), boundary = $from.posAtIndex(right, 0);
+    const left = state.doc.child(right - 1), next = state.doc.child(right);
+    const gap: string = left.attrs.sourceGap || "\n\n";
+    const tr = state.tr;
+    if (gap.length > 1) tr.setNodeAttribute(leftPos, "sourceGap", backward ? gap.slice(0, -1) : gap.slice(1));
+    else tr.join(boundary).setNodeAttribute(leftPos, "sourceGap", next.attrs.sourceGap);
+    this.view.dispatch(tr.scrollIntoView());
+    return true;
+  }
+
   // Inline nodes have an editable inside and an outside position at each end.
   // Chromium can skip one when moving across a span. Move explicitly at these seams.
   private crossChoiceBoundary(direction: number): boolean {
@@ -383,8 +539,85 @@ export class WritingEditor {
     return true;
   }
 
+  private sourceBlock(rich: PMNode): PMNode {
+    const known = this.sourceByRich.get(rich);
+    if (known) return known.node;
+    const node = rich.copy(Fragment.fromJSON(schema, markdownInlines(rich.toJSON())));
+    this.sourceByRich.set(rich, { node, authored: false });
+    this.richBySource.set(node, rich);
+    return node;
+  }
+
+  private richBlock(source: PMNode): PMNode {
+    const known = this.richBySource.get(source);
+    if (known) return known;
+    const block = readMarkdownBlock(source.content.toJSON() ?? [], source.attrs.id);
+    const rich = schema.nodeFromJSON(block);
+    this.richBySource.set(source, rich);
+    this.sourceByRich.set(rich, { node: source, authored: true });
+    return rich;
+  }
+
+  setMarkdown(enabled: boolean) {
+    if (enabled === this.markdown) return;
+    const previous = this.view.state;
+    const section = sectionKey.getState(previous);
+    const blocks: PMNode[] = [];
+    previous.doc.forEach(node => blocks.push(enabled ? this.sourceBlock(node) : this.richBlock(node)));
+    this.markdown = enabled;
+    const doc = schema.nodes.doc.create(null, blocks);
+    let next = this.otherState ?? EditorState.create({ schema, doc, plugins: previous.plugins });
+    this.otherState = previous;
+    if (sectionKey.getState(next)) next = next.apply(next.tr.setMeta(sectionKey, null));
+    if (!next.doc.eq(doc)) {
+      // Only changed blocks enter the other view's undo history. Merely
+      // switching views leaves the existing document and undo stack intact.
+      let first = 0, last = next.doc.childCount, end = blocks.length;
+      while (first < last && first < end && next.doc.child(first).eq(blocks[first])) first++;
+      while (last > first && end > first && next.doc.child(last - 1).eq(blocks[end - 1])) { last--; end--; }
+      const from = next.doc.resolve(0).posAtIndex(first), to = next.doc.resolve(0).posAtIndex(last);
+      next = next.apply(closeHistory(next.tr.replaceWith(from, to, Fragment.fromArray(blocks.slice(first, end)))));
+    }
+    if (!enabled) next.doc.forEach((rich, _pos, index) => {
+      const source = previous.doc.child(index);
+      this.sourceByRich.set(rich, { node: source, authored: this.sourceByRich.get(blocks[index])?.authored ?? false });
+      this.richBySource.set(source, rich);
+    });
+    const position = (old: ResolvedPos) => {
+      const index = Math.min(old.index(0), next.doc.childCount - 1);
+      const start = next.doc.resolve(0).posAtIndex(index);
+      const offset = old.depth ? old.pos - old.start(1) : 0;
+      // Each side of an inline choice occupies a ProseMirror position.
+      const text = (node: PMNode): string => node.text ?? node.children.map(child => child.isText ? child.text : "\ufffc" + text(child) + "\ufffc").join("");
+      let before = 0, after = 0;
+      for (const part of diffChars(text(previous.doc.child(index)), text(next.doc.child(index)))) {
+        if (part.added) { after += part.value.length; continue; }
+        if (offset <= before + part.value.length) return start + 1 + after + (part.removed ? 0 : offset - before);
+        before += part.value.length;
+        if (!part.removed) after += part.value.length;
+      }
+      return start + 1 + after;
+    };
+    const selection = TextSelection.create(next.doc, position(previous.selection.$anchor), position(previous.selection.$head));
+    const selectionTr = next.tr.setSelection(selection).setMeta(sectionKey, section?.id ?? null).setMeta("addToHistory", false);
+    const checker = spellingKey.getState(previous)?.checker;
+    if (checker && checker !== spellingKey.getState(next)?.checker) selectionTr.setMeta(spellingKey, checker);
+    next = next.apply(selectionTr);
+    this.view.updateState(next);
+
+  }
+
   json(): Manuscript {
-    return this.view.state.doc.toJSON() as Manuscript;
+    const content: BlockJSON[] = [];
+    this.view.state.doc.forEach(node => {
+      const rich = this.markdown ? this.richBlock(node) : node;
+      const block: BlockJSON = rich.toJSON();
+      block.attrs = block.type === "heading" ? { id: rich.attrs.id, level: rich.attrs.level } : { id: rich.attrs.id };
+      const source = this.sourceByRich.get(rich);
+      if (source?.authored) block.markdown = { content: source.node.content.toJSON() ?? [], separator: source.node.attrs.sourceGap ?? undefined };
+      content.push(block);
+    });
+    return { type: "doc", content };
   }
 
   jumpToHeading(id: string) {
@@ -568,6 +801,7 @@ export class WritingEditor {
   }
 
   format(format: Format): boolean {
+    if (this.markdown) return true;
     const { state, dispatch } = this.view;
     const { from, to, empty } = state.selection;
     if (partialGroup(state.selection) && !wordingRange(state.selection)) return this.explain(selectionMessage);

@@ -10,7 +10,8 @@ export type TextJSON = { type: "text"; text: string; marks?: MarkJSON[] };
 export type OptionJSON = { id: string; content?: InlineJSON[] };
 export type ChoiceJSON = { type: "choice"; marks?: MarkJSON[]; attrs: { id: string; active: string; options: OptionJSON[] }; content?: InlineJSON[] };
 export type InlineJSON = TextJSON | ChoiceJSON;
-export type BlockJSON = { type: "paragraph" | "heading"; attrs: { id: string; level?: number }; content?: InlineJSON[] };
+export type MarkdownBlock = { content: InlineJSON[]; separator?: string };
+export type BlockJSON = { type: "paragraph" | "heading"; attrs: { id: string; level?: number }; content?: InlineJSON[]; markdown?: MarkdownBlock };
 export type Manuscript = { type: "doc"; content: BlockJSON[] };
 
 // Intervals between keystrokes are counted in these bands, in milliseconds;
@@ -48,7 +49,10 @@ export function withOrigin<T extends InlineJSON>(nodes: T[], source: OriginSourc
   }) as T[];
 }
 export function manuscriptWithOrigin(doc: Manuscript, source: OriginSource): Manuscript {
-  return { ...doc, content: doc.content.map(block => block.content ? { ...block, content: withOrigin(block.content, source) } : block) };
+  return { ...doc, content: doc.content.map(block => ({
+    ...block, ...(block.content && { content: withOrigin(block.content, source) }),
+    ...(block.markdown && { markdown: { ...block.markdown, content: withOrigin(block.markdown.content, source) } })
+  })) };
 }
 
 export function visibleText(node: Manuscript | BlockJSON | InlineJSON): string {
