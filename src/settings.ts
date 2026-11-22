@@ -8,6 +8,7 @@ export interface Preferences {
   font: string
   size: number
   leading: number
+  lineNumbers: boolean
   textWidth: 'fixed-width' | 'fixed-margin'
   columnWidth: number
   sideMargin: number
@@ -17,7 +18,7 @@ export function preferences(): Preferences {
   const saved = JSON.parse(localStorage.getItem('reading') ?? '{}')
   return {
     appearance: 'system', theme: 'tinto', font: 'book', size: 21, leading: 1.72, defaultLanguage: 'en',
-    columnWidth: 680, sideMargin: 48, ...saved,
+    columnWidth: 680, sideMargin: 48, lineNumbers: false, ...saved,
     textWidth: saved?.textWidth === 'fixed-width' ? 'fixed-width' : 'fixed-margin'
   }
 }
@@ -29,6 +30,7 @@ export function applyPreferences(prefs: Preferences) {
   style.setProperty('--size', prefs.size + 'px')
   style.setProperty('--leading', String(prefs.leading))
   document.documentElement.dataset.textWidth = prefs.textWidth
+  document.documentElement.toggleAttribute('data-line-numbers', prefs.lineNumbers)
   style.setProperty('--column-width', prefs.columnWidth + 'px')
   style.setProperty('--side-margin', prefs.sideMargin + 'px')
   localStorage.setItem('reading', JSON.stringify(prefs))
@@ -68,6 +70,13 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
   field('Appearance', [['system','System'], ['light','Light'], ['dark','Dark']], prefs.appearance, value => { prefs.appearance = value })
   field('Manuscript font size', [17,19,21,23,25].map(size => [String(size), size + ' px']), String(prefs.size), value => { prefs.size = Number(value) })
   field('Line spacing', [['1.5','Compact'], ['1.72','Regular'], ['1.95','Spacious']], String(prefs.leading), value => { prefs.leading = Number(value) })
+  const numbers = element('label', 'field', 'Show line numbers')
+  const toggle = element('input')
+  toggle.type = 'checkbox'
+  toggle.checked = prefs.lineNumbers
+  toggle.onchange = () => { prefs.lineNumbers = toggle.checked; applyPreferences(prefs) }
+  numbers.append(toggle)
+  content.append(numbers)
   const widthRow = element('label', 'field')
   function showWidthValue() {
     const fixedColumn = prefs.textWidth === 'fixed-width'

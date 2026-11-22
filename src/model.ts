@@ -8,7 +8,7 @@ export type OriginMark = { type: "origin"; attrs: { source: OriginSource } };
 export type MarkJSON = FormatMark | OriginMark;
 export type TextJSON = { type: "text"; text: string; marks?: MarkJSON[] };
 export type OptionJSON = { id: string; content?: InlineJSON[] };
-export type ChoiceJSON = { type: "choice"; attrs: { id: string; active: string; options: OptionJSON[] }; content?: InlineJSON[] };
+export type ChoiceJSON = { type: "choice"; marks?: MarkJSON[]; attrs: { id: string; active: string; options: OptionJSON[] }; content?: InlineJSON[] };
 export type InlineJSON = TextJSON | ChoiceJSON;
 export type BlockJSON = { type: "paragraph" | "heading"; attrs: { id: string; level?: number }; content?: InlineJSON[] };
 export type Manuscript = { type: "doc"; content: BlockJSON[] };
@@ -19,6 +19,25 @@ export const INTERVAL_BANDS = [50, 100, 200, 400, 800, 1600, 5000];
 
 export const formatMarks = (marks: MarkJSON[] = []) => marks.filter((mark): mark is FormatMark => mark.type !== "origin");
 export const originOf = (marks: MarkJSON[] = []): OriginSource | null => marks.find((mark): mark is OriginMark => mark.type === "origin")?.attrs.source ?? null;
+
+// Compare what the writer can see and choose. Adjacent text with the same
+// formatting is one run, even when the editor tracks different origins.
+export function comparableInlines(nodes: InlineJSON[] = []): InlineJSON[] {
+  const runs: InlineJSON[] = [];
+  for (const node of nodes) {
+    const marks = [...new Set(formatMarks(node.marks).map(mark => mark.type))].sort().map(type => ({ type }));
+    if (node.type === "choice") {
+      const { id, active } = node.attrs;
+      const options = node.attrs.options.map(option => ({ id: option.id, content: comparableInlines(option.content) }));
+      runs.push({ type: node.type, attrs: { id, active, options }, marks, content: comparableInlines(node.content) });
+    } else {
+      const previous = runs.at(-1);
+      if (previous?.type === "text" && previous.marks?.length === marks.length && previous.marks.every((mark, i) => mark.type === marks[i].type)) previous.text += node.text;
+      else runs.push({ type: "text", text: node.text, marks });
+    }
+  }
+  return runs;
+}
 
 // Marks every character of imported or generated text with its origin, inactive options included.
 export function withOrigin<T extends InlineJSON>(nodes: T[], source: OriginSource): T[] {

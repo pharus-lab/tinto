@@ -228,7 +228,7 @@ The Alternatives panel sits on the right at `clamp(270px, 27%, 345px)`.
 - **Text width.** *Fixed Margin* (48px each side by default) or *Fixed Width* (a centered column, 680px by default), chosen in Settings.
 - **Rhythm.** Spacing steps of 4, 8, 16, 24 and 32px. The manuscript starts 38px below the toolbar and leaves at least 42% of the viewport below the last line, so the end of the text can be written at eye level.
 - **Narrow windows.** Below 910px the panel narrows to 248px. Below 580px Home stacks into one column, and tool labels drop to icons.
-- **Dialogs.** Up to 560px wide (760px for the guide, 700px for History), at most 82% of the window height, with their own scrolling body.
+- **Dialogs.** Up to 560px wide (760px for the guide, 900px for History), at most 82% of the window height, with their own scrolling body.
 
 ## Elevation & Depth
 

@@ -144,7 +144,14 @@ async function openWindow() {
     backgroundColor: '#FCFAF6', ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 20 } } : {}),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false }
   })
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (url !== 'about:blank' || frameName !== 'tinto-history') return { action: 'deny' }
+    return { action: 'allow', overrideBrowserWindowOptions: { minWidth: 580, minHeight: 360, autoHideMenuBar: true } }
+  })
+  window.webContents.on('did-create-window', child => {
+    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    child.webContents.on('will-navigate', event => event.preventDefault())
+  })
   window.webContents.on('will-navigate', event => event.preventDefault())
   window.webContents.on('will-prevent-unload', () => {
     dialog.showErrorBox('Tinto could not save this project', 'The editor is still open. Check the save message and try saving again.')

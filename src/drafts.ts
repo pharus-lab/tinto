@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { formatMarks, sectionRange, type BlockJSON, type InlineJSON, type MarkJSON } from './model'
+import { comparableInlines, sectionRange, type BlockJSON } from './model'
 import type { DocumentRecord, DraftChange, DraftResolution } from './project-types'
 
 export interface DraftBaseline {
@@ -53,30 +53,8 @@ function sourceRange(source: DocumentRecord, draft: DocumentRecord, baseline: Dr
   return { from, to }
 }
 
-// ProseMirror joins adjacent equally marked text and treats marks as a set.
-// Apply the same comparison recursively to the saved, inactive wording.
-function equivalentInlines(nodes: InlineJSON[] = []): InlineJSON[] {
-  const runs: InlineJSON[] = []
-  for (const node of nodes) {
-    const marked = node as InlineJSON & { marks?: MarkJSON[] }
-    // Where text came from is not a change to the text, so origins are left out.
-    const marks = [...new Set(formatMarks(marked.marks).map(mark => mark.type))].sort().map(type => ({ type }))
-    if (node.type === 'choice') {
-      const options = node.attrs.options.map(option => ({ id: option.id, content: equivalentInlines(option.content) }))
-      const { id, active } = node.attrs
-      const group = { type: node.type, attrs: { id, active, options }, marks, content: equivalentInlines(node.content) }
-      runs.push(group)
-      continue
-    }
-    const previous = runs.at(-1)
-    if (previous?.type === 'text' && isDeepStrictEqual(previous.marks, marks)) previous.text += node.text
-    else runs.push({ type: 'text', text: node.text, marks })
-  }
-  return runs
-}
-
 function comparable(block: BlockJSON | null) {
-  return block && { id: block.attrs.id, type: block.type, level: block.type === 'heading' ? block.attrs.level ?? 1 : null, content: equivalentInlines(block.content) }
+  return block && { id: block.attrs.id, type: block.type, level: block.type === 'heading' ? block.attrs.level ?? 1 : null, content: comparableInlines(block.content) }
 }
 
 // Insert blocks missing from the primary sequence before their nearest
