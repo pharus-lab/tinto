@@ -165,7 +165,10 @@ async function openWindow() {
     dialog.showErrorBox('Tinto could not save this project', 'The editor is still open. Check the save message and try saving again.')
   })
   window.on('closed', () => { window = null })
-  window.once('ready-to-show', () => window?.show())
+  const show = window.show.bind(window)
+  // Software-rendered Wayland windows can wait until they're shown before painting.
+  if (process.platform === 'linux') window.webContents.once('did-finish-load', show)
+  else window.once('ready-to-show', show)
   await window.loadURL(entry)
 }
 

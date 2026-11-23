@@ -5,6 +5,14 @@ import { desktopFixture } from './desktop-fixture.mjs'
 
 const button = (page, name) => page.getByRole('button', { name, exact: true })
 
+test('the Linux folder chooser opens with software rendering', { skip: process.platform !== 'linux' }, async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.launch(['--disable-gpu'])
+  await button(page, 'Choose folder').click({ trial: true })
+  const win = await fixture.app.browserWindow(page)
+  assert.equal(await win.evaluate(w => w.isVisible()), true)
+})
+
 test('the Linux folder chooser and editor keep the native menu hidden by default', { skip: process.platform !== 'linux' }, async t => {
   const fixture = await desktopFixture(t)
   const page = await fixture.launch()
