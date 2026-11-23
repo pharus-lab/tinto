@@ -81,18 +81,27 @@ function status(text: string, saved = false) {
 function saveSession() {
   if (!library.workspace) return
   if (current) current.scroll = scroll.scrollTop
-  localStorage.setItem('tabs:' + library.workspace.project.id, JSON.stringify({ tabs, current: current ? tabs.indexOf(current) : -1, panel: panelOpen }))
+  try {
+    localStorage.setItem('tabs:' + library.workspace.project.id, JSON.stringify({ tabs, current: current ? tabs.indexOf(current) : -1, panel: panelOpen }))
+  } catch { notice('Tinto could not remember your open tabs.') }
 }
-function flush(): boolean {
+function saveFailed(problem: string) {
+  status('Save failed')
+  notice(problem)
+  return false
+}
+function flush(includeEvidence = true): boolean {
   clearTimeout(timer)
   for (const [key, entry] of pending) {
     const problem = api.save(entry.path, entry.projectId, entry.doc)
-    if (problem) {
-      status('Save failed')
-      notice(problem)
-      return false
-    }
+    if (problem) return saveFailed(problem)
     pending.delete(key)
+  }
+  if (includeEvidence) {
+    for (const tracker of evidence.values()) {
+      const problem = tracker.flush()
+      if (problem) return saveFailed(problem)
+    }
   }
   if (library.workspace) status('Saved locally', true)
   return true
@@ -103,7 +112,7 @@ function changed(doc: DocumentRecord) {
   pending.set(JSON.stringify([workspace.path, doc.id]), { projectId: workspace.project.id, path: workspace.path, doc })
   status('Saving…')
   clearTimeout(timer)
-  timer = setTimeout(flush, 450)
+  timer = setTimeout(() => flush(false), 450)
 }
 function label(tab: Tab) {
   const doc = record(tab.documentId)
@@ -441,6 +450,9 @@ function createDocument() {
 
 async function refreshHome(next: LibraryState) {
   if (!next.workspace || next.workspace.project.id !== library.workspace?.project.id) return loadLibrary(next, true)
+  if (next.workspace.path !== library.workspace.path) {
+    for (const tracker of evidence.values()) tracker.renameProject(next.workspace.path)
+  }
   library = next
   const remaining = new Set(next.workspace.project.documents.map(doc => doc.id))
   tabs = tabs.filter(tab => remaining.has(tab.documentId))
@@ -633,8 +645,6 @@ function exportDialog() {
 function publishDialog() {
   const doc = activeDocument()
   if (!doc || !current || !flush()) return
-  // The credential includes the writing measured up to now.
-  for (const tracker of evidence.values()) tracker.flush()
   const nameOf = (code: string) => languageOptions().find(([value]) => value === code)?.[1] ?? languageName(code)
   const title = current.headingId ? label(current) : doc.title
   // A translation goes out with its original, and an original with its first translation.
@@ -786,9 +796,10 @@ function wire() {
   scroll.addEventListener('scroll', drawTrail, { passive: true })
   window.addEventListener('online', () => void api.online().catch(report))
   window.addEventListener('beforeunload', event => {
-    for (const tracker of evidence.values()) tracker.flush()
-    saveSession()
-    if (!flush()) { event.preventDefault(); event.returnValue = false }
+    if (!flush()) {
+      event.preventDefault()
+      event.returnValue = false
+    } else saveSession()
   })
   window.addEventListener('keydown', event => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); flush(); saveSession() }

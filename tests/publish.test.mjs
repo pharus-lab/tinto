@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
+import { verifyCredential } from '../modules/cloudflare/credential.mjs'
 import { desktopFixture } from './desktop-fixture.mjs'
 
 const button = (scope, name) => scope.getByRole('button', { name, exact: true })
@@ -10,13 +11,19 @@ const sites = [
   { url: 'https://two.example/api/tinto', endpoint: 'https://two.example/api/tinto', key: 'key-for-the-second-website-002', name: 'Second Site', categories: [] }
 ]
 
-// The main process talks to two simulated websites and an in-memory keychain.
+// Keep the website transport local in both the mocked and native keyring runs.
 async function simulateWebsites(app, files) {
-  await app.evaluate(({ safeStorage, dialog, shell }, { files, sites }) => {
+  if (process.env.TINTO_LINUX_KEYRING) {
+    assert.equal(process.platform, 'linux')
+    assert.ok(process.env.TINTO_PACKAGED_EXECUTABLE)
+    assert.equal(await app.evaluate(({ safeStorage }) => safeStorage.getSelectedStorageBackend()), process.env.TINTO_LINUX_KEYRING)
+  } else await app.evaluate(({ safeStorage }) => {
     safeStorage.isAsyncEncryptionAvailable = async () => true
     if (process.platform === 'linux') safeStorage.getSelectedStorageBackend = () => 'gnome_libsecret'
     safeStorage.encryptStringAsync = async text => Buffer.from('sealed:' + text)
     safeStorage.decryptStringAsync = async bytes => ({ result: Buffer.from(bytes).toString().slice(7), shouldReEncrypt: false })
+  })
+  await app.evaluate(({ dialog, shell }, { files, sites }) => {
     globalThis.picks = []
     dialog.showOpenDialog = async (window, options) => ({ canceled: false, filePaths: [globalThis.picks.shift() ?? (options.title.includes('cover') ? files.cover : files.pdf)] })
     globalThis.siteRequests = []
@@ -111,6 +118,7 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   ])
   assert.equal(first[2].request, 'PUT https://one.example/tinto/posts/<post>')
   const sent = JSON.parse(first[2].body)
+  assert.deepEqual(await verifyCredential(sent.credential), { verified: true, did: author.did })
   assert.deepEqual([sent.category, sent.status, sent.cover.alt, sent.attachments.map(item => [item.type, item.title])], ['essays', 'published', 'The kitchen window at night', [['application/pdf', 'Field notes']]])
   assert.deepEqual([sent.credential.credentialSubject.author.name, sent.credential.credentialSubject.associatedMedia.length], ['Mara Ruiz', 2])
   assert.doesNotMatch(first[2].body, /cover\.png|Field notes\.pdf/)
@@ -166,6 +174,8 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   await modal.getByText('Field Notes accepted the API key.').waitFor()
   await modal.getByRole('button', { name: 'Remove Second Site' }).click()
   await modal.getByText('Removed Second Site and its API key from Tinto. Its posts stay on the website.').waitFor()
-  const stored = JSON.parse((await readFile(join(fixture.profile, 'sites.enc'), 'utf8')).replace(/^sealed:/, ''))
+  const ciphertext = await readFile(join(fixture.profile, 'sites.enc'))
+  const stored = await fixture.app.evaluate(async ({ safeStorage }, bytes) =>
+    JSON.parse((await safeStorage.decryptStringAsync(Buffer.from(bytes, 'base64'))).result), ciphertext.toString('base64'))
   assert.deepEqual(stored.map(({ name, endpoint, key, categories }) => ({ name, endpoint, key, categories })), [{ name: 'Field Notes', endpoint: sites[0].endpoint, key: sites[0].key, categories: sites[0].categories }])
 })

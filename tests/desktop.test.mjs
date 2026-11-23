@@ -1,8 +1,23 @@
 import assert from 'node:assert/strict'
+import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { desktopFixture } from './desktop-fixture.mjs'
 
 const button = (page, name) => page.getByRole('button', { name, exact: true })
+
+test('the Linux folder chooser and editor keep the native menu hidden by default', { skip: process.platform !== 'linux' }, async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.launch()
+  const win = await fixture.app.browserWindow(page)
+  const menu = () => win.evaluate(window => [window.isMenuBarAutoHide(), window.isMenuBarVisible()])
+  await button(page, 'Choose folder').waitFor()
+  assert.deepEqual(await menu(), [true, false])
+  await fixture.app.evaluate(({ dialog }, folder) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] }) }, fixture.folder)
+  await button(page, 'Choose folder').click()
+  await button(page, 'Open sample project').click()
+  await page.locator('.ProseMirror:visible').waitFor()
+  assert.deepEqual(await menu(), [true, false])
+})
 
 test('the macOS title bar leaves the space beside the tabs draggable', { skip: process.platform !== 'darwin' }, async t => {
   const fixture = await desktopFixture(t)
@@ -61,6 +76,76 @@ test('closing and reopening the macOS window restores the manuscript with its la
   assert.match(await manuscript.innerText(), /Saved on close\./)
 })
 
+test('closing the last Linux window saves the pending edit and exits', { skip: process.platform !== 'linux' }, async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const win = await fixture.app.browserWindow(page)
+  await appendToParagraph(page, page.locator('.ProseMirror:visible p:visible').first(), ' Saved on Linux close.')
+  // A failed tab-layout write must not prevent the pending manuscript save.
+  await page.evaluate(() => {
+    const save = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('tabs:')) throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+      return save.call(this, key, value)
+    }
+  })
+  assert.equal(await page.locator('#save-status').innerText(), 'Saving…')
+  await Promise.all([
+    fixture.app.waitForEvent('close', { timeout: 10_000 }),
+    win.evaluate(win => win.close())
+  ])
+  const reopened = await fixture.open()
+  assert.match(await reopened.locator('.ProseMirror:visible').innerText(), /Saved on Linux close\./)
+})
+
+test('quitting with a blocked save keeps the manuscript and its typing evidence available for retry', async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const app = fixture.app
+  const edit = ' Recovered after retry.'
+  await page.clock.install()
+  // Capture the native modal so it cannot block the test desktop.
+  await app.evaluate(({ dialog }) => { dialog.showErrorBox = (title, detail) => console.info(title + ' ' + detail) })
+  const db = new DatabaseSync(await page.evaluate(async () => (await window.tinto.workspace()).path))
+  try {
+    db.exec('BEGIN IMMEDIATE')
+    await appendToParagraph(page, page.locator('.ProseMirror:visible p:visible').first(), edit)
+    await Promise.all([
+      app.waitForEvent('console', { predicate: msg => msg.text().startsWith('Tinto could not save this project'), timeout: 10_000 }),
+      app.evaluate(({ app }) => app.quit())
+    ])
+    assert.equal(await page.locator('#save-status').innerText(), 'Save failed')
+    assert.match(await page.locator('#notice').innerText(), /locked/i)
+    assert.match(await page.locator('.ProseMirror:visible').innerText(), /Recovered after retry\./)
+    await page.clock.fastForward(60_000)
+  } finally {
+    db.close()
+  }
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+s' : 'Control+s')
+  await page.locator('#save-status').filter({ hasText: 'Saved locally' }).waitFor()
+  await fixture.close()
+  const reopened = await fixture.open()
+  assert.match(await reopened.locator('.ProseMirror:visible').innerText(), /Recovered after retry\./)
+  const record = await reopened.evaluate(async () => {
+    const doc = (await window.tinto.workspace()).project.documents[0]
+    return window.tinto.authorship(doc.id, null)
+  })
+  assert.equal(record.typed, edit.length)
+  assert.equal(record.intact, true)
+})
+
+test('a saved Linux manuscript survives an interrupted process', { skip: process.platform !== 'linux' }, async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  await appendToParagraph(page, page.locator('.ProseMirror:visible p:visible').first(), ' Saved before interruption.')
+  await page.locator('#save-status').filter({ hasText: 'Saved locally' }).waitFor()
+  const closed = fixture.app.waitForEvent('close', { timeout: 10_000 })
+  fixture.app.process().kill('SIGKILL')
+  await closed
+  const reopened = await fixture.open()
+  assert.match(await reopened.locator('.ProseMirror:visible').innerText(), /Saved before interruption\./)
+})
+
 test('the desktop editor preserves nested options on close and restores a named version', async t => {
   const { open, close } = await desktopFixture(t)
   let page = await open()
@@ -113,8 +198,13 @@ test('an omitted wording reopens as a clickable box with its editable sidebar op
   let page = await open()
   const food = () => page.locator('.ProseMirror:visible [data-choice-id="kitchen-food"]')
   const nested = () => page.getByRole('region', { name: 'Within this passage' })
-  const box = await food().boundingBox()
-  await page.mouse.click(box.x + box.width - 1, box.y + box.height / 2)
+  const end = await food().evaluate(el => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const text = range.getBoundingClientRect()
+    return { x: text.right - 1, y: text.top + text.height / 2 }
+  })
+  await page.mouse.click(end.x, end.y)
   for (let i = 0; i < 4; i++) await page.keyboard.press('Backspace')
   assert.equal(await button(nested(), '(Empty wording)').getAttribute('aria-pressed'), 'true')
   assert.equal(await food().evaluate(el => el === getSelection().anchorNode), true, 'the visible caret is inside the empty box')

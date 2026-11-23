@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 — release candidate
+
+- Debian installers for amd64 and arm64 verify the application version and architecture before packaging. The Linux window groups under Tinto’s launcher icon and keeps the menu bar hidden until you press Alt.
+- A failed save keeps pending typing evidence available for retry. Renaming the active project preserves subsequent authorship records. A failure to remember open tabs no longer prevents the final manuscript edit from being saved on close.
+- On Linux, Tinto checks that Electron used the system keyring before saving credentials. Local writing and saving remain available when the keyring is locked or unavailable.
+
 ## 1.1.0 — 2026-11-23
 
 - Tinto also looks for a new version once a day while it stays open, not only when it opens. Each new version is announced once, and Settings → About still turns the check off.

@@ -82,3 +82,29 @@ test('loopback OAuth checks state and PKCE and sends only the Drive file scope',
   assert.equal(reopened.connected, false)
   assert.equal(requestBody.at(-1).get('token'), 'offline-fixture')
 })
+
+test('Linux refuses fallback ciphertext even when Electron selected a desktop keyring', { skip: process.platform !== 'linux' }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'tinto-keyring-fallback-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const fallback = Buffer.from('v10' + 'simulated ciphertext')
+  globalThis.testVault = {
+    isAsyncEncryptionAvailable: async () => true,
+    getSelectedStorageBackend: () => 'gnome_libsecret',
+    encryptStringAsync: async () => fallback,
+    decryptStringAsync: () => assert.fail('Tinto should reject the fallback before decryption')
+  }
+  t.after(() => { delete globalThis.testVault })
+  const { DriveAuth } = await import(moduleUrl + '#fallback')
+  const auth = new DriveAuth(dir)
+  const client = join(dir, 'client.json')
+  const stored = join(dir, 'drive-client.enc')
+  await writeFile(client, JSON.stringify({ installed: { client_id: 'fixture' } }))
+  await assert.rejects(auth.connect(client), /Unlock your system keychain or Linux keyring/)
+  assert.equal(auth.configured, false)
+  await writeFile(stored, 'previous credential')
+  await assert.rejects(auth.connect(client), /Unlock your system keychain or Linux keyring/)
+  assert.equal(await readFile(stored, 'utf8'), 'previous credential')
+  await writeFile(stored, fallback)
+  await assert.rejects(auth.connect(), /without Linux keyring protection/)
+  assert.deepEqual(await readFile(stored), fallback)
+})

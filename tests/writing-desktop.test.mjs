@@ -255,7 +255,14 @@ test('200% zoom keeps actions distinct and writing checks reachable by keyboard'
 
 test('a long manuscript checks offline while the renderer remains responsive', async t => {
   const fixture = await desktopFixture(t)
+  const openedAt = performance.now()
   const page = await fixture.open()
+  const openMs = Math.round(performance.now() - openedAt)
+  // Sum the Electron process working sets. Shared pages can be counted more than once.
+  const workingSetMiB = () => fixture.app.evaluate(({ app }) => Math.round(
+    app.getAppMetrics().reduce((total, process) => total + process.memory.workingSetSize, 0) / 1024
+  ))
+  const initialMemory = await workingSetMiB()
   await fixture.app.evaluate(({ session }) => { session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true })) })
   await seed(page, Array.from({ length: 900 }, (_, i) => ('The old house was quiet. The garden was full of flowers. '.repeat(8)) + (i % 100 === 0 ? 'I want creem.' : '')))
   await page.evaluate(() => {
@@ -268,5 +275,9 @@ test('a long manuscript checks offline while the renderer remains responsive', a
   assert.ok(gaps.length > 10)
   assert.ok(Math.max(...gaps) < 1000, 'renderer stays responsive; worst scheduling gap ' + Math.max(...gaps))
   assert.equal(await checks.getByRole('region', { name: 'Spelling: creem', exact: true }).count(), 9)
-  t.diagnostic('Checked roughly 80,000 words in ' + (Date.now() - start) + ' ms; worst renderer scheduling gap ' + Math.round(Math.max(...gaps)) + ' ms.')
+  const checkMs = Date.now() - start
+  const checkedMemory = await workingSetMiB()
+  await seed(page, ['She reads the book.'])
+  await (await manual(page)).getByRole('status').filter({ hasText: 'No issues found' }).waitFor()
+  t.diagnostic(`Opened the sample in a fresh profile in ${openMs} ms. Checked roughly 80,000 words in ${checkMs} ms, worst renderer scheduling gap ${Math.round(Math.max(...gaps))} ms. Summed working sets were ${initialMemory} MiB before loading the manuscript and ${checkedMemory} MiB after checking. A subsequent short check completed.`)
 })

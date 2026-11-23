@@ -25,7 +25,7 @@ const desktop: Desktop = {
   importAuthor: passphrase => ipcRenderer.invoke('author:import', passphrase),
   authorship: (documentId, headingId) => ipcRenderer.invoke('authorship:preview', documentId, headingId),
   // Synchronous, like saving, so writing measured just before the window closes is kept.
-  recordWriting: (path, projectId, documentId, kind, sample) => { ipcRenderer.sendSync('authorship:record', path, projectId, documentId, kind, sample) },
+  recordWriting: (path, projectId, documentId, kind, sample) => ipcRenderer.sendSync('authorship:record', path, projectId, documentId, kind, sample),
   fonts: () => ipcRenderer.invoke('fonts:list'),
   addFonts: characters => ipcRenderer.invoke('fonts:add', characters),
   checkFont: (id, characters) => ipcRenderer.invoke('fonts:check', id, characters),
