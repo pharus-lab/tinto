@@ -1,6 +1,8 @@
 import { dictionaryLanguage, normalizedWord, supportedWritingLanguage, validPersonalWord } from './writing-types'
 
-export interface WritingPreferences { spelling: boolean; grammar: boolean; words: Record<string, string[]>; disabledRules: string[] }
+// style: include style hints with English grammar. coach: also ask the AI
+// writing coach when Check writing is pressed. Both start off.
+export interface WritingPreferences { spelling: boolean; grammar: boolean; style: boolean; coach: boolean; words: Record<string, string[]>; disabledRules: string[] }
 const key = 'writing-checks'
 const eventName = 'tinto-writing-preferences'
 export function writingPreferences(): WritingPreferences {
@@ -12,7 +14,7 @@ export function writingPreferences(): WritingPreferences {
     if (!['en', 'es', 'fr'].includes(language) || !Array.isArray(list)) continue
     words[language] = list.filter(word => typeof word === 'string' && validPersonalWord(word)).slice(0, 10_000)
   }
-  return { spelling: saved.spelling === true, grammar: saved.grammar === true, words, disabledRules: Array.isArray(saved.disabledRules) ? saved.disabledRules.filter(rule => typeof rule === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(rule)).slice(0, 2000) : [] }
+  return { spelling: saved.spelling === true, grammar: saved.grammar === true, style: saved.style === true, coach: saved.coach === true, words, disabledRules: Array.isArray(saved.disabledRules) ? saved.disabledRules.filter(rule => typeof rule === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(rule)).slice(0, 2000) : [] }
 }
 export function saveWritingPreferences(prefs: WritingPreferences) {
   try { localStorage.setItem(key, JSON.stringify(prefs)) }
@@ -27,7 +29,7 @@ export function observeWritingPreferences(listener: (prefs: WritingPreferences) 
   return () => { window.removeEventListener(eventName, changed); window.removeEventListener('storage', storage) }
 }
 export function acceptWord(language: string, word: string) {
-  if (!supportedWritingLanguage(language)) throw Error('Personal dictionaries support English, English (UK), and Spanish.')
+  if (!supportedWritingLanguage(language)) throw Error('Personal dictionaries support English, English (UK), and Spanish (Mexico).')
   word = word.trim().normalize('NFC')
   if (!validPersonalWord(word)) throw Error('Enter one word, with letters, apostrophes or hyphens.')
   const prefs = writingPreferences(), code = dictionaryLanguage(language)

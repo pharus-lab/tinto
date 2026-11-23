@@ -1,6 +1,7 @@
 import { button, element } from './ui'
 import { THEMES, fontStack } from './typography'
 import { supportedWritingLanguage, WRITING_LANGUAGES } from './writing-types'
+import { applyToolbar, toolIds, TOOLS } from './toolbar'
 
 export interface Preferences {
   appearance: string
@@ -16,6 +17,8 @@ export interface Preferences {
   columnWidth: number
   sideMargin: number
   defaultLanguage: string
+  // Toolbar tools the writer hid; all are shown by default.
+  hiddenTools: string[]
 }
 export function preferences(): Preferences {
   const saved = JSON.parse(localStorage.getItem('reading') ?? '{}')
@@ -24,7 +27,8 @@ export function preferences(): Preferences {
     columnWidth: 680, sideMargin: 48, lineNumbers: false, markdownImports: false, checkUpdates: true, ...saved,
     defaultLanguage: supportedWritingLanguage(saved?.defaultLanguage) ? saved.defaultLanguage : 'en',
     // A centered column of about 66 characters, unless the writer chose margins.
-    textWidth: saved?.textWidth === 'fixed-margin' ? 'fixed-margin' : 'fixed-width'
+    textWidth: saved?.textWidth === 'fixed-margin' ? 'fixed-margin' : 'fixed-width',
+    hiddenTools: toolIds(saved?.hiddenTools)
   }
 }
 export function applyPreferences(prefs: Preferences) {
@@ -38,6 +42,7 @@ export function applyPreferences(prefs: Preferences) {
   document.documentElement.toggleAttribute('data-line-numbers', prefs.lineNumbers)
   style.setProperty('--column-width', prefs.columnWidth + 'px')
   style.setProperty('--side-margin', prefs.sideMargin + 'px')
+  applyToolbar(prefs.hiddenTools)
   localStorage.setItem('reading', JSON.stringify(prefs))
 }
 export function languageOptions(): [string, string][] {
@@ -140,6 +145,23 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
   panels.text = group(panels.appearance, 'Text')
   field(panels.text, 'Manuscript font size', [17,19,21,23,25].map(size => [String(size), size + ' px']), String(prefs.size), value => { prefs.size = Number(value) })
   field(panels.text, 'Line spacing', [['1.5','Compact'], ['1.72','Regular'], ['1.95','Spacious']], String(prefs.leading), value => { prefs.leading = Number(value) })
+
+  // Toolbar: which tools the document bar and the formatting bar show.
+  const toolbar = group(panels.appearance, 'Toolbar')
+  toolbar.append(element('p', 'settings-note', 'Hidden tools keep their keyboard shortcuts.'))
+  for (const [bar, title] of [['document', 'Document bar'], ['formatting', 'Formatting bar']] as const) {
+    toolbar.append(element('h4', 'toolbar-bar', title))
+    for (const tool of TOOLS.filter(item => item.bar === bar)) {
+      const row = element('label', 'field', tool.label), toggle = element('input')
+      toggle.type = 'checkbox'
+      toggle.checked = !prefs.hiddenTools.includes(tool.id)
+      toggle.onchange = () => {
+        prefs.hiddenTools = toolIds(toggle.checked ? prefs.hiddenTools.filter(id => id !== tool.id) : [...prefs.hiddenTools, tool.id])
+        applyPreferences(prefs)
+      }
+      row.append(toggle); toolbar.append(row)
+    }
+  }
 
   // Writing: the page, imports and spelling.
   const page = group(panels.writing, 'Page')

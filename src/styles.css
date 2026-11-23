@@ -159,6 +159,8 @@ select {
 .format[aria-pressed=true], #markdown[aria-pressed=true], #show-origins[aria-pressed=true] { background: var(--wash); color: var(--wine); }
 .tool-rule { height: 16px; width: 1px; background: var(--divider); margin: 0 6px; }
 .tool-fill { flex: 1; }
+/* Tools the writer hid in Settings → Appearance → Toolbar. */
+.tool-hidden { display: none !important; }
 #scroll, #home, #panel { overflow: auto; overscroll-behavior: contain; }
 #scroll { flex: 1; }
 #editors { padding-block: 38px max(120px, 42vh); font: var(--size)/var(--leading) var(--serif); }
@@ -309,6 +311,7 @@ dialog:has(> .settings-body) > .dialog-head { flex: none; margin: 0; padding: 20
    buttons and notes sit 8px under it. */
 .settings-panel > * + * { margin-top: 28px; }
 .settings-panel .group-label { margin: 0 0 8px; }
+.settings-panel .toolbar-bar { margin: 14px 0 2px; font-size: 13px; font-weight: 500; color: var(--ink); }
 .settings-panel .field { min-height: 34px; margin: 0 0 12px; }
 .settings-panel .field :is(select, input:not([type=checkbox])) { flex: none; width: min(200px, 46%); height: 34px; }
 .settings-panel :is(.author-form, .site-form, .translation-form) .field input { width: min(300px, 62%); }

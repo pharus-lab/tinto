@@ -53,6 +53,12 @@ const desktop: Desktop = {
   removeTranslator: () => ipcRenderer.invoke('translator:remove'),
   translate: (source, from, to) => ipcRenderer.invoke('translator:translate', source, from, to),
   translateTexts: (texts, from, to) => ipcRenderer.invoke('translator:texts', texts, from, to),
+  coachWriting: request => ipcRenderer.invoke('coach:review', request),
+  onCoachProgress: listener => {
+    const forward = (_event: Electron.IpcRendererEvent, done: number, total: number) => listener(done, total)
+    ipcRenderer.on('coach:progress', forward)
+    return () => { ipcRenderer.removeListener('coach:progress', forward) }
+  },
   onTranslateProgress: listener => {
     const forward = (_event: Electron.IpcRendererEvent, done: number, total: number) => listener(done, total)
     ipcRenderer.on('translator:progress', forward)

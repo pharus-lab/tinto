@@ -311,7 +311,7 @@ async function switchTab(tab: Tab | null) {
       const host = element('div')
       $('editors').append(host)
       instance = new WritingEditor(host, doc.manuscript, {
-        plugins: [writingPlugin({ language: doc.language, preferences: writingPreferences(), check: request => api.checkWriting(request), changed: () => { if (current?.documentId === doc.id && panelView === 'writing') drawPanel() }, message: notice }), headingSpawns(() => record(doc.id).spawnedHeadingIds ?? [], openSpawn)], message: notice,
+        plugins: [writingPlugin({ language: doc.language, preferences: writingPreferences(), check: request => api.checkWriting(request), coach: request => api.coachWriting(request), changed: () => { if (current?.documentId === doc.id && panelView === 'writing') drawPanel() }, message: notice }), headingSpawns(() => record(doc.id).spawnedHeadingIds ?? [], openSpawn)], message: notice,
         change(manuscript) {
           const updated = record(tab.documentId)
           updated.manuscript = manuscript

@@ -1,11 +1,12 @@
 import type { TranslatorSummary } from './project-types'
 import { button, element, errorMessage } from './ui'
 
-// Settings → Writing → Automatic translation: the service, the writer's API key
-// for it and the model. The key stays in the main process, encrypted with the
-// system keychain. Tinto is tested with OpenAI gpt-6.2-astra; other services and
-// models may work, and the writer reviews each translation before publishing.
-const intro = 'Tinto sends only the text you choose to translate, and asks services that keep responses not to store it. The key is stored encrypted on this computer.'
+// Settings → Writing → AI service: the service, the writer's API key for it and
+// the model, used by Translate and the writing coach. The key stays in the main
+// process, encrypted with the system keychain. Tinto is tested with OpenAI
+// gpt-6.2-astra; other services and models may work, and the writer reviews each
+// translation before publishing.
+const intro = 'Used by Translate and by the writing coach in Check writing. Tinto sends only the text you choose to translate or review, and asks services that keep responses not to store it. The key is stored encrypted on this computer.'
 const tested = 'Tested with OpenAI gpt-6.2-astra. Other services and models may work; review each translation before you publish it.'
 // Each service offers a few models to choose from; "Other…" takes any model id.
 // Astra is the default and the model Tinto is tested with; the others cost less.
@@ -23,7 +24,7 @@ export function translationSettings(parent: HTMLElement) {
   const body = element('div')
   const message = element('p', '', intro)
   message.setAttribute('role', 'status')
-  section.append(element('h3', 'group-label', 'Automatic translation'), body, message, element('p', 'settings-note', tested))
+  section.append(element('h3', 'group-label', 'AI service'), body, message, element('p', 'settings-note', tested))
   parent.append(section)
 
   function busy(task: () => Promise<string>, progress: string) {
@@ -48,6 +49,7 @@ export function translationSettings(parent: HTMLElement) {
       const remove = button('Remove', busy(async () => {
         await api.removeTranslator()
         draw(null)
+        window.dispatchEvent(new Event('tinto-ai-service'))
         return 'Removed the ' + saved.name + ' key from Tinto.'
       }, 'Removing…'), 'outline')
       remove.setAttribute('aria-label', 'Remove the translation key')
@@ -102,7 +104,8 @@ export function translationSettings(parent: HTMLElement) {
       void busy(async () => {
         const saved = await api.saveTranslator(service.value, key.value, chosenModel())
         draw(saved)
-        return 'Saved. Tinto translates with ' + saved.name + ' ' + saved.model + '.'
+        window.dispatchEvent(new Event('tinto-ai-service'))
+        return 'Saved. Tinto translates and coaches with ' + saved.name + ' ' + saved.model + '.'
       }, 'Checking the key…')()
     }
     body.replaceChildren(form)

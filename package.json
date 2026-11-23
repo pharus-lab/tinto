@@ -2,7 +2,7 @@
   "name": "tinto-editor",
   "productName": "Tinto",
   "description": "A local writing editor for exploring alternative wordings.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "license": "MIT",
   "main": "dist/main.cjs",
@@ -18,7 +18,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "1.4.0",
     "@lezer/markdown": "^1.8.1",
-    "dictionary-es": "^4.0.0",
+    "dictionary-es-mx": "2.0.0",
     "diff": "^9.0.0",
     "fflate": "^0.8.3",
     "fontkit": "^2.0.4",

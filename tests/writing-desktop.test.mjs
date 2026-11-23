@@ -46,6 +46,8 @@ test('manual writing checks default off, support individual actions, and keep di
   let modal = await settings(page)
   assert.equal(await modal.getByLabel('Check spelling while typing', { exact: true }).isChecked(), false)
   assert.equal(await modal.getByLabel('Check English grammar while typing', { exact: true }).isChecked(), false)
+  assert.equal(await modal.getByLabel('Include style hints (wordiness, long sentences)', { exact: true }).isChecked(), false)
+  assert.equal(await modal.getByLabel('Writing coach (AI) in Check writing', { exact: true }).isChecked(), false)
   await screenshot(page, 'settings-light')
   await button(modal, 'Close dialog').click()
   assert.equal(await spelling(page).count(), 0)
@@ -198,7 +200,7 @@ test('legacy French documents stay editable without downloads or checks, and new
   assert.equal(await page.locator('#language option:checked').isDisabled(), true)
   await page.locator('#check-writing').click()
   const checks = page.locator('#writing-checks')
-  await checks.getByRole('status').filter({ hasText: 'Writing checks support English, English (UK), and Spanish.' }).waitFor()
+  await checks.getByRole('status').filter({ hasText: 'Writing checks support English, English (UK), and Spanish (Mexico).' }).waitFor()
   assert.equal(await button(checks, 'Try again').count(), 0)
   assert.equal(await button(checks, 'Check writing').isDisabled(), true)
   assert.equal(await page.locator('.tinto-misspelling, .tinto-grammar').count(), 0)
@@ -269,4 +271,97 @@ test('a long manuscript checks offline while the renderer remains responsive', a
   assert.ok(Math.max(...gaps) < 1000, 'renderer stays responsive; worst scheduling gap ' + Math.max(...gaps))
   assert.equal(await checks.getByRole('region', { name: 'Spelling: creem', exact: true }).count(), 9)
   t.diagnostic('Checked roughly 80,000 words in ' + (Date.now() - start) + ' ms; worst renderer scheduling gap ' + Math.round(Math.max(...gaps)) + ' ms.')
+})
+
+test('the writing coach starts off, needs an AI key, and only suggests: no Apply, the text never changes', async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const first = 'I went to the store, I bought bread. The report it was written badly.'
+  await seed(page, [first, 'This paragraph is fine.'])
+  let checks = await manual(page)
+  const toggle = checks.getByRole('checkbox', { name: 'Writing coach (AI)', exact: true })
+  assert.equal(await toggle.isChecked(), false)
+  assert.equal(await toggle.isDisabled(), true, 'no AI key yet')
+  await checks.getByText('Add an AI key in Settings → Writing → AI service.').waitFor()
+
+  // A simulated AI service: the key's status, and a coach that quotes the text it was sent.
+  await fixture.app.evaluate(({ ipcMain }) => {
+    globalThis.coachRequests = []
+    globalThis.coachFails = false
+    ipcMain.removeHandler('translator:status')
+    ipcMain.handle('translator:status', () => ({ provider: 'openai', name: 'OpenAI', model: 'gpt-6.2-astra' }))
+    ipcMain.removeHandler('coach:review')
+    ipcMain.handle('coach:review', (_event, request) => {
+      globalThis.coachRequests.push(request)
+      if (globalThis.coachFails) throw Error('OpenAI is limiting requests for this key. Wait a minute and check again.')
+      const block = request.blocks[0]
+      const at = (quote, kind, title, suggestion) => ({ block: block.id, quote, kind, title, explanation: 'Explained ' + title + '.', suggestion, from: block.text.indexOf(quote), to: block.text.indexOf(quote) + quote.length })
+      return { provider: 'OpenAI', model: 'gpt-6.2-astra', dropped: 1, notes: [
+        at('I went to the store, I bought bread.', 'punctuation', 'Comma splice', 'Use a period. For example: "I went to the store. I bought bread."'),
+        at('The report it was written badly.', 'syntax', 'Repeated subject', 'Remove "it".')
+      ] }
+    })
+  })
+  await page.evaluate(() => window.dispatchEvent(new Event('tinto-ai-service')))
+  await checks.getByText('Add an AI key in Settings → Writing → AI service.').waitFor({ state: 'detached' })
+  assert.equal(await toggle.isDisabled(), false)
+  await manual(page)
+  assert.equal(await fixture.app.evaluate(() => globalThis.coachRequests.length), 0, 'off: nothing is sent')
+
+  await toggle.check()
+  checks = await manual(page)
+  const coach = checks.getByRole('region', { name: 'Writing coach', exact: true })
+  await coach.getByRole('status').filter({ hasText: '2 suggestions · gpt-6.2-astra' }).waitFor()
+  const [request] = await fixture.app.evaluate(() => globalThis.coachRequests)
+  assert.deepEqual(request, { language: 'en', blocks: [{ id: 'p1', text: first }, { id: 'p2', text: 'This paragraph is fine.' }] })
+  await coach.getByText('1 left out: not quoted exactly from your text.').waitFor()
+  // Local results come first, the coach below them.
+  assert.equal(await checks.evaluate(host => { const local = host.querySelector('.writing-results'), coach = host.querySelector('.writing-advanced'); return !!(local.compareDocumentPosition(coach) & Node.DOCUMENT_POSITION_FOLLOWING) }), true)
+  const splice = coach.getByRole('region', { name: 'Punctuation: I went to the store, I bought bread.', exact: true })
+  await splice.getByText('Punctuation · Comma splice').waitFor()
+  await splice.getByText('Explained Comma splice.').waitFor()
+  assert.match(await splice.innerText(), /Suggestion: Use a period\. For example: "I went to the store\. I bought bread\."/)
+  assert.equal(await splice.getByRole('button', { name: 'Apply' }).count(), 0)
+  assert.equal(await splice.getByRole('combobox').count(), 0)
+  assert.equal(await editor(page).locator('.tinto-coach').count(), 2)
+  await screenshot(page, 'coach-light')
+  await button(splice, 'I went to the store, I bought bread.').click()
+  assert.equal(await page.evaluate(() => getSelection().toString()), 'I went to the store, I bought bread.')
+
+  // The context menu offers the explanation, the suggestion and Dismiss only.
+  const subject = coach.getByRole('region', { name: 'Sentence structure: The report it was written badly.', exact: true })
+  await button(subject, 'The report it was written badly.').click()
+  assert.equal(await page.evaluate(() => document.activeElement.classList.contains('ProseMirror')), true, 'the passage is selected in the manuscript, ready to edit')
+  await editor(page).locator('.tinto-coach').nth(1).evaluate(el => {
+    el.closest('.ProseMirror').focus(); getSelection().collapse(el.firstChild, 4)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await page.keyboard.press('Shift+F10')
+  const menu = page.getByRole('menu', { name: 'Writing coach' })
+  await menu.getByText('Sentence structure · Repeated subject').waitFor()
+  await menu.getByText('Suggestion: Remove "it".').waitFor()
+  assert.deepEqual(await menu.getByRole('menuitem').allInnerTexts(), ['Dismiss'])
+  await page.keyboard.press('Escape')
+
+  await button(splice, 'Dismiss').click()
+  await splice.waitFor({ state: 'detached' })
+  assert.equal(await editor(page).locator('p').first().innerText(), first, 'the coach never changes the text')
+  await coach.getByRole('status').filter({ hasText: '1 suggestion · gpt-6.2-astra' }).waitFor()
+
+  // An edit leaves the note to be checked again.
+  await editor(page).locator('p').first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' Then I left.')
+  await coach.getByRole('status').filter({ hasText: 'Check again to include changes since the last review.' }).waitFor()
+  assert.equal(await editor(page).locator('.tinto-coach').count(), 0)
+
+  // A failing service leaves Harper's results in place.
+  await fixture.app.evaluate(() => { globalThis.coachFails = true })
+  await button(checks, 'Check again').click()
+  await coach.getByRole('status').filter({ hasText: 'The writing coach could not review this passage. OpenAI is limiting requests for this key. Wait a minute and check again.' }).waitFor()
+  await checks.locator('.settings-note[role=status]').first().filter({ hasText: /possible issue|No issues found/ }).waitFor()
+
+  await toggle.uncheck()
+  await coach.getByRole('status').waitFor({ state: 'detached' })
+  assert.equal(await page.getByLabel('Document spelling language', { exact: true }).locator('option[value=es]').innerText(), 'Spanish (Mexico)')
 })

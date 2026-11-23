@@ -24,7 +24,9 @@ const paths: Record<string, string> = {
   leaf: '<path d="M5 18C4 8 12 4 21 3c-1 9-4 16-14 15m-3 3L15 10"/>',
   // A clipboard: text that came from somewhere else.
   origins: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M8 12h8m-8 4h5"/>',
-  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5"/><path d="M12 17.2v.1"/>'
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5"/><path d="M12 17.2v.1"/>',
+  // Sparkles: the AI writing coach, which suggests and never writes.
+  sparkle: '<path d="M10 3.5 11.7 8.3 16.5 10l-4.8 1.7L10 16.5l-1.7-4.8L3.5 10l4.8-1.7Z"/><path d="M18 14.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9Z"/>'
 }
 export function icon(name: string): SVGSVGElement {
   const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg')

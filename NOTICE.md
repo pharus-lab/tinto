@@ -18,7 +18,7 @@ English spelling and grammar use the official **harper.js 3.2.0** package and it
 ## Dictionaries
 
 - **English and UK English** are provided by Harper.
-- **Spanish** (`dictionary-es`): available under GPL-3.0, LGPL-3.0 or MPL-1.1; Tinto distributes it under the MPL-1.1. The dictionary files are their own source.
+- **Spanish (Mexico)** (`dictionary-es-mx` 2.0.0): available under GPL-3.0, LGPL-3.0 or MPL-1.1; Tinto distributes it under the MPL-1.1. The dictionary files are their own source.
 
 ## Other components
 

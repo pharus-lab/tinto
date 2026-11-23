@@ -6,11 +6,16 @@ import { findSection, sectionKey } from './section'
 import { writingProse, proseRanges, manualCorrectionReason, replaceProse, type Prose } from './writing-prose'
 import { acceptWord, disableWritingRule, type WritingPreferences } from './writing-preferences'
 import { dictionaryLanguage, english, normalizedWord, supportedWritingLanguage, validPersonalWord, WRITING_BATCH_LIMIT, WRITING_BLOCK_LIMIT, type WritingDiagnostic, type WritingFailure, type WritingRequest, type WritingResponse } from './writing-types'
+import { COACH_LABELS, COACH_LIMIT, type AnchoredNote, type CoachRequest, type CoachResult } from './writing-coach'
+import { errorMessage } from './ui'
 
 type Status = 'idle' | 'checking' | 'ready' | 'edited' | 'error'
 interface BlockCheck { node: Node; diagnostics: WritingDiagnostic[] }
 interface ManualCheck { blocks: BlockCheck[]; status: Status; error?: WritingFailure }
 interface Ignored { node: Node; key: string }
+// A writing coach review of one scope. stale: the passage changed since it
+// was sent. Notes are kept only for blocks that are still unchanged.
+interface CoachCheck { token: number; status: 'checking' | 'ready' | 'error'; stale: boolean; checked: Node[]; notes: { node: Node; note: AnchoredNote }[]; dropped: number; provider?: string; model?: string; error?: string }
 export interface WritingState {
   language: string
   markdown: boolean
@@ -19,9 +24,12 @@ export interface WritingState {
   automatic: BlockCheck[]
   manual: Map<string, ManualCheck>
   ignored: Ignored[]
+  coach: Map<string, CoachCheck>
+  coachDismissed: Ignored[]
   autoStatus: Status
   error?: WritingFailure
 }
+export interface CoachIssue { node: Node; offset: number; prose: Prose; note: AnchoredNote; key: string }
 export interface WritingIssue {
   node: Node
   offset: number
@@ -33,7 +41,10 @@ export interface WritingIssue {
 type WritingMeta =
   | { type: 'configure'; language?: string; markdown?: boolean; preferences?: WritingPreferences; reset?: boolean }
   | { type: 'view'; source: WritingState; fromDoc: Node; markdown: boolean }
-  | { type: 'manual' | 'dismiss' | 'retry' }
+  | { type: 'manual'; coach?: boolean }
+  | { type: 'dismiss' | 'retry' }
+  | { type: 'coach-results'; scope: string; token: number; notes: { node: Node; note: AnchoredNote }[]; dropped: number; provider?: string; model?: string; error?: string }
+  | { type: 'coach-dismiss'; node: Node; key: string }
   | { type: 'started'; revision: number }
   | { type: 'ignore'; node: Node; key: string }
   | { type: 'results'; revision: number; manual: boolean; blocks: BlockCheck[]; done: boolean; error?: WritingFailure }
@@ -80,19 +91,47 @@ export function writingStatus(state: EditorState) {
   return { status: manual?.status ?? value.autoStatus, error: manual ? manual.error : value.error, manual: !!manual, enabled: liveEnabled(value), language: value.language,
     spelling: !!manual || value.preferences.spelling, grammar: english(value.language) && (!!manual || value.preferences.grammar) }
 }
+const coachKey = (note: AnchoredNote) => JSON.stringify([note.from, note.to, note.kind, note.quote])
+// The coach's notes for the current scope, on passages that are unchanged.
+export function coachIssues(state: EditorState): CoachIssue[] {
+  const value = writingKey.getState(state)
+  const check = value?.coach.get(scopeOf(state))
+  if (!value || !check?.notes.length) return []
+  const offsets = new Map(scopedBlocks(state).map(({ node, offset }) => [node, offset]))
+  const issues: CoachIssue[] = []
+  for (const { node, note } of check.notes) {
+    const offset = offsets.get(node), key = coachKey(note)
+    if (offset === undefined || value.coachDismissed.some(item => item.node === node && item.key === key)) continue
+    const prose = writingProse(node, value.markdown)
+    if (prose.text.slice(note.from, note.to) !== note.quote) continue
+    issues.push({ node, offset, prose, note, key })
+  }
+  return issues.sort((a, b) => a.offset - b.offset || a.note.from - b.note.from)
+}
+export function coachStatus(state: EditorState) {
+  const value = writingKey.getState(state)!
+  const check = value.coach.get(scopeOf(state))
+  return { enabled: value.preferences.coach, check: check ? { status: check.status, stale: check.stale, provider: check.provider, model: check.model, dropped: check.dropped, error: check.error } : null }
+}
 function send(view: EditorView, meta: WritingMeta) { view.dispatch(view.state.tr.setMeta(writingKey, meta).setMeta('addToHistory', false)) }
 export function configureWriting(view: EditorView, config: Omit<Extract<WritingMeta, { type: 'configure' }>, 'type'>) { send(view, { type: 'configure', ...config }) }
+// Check writing runs Harper on the scope and, when the writer turned it on,
+// asks the writing coach too.
 export function checkWriting(view: EditorView) {
-  if (writingKey.getState(view.state)?.manual.get(scopeOf(view.state))?.status !== 'checking') send(view, { type: 'manual' })
+  const value = writingKey.getState(view.state)
+  if (value?.manual.get(scopeOf(view.state))?.status !== 'checking') send(view, { type: 'manual', coach: !!value?.preferences.coach && supportedWritingLanguage(value.language) })
 }
+export function dismissCoach(view: EditorView, issue: CoachIssue) { send(view, { type: 'coach-dismiss', node: issue.node, key: issue.key }) }
+export function selectCoach(view: EditorView, issue: CoachIssue) { selectPassage(view, issue.node, issue.offset, issue.prose, issue.note.from, issue.note.to) }
 export function dismissWriting(view: EditorView) { send(view, { type: 'dismiss' }) }
 export function retryWriting(view: EditorView) { send(view, { type: 'retry' }) }
 export function ignoreWriting(view: EditorView, issue: WritingIssue) { send(view, { type: 'ignore', node: issue.node, key: issue.key }) }
-export function selectWriting(view: EditorView, issue: WritingIssue) {
-  if (view.state.doc.nodeAt(issue.offset) !== issue.node) return
-  const ranges = proseRanges(issue.prose, issue.diagnostic.from, issue.diagnostic.to)
+export function selectWriting(view: EditorView, issue: WritingIssue) { selectPassage(view, issue.node, issue.offset, issue.prose, issue.diagnostic.from, issue.diagnostic.to) }
+function selectPassage(view: EditorView, node: Node, offset: number, prose: Prose, from: number, to: number) {
+  if (view.state.doc.nodeAt(offset) !== node) return
+  const ranges = proseRanges(prose, from, to)
   if (!ranges.length) return
-  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, issue.offset + ranges[0].from, issue.offset + ranges.at(-1)!.to)).scrollIntoView())
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, offset + ranges[0].from, offset + ranges.at(-1)!.to)).scrollIntoView())
   view.focus()
 }
 export function applyWriting(view: EditorView, issue: WritingIssue, index: number): boolean {
@@ -107,26 +146,43 @@ export function applyWriting(view: EditorView, issue: WritingIssue, index: numbe
   return true
 }
 
-export function writingPlugin(options: { language: string; preferences: WritingPreferences; check: (request: WritingRequest) => Promise<WritingResponse>; changed?: () => void; message?: (message: string) => void }): Plugin<WritingState> {
+export function writingPlugin(options: { language: string; preferences: WritingPreferences; check: (request: WritingRequest) => Promise<WritingResponse>; coach?: (request: CoachRequest) => Promise<CoachResult>; changed?: () => void; message?: (message: string) => void }): Plugin<WritingState> {
   let dismissMenu: (() => void) | undefined
   let revision = 0
+  let coachToken = 0
   let decorated: { doc: Node; value: WritingState; set: DecorationSet } | undefined
-  function menu(view: EditorView, position: number, x: number, y: number) {
-    const issue = writingIssues(view.state).find(item => proseRanges(item.prose, item.diagnostic.from, item.diagnostic.to).some(range => position >= item.offset + range.from && position <= item.offset + range.to))
-    if (!issue) return false
+  function menu(view: EditorView, position: number, x: number, y: number, preferCoach = false) {
+    const at = (offset: number, prose: Prose, from: number, to: number) => proseRanges(prose, from, to).some(range => position >= offset + range.from && position <= offset + range.to)
+    // A coach note offers its explanation and suggestion, and Dismiss only.
+    const coachNote = coachIssues(view.state).find(item => at(item.offset, item.prose, item.note.from, item.note.to))
+    const issue = preferCoach && coachNote ? undefined : writingIssues(view.state).find(item => at(item.offset, item.prose, item.diagnostic.from, item.diagnostic.to))
+    const note = issue ? undefined : coachNote
+    if (!issue && !note) return false
     dismissMenu?.()
     const doc = view.dom.ownerDocument, host = doc.createElement('div')
     host.className = 'tinto-spelling-menu'
-    host.setAttribute('role', 'menu'); host.setAttribute('aria-label', 'Writing suggestions')
-    const caption = doc.createElement('div')
-    caption.textContent = issue.diagnostic.message
-    host.append(caption)
+    host.setAttribute('role', 'menu'); host.setAttribute('aria-label', note ? 'Writing coach' : 'Writing suggestions')
+    function line(text: string, className = '') {
+      const div = doc.createElement('div'); div.textContent = text
+      if (className) div.className = className
+      host.append(div)
+    }
     function action(label: string, run: () => void) {
       const button = doc.createElement('button')
       button.type = 'button'; button.setAttribute('role', 'menuitem'); button.textContent = label
       button.onclick = () => { dismissMenu?.(); try { run() } catch (error) { options.message?.(String(error)) } }
       host.append(button)
     }
+    if (note) {
+      line(COACH_LABELS[note.note.kind] + ' · ' + note.note.title, 'coach-menu-title')
+      line(note.note.explanation)
+      if (note.note.suggestion) line('Suggestion: ' + note.note.suggestion, 'coach-menu-suggestion')
+      action('Dismiss', () => { dismissCoach(view, note); view.focus() })
+    } else if (issue) {
+      line(issue.diagnostic.message)
+      harperActions(issue)
+    }
+    function harperActions(issue: WritingIssue) {
     if (issue.manualReason) {
       const note = doc.createElement('div'); note.textContent = issue.manualReason; host.append(note)
     } else for (const [index, replacement] of issue.diagnostic.replacements.entries()) action(replacement.text || 'Remove', () => {
@@ -136,6 +192,7 @@ export function writingPlugin(options: { language: string; preferences: WritingP
     action('Ignore', () => { ignoreWriting(view, issue); view.focus() })
     if (issue.diagnostic.category === 'Spelling' && validPersonalWord(issue.diagnostic.source)) action('Add to personal dictionary', () => { acceptWord(writingKey.getState(view.state)!.language, issue.diagnostic.source); view.focus() })
     if (issue.diagnostic.category !== 'Spelling') action('Disable this grammar rule', () => { disableWritingRule(issue.diagnostic.rule); view.focus() })
+    }
     function outside(event: Event) { if (!host.contains(event.target as globalThis.Node)) dismissMenu?.() }
     dismissMenu = () => {
       doc.removeEventListener('pointerdown', outside, true); doc.removeEventListener('focusin', outside, true); doc.removeEventListener('scroll', outside, true)
@@ -160,12 +217,12 @@ export function writingPlugin(options: { language: string; preferences: WritingP
   return new Plugin<WritingState>({
     key: writingKey,
     state: {
-      init: () => ({ language: options.language, markdown: false, preferences: options.preferences, revision: ++revision, automatic: [], manual: new Map(), ignored: [], autoStatus: 'idle' }),
+      init: () => ({ language: options.language, markdown: false, preferences: options.preferences, revision: ++revision, automatic: [], manual: new Map(), ignored: [], coach: new Map(), coachDismissed: [], autoStatus: 'idle' }),
       apply(tr, previous, oldState, state) {
         const meta: WritingMeta | undefined = tr.getMeta(writingKey)
         const scopeChanged = scopeOf(oldState) !== scopeOf(state)
         if (!tr.docChanged && !meta && !scopeChanged) return previous
-        const next = { ...previous, manual: new Map(previous.manual) }
+        const next = { ...previous, manual: new Map(previous.manual), coach: new Map(previous.coach) }
         if (tr.docChanged || scopeChanged || (meta && ['configure', 'view', 'manual', 'dismiss', 'retry'].includes(meta.type))) {
           next.revision = ++revision
           next.autoStatus = 'idle'; next.error = undefined
@@ -184,6 +241,17 @@ export function writingPlugin(options: { language: string; preferences: WritingP
             const checked = new Set(blocks.map(item => item.node))
             if (blocks.length !== manual.blocks.length || [...inScope].some(node => !checked.has(node))) next.manual.set(scope, { ...manual, blocks, status: 'edited', error: undefined })
           }
+          next.coachDismissed = previous.coachDismissed.filter(item => nodes.has(item.node))
+          for (const [scope, check] of next.coach) {
+            const section = scope ? findSection(state.doc, scope) : null
+            if (scope && !section) { next.coach.delete(scope); continue }
+            const inScope = new Set<Node>()
+            state.doc.forEach((node, offset) => { if (!section || (offset >= section.from && offset < section.to)) inScope.add(node) })
+            const checked = check.checked.filter(node => inScope.has(node)), sent = new Set(check.checked)
+            if (checked.length !== check.checked.length || [...inScope].some(node => !sent.has(node))) {
+              next.coach.set(scope, { ...check, checked, notes: check.notes.filter(item => inScope.has(item.node)), stale: true })
+            }
+          }
         }
         if (meta?.type === 'view') {
           const nodes = new Map<Node, Node>()
@@ -199,21 +267,41 @@ export function writingPlugin(options: { language: string; preferences: WritingP
             const blocks = remap(manual.blocks)
             return [scope, { ...manual, blocks, status: blocks.length !== manual.blocks.length || manual.status === 'checking' ? 'edited' : manual.status }]
           }))
+          next.coach = new Map([...meta.source.coach].map(([scope, check]) => {
+            const checked = check.checked.filter(node => nodes.has(node)).map(node => nodes.get(node)!)
+            const notes = check.notes.filter(item => nodes.has(item.node)).map(item => ({ ...item, node: nodes.get(item.node)! }))
+            return [scope, { ...check, checked, notes, stale: check.stale || checked.length !== check.checked.length }]
+          }))
+          next.coachDismissed = meta.source.coachDismissed.filter(item => nodes.has(item.node)).map(item => ({ ...item, node: nodes.get(item.node)! }))
         } else if (meta?.type === 'configure') {
           const language = meta.language ?? next.language, markdown = meta.markdown ?? next.markdown
           if (language !== next.language || markdown !== next.markdown || meta.reset) {
             next.manual.clear(); next.ignored = []
+            next.coach.clear(); next.coachDismissed = []
           }
           const preferences = meta.preferences ?? next.preferences
+          // Turning the coach off removes its notes.
+          if (!preferences.coach) next.coach.clear()
           const dictionary = dictionaryLanguage(language)
-          const filtersChanged = JSON.stringify([next.preferences.words[dictionary], next.preferences.disabledRules]) !== JSON.stringify([preferences.words[dictionary], preferences.disabledRules])
+          const filtersChanged = JSON.stringify([next.preferences.words[dictionary], next.preferences.disabledRules, next.preferences.style]) !== JSON.stringify([preferences.words[dictionary], preferences.disabledRules, preferences.style])
           next.language = language; next.markdown = markdown; next.preferences = preferences
           next.automatic = []
           // Keep the original diagnostics so restoring a rule or removing an
           // accepted word can reveal an unchanged passage again.
           if (filtersChanged) for (const [scope, manual] of next.manual) next.manual.set(scope, { ...manual, status: 'edited', error: undefined })
-        } else if (meta?.type === 'manual') next.manual.set(scopeOf(state), { blocks: [], status: 'checking' })
-        else if (meta?.type === 'dismiss') next.manual.delete(scopeOf(state))
+        } else if (meta?.type === 'manual') {
+          next.manual.set(scopeOf(state), { blocks: [], status: 'checking' })
+          if (meta.coach) next.coach.set(scopeOf(state), { token: ++coachToken, status: 'checking', stale: false, checked: scopedBlocks(state).map(item => item.node), notes: [], dropped: 0 })
+          else next.coach.delete(scopeOf(state))
+        } else if (meta?.type === 'dismiss') { next.manual.delete(scopeOf(state)); next.coach.delete(scopeOf(state)) }
+        else if (meta?.type === 'coach-results') {
+          const check = next.coach.get(meta.scope)
+          if (check?.token === meta.token) {
+            // A result for a passage edited meanwhile keeps only unchanged blocks.
+            const kept = new Set(check.checked)
+            next.coach.set(meta.scope, { ...check, status: meta.error ? 'error' : 'ready', notes: meta.notes.filter(item => kept.has(item.node)), dropped: meta.dropped, provider: meta.provider, model: meta.model, error: meta.error })
+          }
+        } else if (meta?.type === 'coach-dismiss') next.coachDismissed = [...next.coachDismissed, { node: meta.node, key: meta.key }]
         else if (meta?.type === 'retry') next.automatic = []
         else if (meta?.type === 'ignore') next.ignored = [...next.ignored, { node: meta.node, key: meta.key }]
         else if (meta?.type === 'started' && meta.revision === next.revision) next.autoStatus = 'checking'
@@ -238,13 +326,16 @@ export function writingPlugin(options: { language: string; preferences: WritingP
           const spelling = issue.diagnostic.category === 'Spelling'
           decorations.push(Decoration.inline(issue.offset + range.from, issue.offset + range.to, { class: spelling ? 'tinto-misspelling' : 'tinto-grammar', 'data-word': issue.diagnostic.source, 'data-writing-rule': issue.diagnostic.rule }))
         }
+        for (const issue of coachIssues(state)) for (const range of proseRanges(issue.prose, issue.note.from, issue.note.to)) {
+          decorations.push(Decoration.inline(issue.offset + range.from, issue.offset + range.to, { class: 'tinto-coach', 'data-coach-note': issue.note.kind }))
+        }
         const set = DecorationSet.create(state.doc, decorations)
         decorated = { doc: state.doc, value, set }
         return set
       },
       handleDOMEvents: { contextmenu(view, event) {
-        const target = event.target instanceof Element ? event.target.closest('[data-writing-rule]') : null
-        if (!target || !menu(view, view.posAtDOM(target, 0), event.clientX, event.clientY)) return false
+        const target = event.target instanceof Element ? event.target.closest('[data-writing-rule], [data-coach-note]') : null
+        if (!target || !menu(view, view.posAtDOM(target, 0), event.clientX, event.clientY, target.hasAttribute('data-coach-note'))) return false
         event.preventDefault(); return true
       } },
       handleKeyDown(view, event) {
@@ -303,7 +394,7 @@ export function writingPlugin(options: { language: string; preferences: WritingP
             while (cursor < jobs.length && batch.length < 32 && length + jobs[cursor].text.length <= WRITING_BATCH_LIMIT) {
               const job = jobs[cursor++]; length += job.text.length; batch.push(job)
             }
-            const response = await options.check({ language: state.language, spelling: manual || state.preferences.spelling, grammar: english(state.language) && (manual || state.preferences.grammar), words: state.preferences.words[dictionaryLanguage(state.language)] ?? [], disabledRules: state.preferences.disabledRules, blocks: batch.map(({ id, text }) => ({ id, text })) })
+            const response = await options.check({ language: state.language, spelling: manual || state.preferences.spelling, grammar: english(state.language) && (manual || state.preferences.grammar), style: english(state.language) && state.preferences.style, words: state.preferences.words[dictionaryLanguage(state.language)] ?? [], disabledRules: state.preferences.disabledRules, blocks: batch.map(({ id, text }) => ({ id, text })) })
             if (!current()) return
             if (response.error) {
               send(view, { type: 'results', revision, manual, blocks: [], done: true, error: response.error })
@@ -329,11 +420,33 @@ export function writingPlugin(options: { language: string; preferences: WritingP
           if (scheduled && !destroyed) schedule()
         }
       }
+      // The writing coach is asked once per Check writing, with the chosen
+      // wording of the blocks checked. Its answer is placed on the blocks that
+      // are still unchanged; nothing in the manuscript is modified.
+      let coachSent = 0
+      function coach() {
+        const state = writingKey.getState(view.state)!, scope = scopeOf(view.state), check = state.coach.get(scope)
+        if (!check || check.status !== 'checking' || check.token === coachSent) return
+        const token = coachSent = check.token
+        const done = (result: Omit<Extract<WritingMeta, { type: 'coach-results' }>, 'type' | 'scope' | 'token'>) => { if (!destroyed) send(view, { type: 'coach-results', scope, token, ...result }) }
+        const nodes = new Map<string, Node>()
+        const blocks = check.checked.map(node => ({ node, text: writingProse(node, state.markdown).text })).filter(block => block.text.trim()).map((block, index) => {
+          nodes.set('p' + (index + 1), block.node)
+          return { id: 'p' + (index + 1), text: block.text }
+        })
+        if (!blocks.length) return queueMicrotask(() => done({ notes: [], dropped: 0 }))
+        if (blocks.reduce((sum, block) => sum + block.text.length, 0) > COACH_LIMIT) return queueMicrotask(() => done({ notes: [], dropped: 0, error: 'The writing coach reviews up to about 10,000 words at a time. Check a linked section instead.' }))
+        if (!options.coach) return queueMicrotask(() => done({ notes: [], dropped: 0, error: 'The writing coach is unavailable.' }))
+        options.coach({ language: state.language, blocks }).then(
+          result => done({ notes: result.notes.filter(note => nodes.has(note.block)).map(note => ({ node: nodes.get(note.block)!, note })), dropped: result.dropped, provider: result.provider, model: result.model }),
+          error => done({ notes: [], dropped: 0, error: errorMessage(error) })
+        )
+      }
       schedule()
       return {
         update(_view, previous) {
           const before = writingKey.getState(previous), after = writingKey.getState(view.state)
-          if (before !== after) notify()
+          if (before !== after) { notify(); coach() }
           if (before?.revision !== after?.revision) { dismissMenu?.(); schedule() }
         },
         destroy() { destroyed = true; clearTimeout(timer); dismissMenu?.() }

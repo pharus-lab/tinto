@@ -1,6 +1,7 @@
 import type { AuthorSummary, AuthorshipPreview, ManuscriptFont, DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, FilePick, PickedFile, PostOverview, PostState, PublishRequest, SiteSummary, TranslatorSummary } from './project-types'
 import type { TranslationResult, TranslationSource } from './translation'
 import type { WritingRequest, WritingResponse } from './writing-types'
+import type { CoachRequest, CoachResult } from './writing-coach'
 
 import type { ExportFormat, InputFile } from './exchange'
 import type { Manuscript } from './model'
@@ -50,6 +51,9 @@ export interface Desktop {
   translate(source: TranslationSource, from: string, to: string): Promise<TranslationResult>
   translateTexts(texts: string[], from: string, to: string): Promise<string[]>
   onTranslateProgress(listener: (done: number, total: number) => void): () => void
+  // The writing coach, with the AI service's key: notes only, never changes.
+  coachWriting(request: CoachRequest): Promise<CoachResult>
+  onCoachProgress(listener: (done: number, total: number) => void): () => void
   unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>
   pickFile(): Promise<InputFile | null>
   // font is the manuscript font choice; note says when the font could only be named.

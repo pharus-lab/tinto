@@ -9,11 +9,13 @@ import { _electron as electron } from 'playwright'
 
 const previousExecutable = process.env.TINTO_PREVIOUS_EXECUTABLE
 const currentExecutable = process.env.TINTO_PACKAGED_EXECUTABLE
+// The release being upgraded from: 1.0.0 unless TINTO_PREVIOUS_VERSION names another.
+const previousVersion = process.env.TINTO_PREVIOUS_VERSION ?? '1.0.0'
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const button = (scope, name) => scope.getByRole('button', { name, exact: true })
 const editor = page => page.locator('.ProseMirror:visible')
 
-test('the v1.0.0 project and profile survive the release upgrade and writing corrections', { timeout: 120_000 }, async t => {
+test('the v' + previousVersion + ' project and profile survive the release upgrade and writing corrections', { timeout: 120_000 }, async t => {
   assert.ok(previousExecutable && currentExecutable, 'Set TINTO_PREVIOUS_EXECUTABLE and TINTO_PACKAGED_EXECUTABLE to the mounted release executables.')
   const directory = await mkdtemp(join(tmpdir(), 'tinto-release-upgrade-'))
   const profile = join(directory, 'profile')
@@ -49,11 +51,14 @@ test('the v1.0.0 project and profile survive the release upgrade and writing cor
         const { characters, typed, intact } = await window.tinto.authorship(doc.id, null)
         authorship[doc.id] = { characters, typed, intact }
       }
-      return { project, history, drafts, authorship, reading: JSON.parse(localStorage.getItem('reading')) }
+      // A preference a newer release adds with an empty default changes nothing the writer chose.
+      const reading = JSON.parse(localStorage.getItem('reading'))
+      if (Array.isArray(reading?.hiddenTools) && !reading.hiddenTools.length) delete reading.hiddenTools
+      return { project, history, drafts, authorship, reading }
     })
   }
 
-  let page = await launch(previousExecutable, '1.0.0')
+  let page = await launch(previousExecutable, previousVersion)
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }) }, manuscripts)
   await button(page, 'Choose folder').click()
   await button(page, 'Open sample project').click()
@@ -86,7 +91,7 @@ test('the v1.0.0 project and profile survive the release upgrade and writing cor
   await close()
 
   // A restart establishes a persisted v1.0 baseline, including its close-time saves.
-  page = await launch(previousExecutable, '1.0.0')
+  page = await launch(previousExecutable, previousVersion)
   await editor(page).waitFor()
   const baseline = await snapshot(page)
   assert.equal(baseline.project.documents.length, 2)
@@ -124,5 +129,5 @@ test('the v1.0.0 project and profile survive the release upgrade and writing cor
   await editor(page).waitFor()
   assert.deepEqual(await snapshot(page), baseline, 'the upgraded app saves and reopens the project without altering its content or typing evidence after Apply/Undo')
   assert.deepEqual(rendererErrors, [])
-  t.diagnostic('v1.0.0 → ' + version + ': project, nested/hidden alternatives, draft comparison, named versions, authorship and reading preferences preserved; Harper defaults, Apply/Undo and restart passed.')
+  t.diagnostic('v' + previousVersion + ' → ' + version + ': project, nested/hidden alternatives, draft comparison, named versions, authorship and reading preferences preserved; Harper defaults, Apply/Undo and restart passed.')
 })

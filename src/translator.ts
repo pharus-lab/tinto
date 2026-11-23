@@ -6,10 +6,12 @@ import { join } from 'node:path'
 import { protect, reveal } from './secure-file'
 import { translationParts, type SourceBlock, type TranslationResult, type TranslationSource } from './translation'
 import type { TranslatorSummary } from './project-types'
+import { anchorNotes, coachInstructions, coachParts, COACH_SCHEMA, validateCoachRequest, type CoachRequest, type CoachResult } from './writing-coach'
 
-// Automatic translation with the writer's own API key: OpenAI, Anthropic (Claude)
-// or OpenRouter, each asked for a strict JSON schema. Only the text the writer
-// chooses to translate is sent, and providers that store responses are asked not to.
+// The writer's AI service, with their own API key: OpenAI, Anthropic (Claude)
+// or OpenRouter, each asked for a strict JSON schema. It translates documents
+// and runs the writing coach. Only the text the writer chooses to translate or
+// review is sent, and providers that store responses are asked not to.
 export type ProviderId = 'openai' | 'anthropic' | 'openrouter'
 export const PROVIDERS: Record<ProviderId, { name: string; model: string }> = {
   openai: { name: 'OpenAI', model: 'gpt-6.2-astra' },
@@ -22,8 +24,9 @@ export interface TranslatorSettings { provider: ProviderId; key: string; model: 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>
 const realFetch: Fetch = (input, init) => globalThis.fetch(input, init)
 
-const languageName = (code: string) => {
-  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code } catch { return code }
+// Spanish documents (es) are written and translated in Mexican Spanish.
+export const languageName = (code: string) => {
+  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code === 'es' ? 'es-MX' : code) ?? code } catch { return code }
 }
 const BLOCKS = {
   type: 'object',
@@ -35,7 +38,13 @@ const BLOCKS = {
   additionalProperties: false
 }
 const TEXTS = { type: 'object', properties: { texts: { type: 'array', items: { type: 'string' } } }, required: ['texts'], additionalProperties: false }
-const unreadable = () => Error('The translation came back in a form Tinto could not read. Translate again.')
+// What the service is asked to do, for its error messages.
+export type Task = 'translate' | 'review'
+const TASK = {
+  translate: { verb: 'translate', again: 'translate again', unreadable: 'The translation came back in a form Tinto could not read. Translate again.', long: 'The translation was longer than {name} could return at once. Split the document and translate again.', stopped: '{name} stopped before finishing the translation. Translate again.', shorter: 'translate a shorter document' },
+  review: { verb: 'review', again: 'check again', unreadable: 'The writing coach\'s answer came back in a form Tinto could not read. Check again.', long: 'The writing coach had more to say than {name} could return at once. Check a shorter section.', stopped: '{name} stopped before finishing the review. Check again.', shorter: 'check a shorter section' }
+}
+const unreadable = (task: Task = 'translate') => Error(TASK[task].unreadable)
 const wait = () => new Promise(done => setTimeout(done, 1500))
 
 export function manuscriptInstructions(from: string, to: string) {
@@ -58,10 +67,27 @@ abstract class Translator {
   protected get name() { return PROVIDERS[this.settings.provider].name }
   // A key that can use the model can translate with it.
   abstract check(): Promise<void>
-  protected abstract respond(instructions: string, input: object, name: string, schema: object): Promise<string>
-  private async ask<T>(instructions: string, input: object, name: string, schema: object): Promise<T> {
-    const output = await this.respond(instructions, input, name, schema)
-    try { return JSON.parse(output) as T } catch { throw unreadable() }
+  protected abstract respond(instructions: string, input: object, name: string, schema: object, task: Task): Promise<string>
+  private async ask<T>(instructions: string, input: object, name: string, schema: object, task: Task = 'translate'): Promise<T> {
+    const output = await this.respond(instructions, input, name, schema, task)
+    try { return JSON.parse(output) as T } catch { throw unreadable(task) }
+  }
+
+  // The writing coach: notes on the chosen wording, each placed on the exact
+  // passage it quotes. Nothing in the manuscript is changed.
+  async coach(request: CoachRequest, progress: (done: number, total: number) => void = () => {}): Promise<CoachResult> {
+    const parts = coachParts(request.blocks)
+    const notes: CoachResult['notes'] = []
+    let dropped = 0
+    progress(0, parts.length)
+    for (const [index, part] of parts.entries()) {
+      const result = await this.ask<{ notes: unknown }>(coachInstructions(request.language), { blocks: part }, 'coaching', COACH_SCHEMA, 'review')
+      if (!Array.isArray(result?.notes)) throw unreadable('review')
+      const anchored = anchorNotes(part, result.notes)
+      notes.push(...anchored.notes); dropped += anchored.dropped
+      progress(index + 1, parts.length)
+    }
+    return { notes, dropped, provider: this.name, model: this.settings.model }
   }
 
   async translate(source: TranslationSource, from: string, to: string, progress: (done: number, total: number) => void = () => {}): Promise<TranslationResult> {
@@ -101,7 +127,7 @@ class ResponsesTranslator extends Translator {
     if (!model.supported_parameters?.includes('structured_outputs')) throw Error(this.settings.model + ' does not return structured output on OpenRouter, which Tinto needs to keep paragraphs in place. Choose another model.')
   }
 
-  protected async respond(instructions: string, input: object, name: string, schema: object): Promise<string> {
+  protected async respond(instructions: string, input: object, name: string, schema: object, task: Task): Promise<string> {
     const body = await this.call('/responses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -111,31 +137,31 @@ class ResponsesTranslator extends Translator {
         // Only providers that honor the schema may answer.
         ...(this.settings.provider === 'openrouter' ? { provider: { require_parameters: true } } : {})
       })
-    }, 600_000) as { status?: string; incomplete_details?: { reason?: string }; output?: { type?: string; content?: { type?: string; text?: string; refusal?: string }[] }[] }
+    }, 600_000, task) as { status?: string; incomplete_details?: { reason?: string }; output?: { type?: string; content?: { type?: string; text?: string; refusal?: string }[] }[] }
     if (body?.status === 'incomplete') {
-      throw Error(body.incomplete_details?.reason === 'max_output_tokens' ? 'The translation was longer than ' + this.name + ' could return at once. Split the document and translate again.' : this.name + ' stopped before finishing the translation. Translate again.')
+      throw Error((body.incomplete_details?.reason === 'max_output_tokens' ? TASK[task].long : TASK[task].stopped).replace('{name}', this.name))
     }
     const content = body?.output?.find(item => item?.type === 'message')?.content ?? []
     const refusal = content.find(part => part?.type === 'refusal')
-    if (refusal) throw Error(this.name + ' declined to translate this text' + (refusal.refusal ? ': ' + refusal.refusal : '.'))
+    if (refusal) throw Error(this.name + ' declined to ' + TASK[task].verb + ' this text' + (refusal.refusal ? ': ' + refusal.refusal : '.'))
     return String(content.find(part => part?.type === 'output_text')?.text)
   }
 
   // A busy service or a dropped connection gets one more try.
-  private async call(path: string, init: RequestInit, timeout: number): Promise<unknown> {
+  private async call(path: string, init: RequestInit, timeout: number, task: Task = 'translate'): Promise<unknown> {
     for (let attempt = 1; ; attempt++) {
       let response: Response
       try {
         response = await this.fetcher(this.api + path, { ...init, headers: { ...init.headers, Authorization: 'Bearer ' + this.settings.key, Accept: 'application/json' }, signal: AbortSignal.timeout(timeout) })
       } catch (error) {
-        if (error instanceof Error && error.name === 'TimeoutError') throw Error(this.name + ' took too long to answer. Try again, or translate a shorter document.')
+        if (error instanceof Error && error.name === 'TimeoutError') throw Error(this.name + ' took too long to answer. Try again, or ' + TASK[task].shorter + '.')
         if (attempt < 2) { await wait(); continue }
         throw Error('Tinto could not reach ' + this.name + '. Check your connection and try again.')
       }
       const body = await response.json().catch(() => null) as { error?: { code?: string } } | null
       if (response.ok) return body
       if (response.status >= 500 && attempt < 2) { await wait(); continue }
-      throw explain(this.name, this.settings.model, response.status, body?.error?.code)
+      throw explain(this.name, this.settings.model, response.status, body?.error?.code, task)
     }
   }
 }
@@ -148,7 +174,7 @@ class ClaudeTranslator extends Translator {
     try { await this.client.models.retrieve(this.settings.model) } catch (error) { throw this.failure(error) }
   }
 
-  protected async respond(instructions: string, input: object, _name: string, schema: object): Promise<string> {
+  protected async respond(instructions: string, input: object, _name: string, schema: object, task: Task): Promise<string> {
     const { model } = this.settings
     // The current Claude models take an effort level; on a refusal, the API
     // can finish the request with another model in the same call.
@@ -162,29 +188,29 @@ class ClaudeTranslator extends Translator {
         output_config: { format: { type: 'json_schema', schema: schema as Record<string, unknown> }, ...(current ? { effort: 'medium' as const } : {}) },
         ...(fallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
       })
-    } catch (error) { throw this.failure(error) }
-    if (message.stop_reason === 'refusal') throw Error('Claude declined to translate this text.')
-    if (message.stop_reason === 'max_tokens') throw Error('The translation was longer than Claude could return at once. Split the document and translate again.')
+    } catch (error) { throw this.failure(error, task) }
+    if (message.stop_reason === 'refusal') throw Error('Claude declined to ' + TASK[task].verb + ' this text.')
+    if (message.stop_reason === 'max_tokens') throw Error(TASK[task].long.replace('{name}', 'Claude'))
     const text = message.content.find(block => block.type === 'text')
     return text?.type === 'text' ? text.text : ''
   }
 
-  private failure(error: unknown): Error {
-    if (error instanceof Anthropic.APIConnectionTimeoutError) return Error('Anthropic took too long to answer. Try again, or translate a shorter document.')
+  private failure(error: unknown, task: Task = 'translate'): Error {
+    if (error instanceof Anthropic.APIConnectionTimeoutError) return Error('Anthropic took too long to answer. Try again, or ' + TASK[task].shorter + '.')
     if (error instanceof Anthropic.APIConnectionError) return Error('Tinto could not reach Anthropic. Check your connection and try again.')
-    if (error instanceof Anthropic.APIError && typeof error.status === 'number') return explain(this.name, this.settings.model, error.status)
+    if (error instanceof Anthropic.APIError && typeof error.status === 'number') return explain(this.name, this.settings.model, error.status, undefined, task)
     return error instanceof Error ? error : Error(String(error))
   }
 }
 
-function explain(name: string, model: string, status: number, code?: string): Error {
-  if (status === 401) return Error(name + ' rejected the API key. Check it in Settings → Writing → Automatic translation.')
-  if (status === 402 || (status === 429 && code === 'insufficient_quota')) return Error('Your ' + name + ' account has no credit left. Add credit, then translate again.')
+function explain(name: string, model: string, status: number, code?: string, task: Task = 'translate'): Error {
+  if (status === 401) return Error(name + ' rejected the API key. Check it in Settings → Writing → AI service.')
+  if (status === 402 || (status === 429 && code === 'insufficient_quota')) return Error('Your ' + name + ' account has no credit left. Add credit, then ' + TASK[task].again + '.')
   if (status === 403) return Error('This ' + name + ' key cannot use ' + model + '. Choose another model in Settings → Writing.')
   if (status === 404) return Error(name + ' has no model named ' + model + ' for this key. Check the model in Settings → Writing.')
-  if (status === 429) return Error(name + ' is limiting requests for this key. Wait a minute and translate again.')
+  if (status === 429) return Error(name + ' is limiting requests for this key. Wait a minute and ' + TASK[task].again + '.')
   if (status >= 500) return Error(name + ' is unavailable right now. Try again in a minute.')
-  return Error(name + ' could not translate this text (error ' + status + ').')
+  return Error(name + ' could not ' + TASK[task].verb + ' this text (error ' + status + ').')
 }
 
 export function createTranslator(settings: TranslatorSettings, fetcher: Fetch = realFetch): Translator {
@@ -204,7 +230,7 @@ export function registerTranslation(context: TranslatorContext) {
   }
   async function translator() {
     const saved = await settings()
-    if (!saved) throw Error('Add an API key in Settings → Writing → Automatic translation.')
+    if (!saved) throw Error('Add an API key in Settings → Writing → AI service.')
     return createTranslator(saved)
   }
   const summary = (saved: TranslatorSettings | null): TranslatorSummary | null => saved ? { provider: saved.provider, name: PROVIDERS[saved.provider].name, model: saved.model } : null
@@ -226,6 +252,14 @@ export function registerTranslation(context: TranslatorContext) {
     context.trusted(event)
     return (await translator()).translate(source, from, to, (done, total) => {
       if (!event.sender.isDestroyed()) event.sender.send('translator:progress', done, total)
+    })
+  })
+  // The writing coach reviews only what the writer sends with Check writing.
+  ipcMain.handle('coach:review', async (event, request: unknown) => {
+    context.trusted(event)
+    const valid = validateCoachRequest(request)
+    return (await translator()).coach(valid, (done, total) => {
+      if (!event.sender.isDestroyed()) event.sender.send('coach:progress', done, total)
     })
   })
   ipcMain.handle('translator:texts', async (event, texts: string[], from: string, to: string) => {

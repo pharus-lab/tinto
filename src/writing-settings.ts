@@ -1,13 +1,14 @@
 import { group } from './settings'
 import { acceptWord, saveWritingPreferences, writingPreferences } from './writing-preferences'
-import { button, element, errorMessage } from './ui'
+import { button, element, errorMessage, icon } from './ui'
 
 export function writingSettings(panel: HTMLElement, languages: [string, string][]) {
   const checks = group(panel, 'Writing checks')
   panel.prepend(checks)
   const checksStatus = element('p', 'settings-note'); checksStatus.setAttribute('role', 'status')
-  for (const [key, text] of [['spelling', 'Check spelling while typing'], ['grammar', 'Check English grammar while typing']] as const) {
+  for (const [key, text] of [['spelling', 'Check spelling while typing'], ['grammar', 'Check English grammar while typing'], ['style', 'Include style hints (wordiness, long sentences)'], ['coach', 'Writing coach (AI) in Check writing']] as const) {
     const row = element('label', 'field', text), toggle = element('input')
+    if (key === 'coach') row.prepend(icon('sparkle'))
     toggle.type = 'checkbox'; toggle.checked = writingPreferences()[key]
     toggle.onchange = () => {
       try {
@@ -20,7 +21,8 @@ export function writingSettings(panel: HTMLElement, languages: [string, string][
     }
     row.append(toggle); checks.append(row)
   }
-  checks.append(checksStatus, element('p', 'settings-note', 'Both start off. Check writing in the document toolbar checks on demand. Suggestions never change your writing unless you apply them. All checks run on this computer.'))
+  checks.append(checksStatus, element('p', 'settings-note', 'All start off. Check writing in the document toolbar checks on demand. Suggestions never change your writing unless you apply them. Spelling, grammar and style hints run on this computer.'),
+    element('p', 'settings-note', 'The writing coach uses the AI service below. It sends the document or linked section only when you press Check writing.'))
   const dictionary = group(panel, 'Personal dictionary')
   dictionary.append(element('p', 'settings-note', 'Accepted words are remembered across projects on this computer. English and English (UK) share one dictionary.'))
   const languageRow = element('label', 'field', 'Dictionary language'), language = element('select')
