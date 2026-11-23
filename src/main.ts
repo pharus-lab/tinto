@@ -3,12 +3,12 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { listPacks, readPack, installPack } from './dictionary-packs'
 import { registerBackups } from './backup-window'
 import { registerPublishing } from './publish-window'
 import { registerTranslation } from './translator'
 import { registerUpdates } from './updates'
 import { registerFonts } from './font-window'
+import { WritingService } from './writing-service'
 import { FONT_TYPES, FontLibrary } from './fonts'
 import { pickInputFile, exportFile } from './file-dialogs'
 import type { ExportFormat } from './exchange'
@@ -19,12 +19,14 @@ import { sampleManuscript } from './model'
 import type { DocumentRecord, DraftResolution } from './project-types'
 
 app.setName('Tinto')
+if (process.platform === 'linux') app.setDesktopName('tinto.desktop')
 if (process.env.TINTO_USER_DATA) app.setPath('userData', process.env.TINTO_USER_DATA)
 protocol.registerSchemesAsPrivileged([{ scheme: 'tinto', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 const entry = 'tinto://app/index.html'
 let library: ProjectLibrary
 let window: BrowserWindow | null = null
 let fonts: FontLibrary
+let writing: WritingService
 // Functions not yet ready for everyone appear only with TINTO_EXPERIMENTAL=1.
 const experimental = process.env.TINTO_EXPERIMENTAL === '1'
 
@@ -46,9 +48,6 @@ function registerProjectActions(updateBackupPath: (path: string, destination?: s
   })
   ipcMain.handle('draft:review', (event, id: string) => { trusted(event); return library.store.reviewDraft(id) })
   ipcMain.handle('draft:apply', (event, id: string, resolutions: DraftResolution[]) => { trusted(event); return library.store.applyDraft(id, resolutions) })
-  ipcMain.handle('packs:list', event => { trusted(event); return listPacks(app.getPath('userData')) })
-  ipcMain.handle('packs:read', (event, code: string) => { trusted(event); return readPack(app.getPath('userData'), code) })
-  ipcMain.handle('packs:install', (event, code: string) => { trusted(event); return installPack(app.getPath('userData'), code) })
   ipcMain.handle('library', event => { trusted(event); return library.state() })
   ipcMain.handle('library:choose', async (event, folder?: string) => {
     trusted(event)
@@ -147,6 +146,7 @@ async function openWindow() {
   window = new BrowserWindow({
     title: 'Tinto', width: 1240, height: 840, minWidth: 740, minHeight: 520, show: false,
     backgroundColor: '#FCFAF6', ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 20 } } : {}),
+    ...(process.platform === 'linux' ? { icon: join(__dirname, 'Tinto.png') } : {}),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false }
   })
   window.webContents.setWindowOpenHandler(({ url, frameName }) => {
@@ -176,6 +176,8 @@ function showWindow() {
 }
 
 if (primaryWindow) app.whenReady().then(async () => {
+  writing = new WritingService(__dirname)
+  ipcMain.handle('writing:check', (event, request: unknown) => { trusted(event); return writing.check(request) })
   fonts = new FontLibrary(join(app.getPath('userData'), 'fonts'))
   protocol.handle('tinto', async request => {
     const url = new URL(request.url)
@@ -186,8 +188,8 @@ if (primaryWindow) app.whenReady().then(async () => {
       const bytes = await fonts.bytes(font[1])
       return bytes ? new Response(bytes as Uint8Array<ArrayBuffer>, { headers: { 'Content-Type': FONT_TYPES[font[2]], 'Cache-Control': 'max-age=31536000, immutable' } }) : new Response(null, { status: 404 })
     }
-    const mime: Record<string, string> = { html: 'text/html', css: 'text/css', js: 'application/javascript', mjs: 'application/javascript', aff: 'text/plain', dic: 'text/plain' }
-    if (url.host !== 'app' || !/^(index\.html|app\.js|pdf(?:\.worker)?\.mjs|(?:styles|spelling|draft)\.css|dictionaries\/(en|es)\.(aff|dic))$/.test(path)) return new Response(null, { status: 404 })
+    const mime: Record<string, string> = { html: 'text/html', css: 'text/css', js: 'application/javascript', mjs: 'application/javascript' }
+    if (url.host !== 'app' || !/^(index\.html|app\.js|pdf(?:\.worker)?\.mjs|(?:styles|spelling|draft)\.css)$/.test(path)) return new Response(null, { status: 404 })
     const bytes = await readFile(join(__dirname, path))
     return new Response(bytes, { headers: { 'Content-Type': mime[extname(path).slice(1)] + '; charset=utf-8' } })
   })
@@ -213,4 +215,4 @@ if (primaryWindow) app.whenReady().then(async () => {
 }).catch(error => { dialog.showErrorBox('Tinto could not open the project', String(error)); app.quit() })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('will-quit', () => library?.close())
+app.on('will-quit', () => { writing?.stop(); library?.close() })

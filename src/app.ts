@@ -5,9 +5,11 @@ import { WritingEditor, type Format } from './editor'
 import { headingSpawns } from './section'
 import { manuscriptWithOrigin, newBlock, SAMPLE_SENTENCE, sectionRange, visibleText } from './model'
 import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
-import type { DictionaryPack } from './dictionary-packs'
 import './desktop'
-import { loadSpelling, setSpellingLanguage, spellingPlugin } from './spelling'
+import { checkWriting, configureWriting, writingPlugin } from './writing-checks'
+import { observeWritingPreferences, writingPreferences } from './writing-preferences'
+import { renderWritingChecks } from './writing-ui'
+import { writingSettings } from './writing-settings'
 import { renderAlternatives } from './alternatives'
 import { showDraftReview, createDraftDialog } from './draft-ui'
 import { homeItemDialog, renderHome, type HomeItem } from './home'
@@ -21,7 +23,7 @@ import { typographySettings } from './typography-settings'
 import { listCharacters, manuscriptCharacters, registerFontFaces } from './typography'
 import { trackWriting } from './writing-evidence'
 import { showHistory } from './history'
-import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks, type SettingsSection } from './settings'
+import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, type SettingsSection } from './settings'
 import { $, button, element, errorMessage, icon, spawnButton } from './ui'
 
 interface Tab { documentId: string; headingId: string | null; scroll: number; review: string | null }
@@ -43,11 +45,11 @@ let tabs: Tab[] = []
 let current: Tab | null = null
 let editor: WritingEditor | null = null
 let panelOpen = true
+let panelView: 'alternatives' | 'writing' = 'alternatives'
 let timer: ReturnType<typeof setTimeout>
 let noticeTimer: ReturnType<typeof setTimeout>
 let switching = 0
 let inspecting = false
-let packs: DictionaryPack[] = []
 
 function record(id: string) { return library.workspace!.project.documents.find(doc => doc.id === id)! }
 function activeDocument() { return current ? record(current.documentId) : null }
@@ -218,16 +220,30 @@ function drawCount() {
 }
 function review(id: string) {
   if (!current) return
+  panelView = 'alternatives'
   current.review = id
   drawPanel()
 }
 function drawPanel() {
-  const visible = !!current && panelOpen && !editor?.markdown
+  const visible = !!current && panelOpen && (panelView === 'writing' || !editor?.markdown)
   $('panel').hidden = !visible
-  $('toggle-alternatives').setAttribute('aria-expanded', String(visible))
+  $('toggle-alternatives').setAttribute('aria-expanded', String(visible && panelView === 'alternatives'))
+  $('check-writing').setAttribute('aria-expanded', String(visible && panelView === 'writing'))
   if (!editor || !current) return
-  editor.review(visible ? current.review : null)
-  if (visible) renderAlternatives($('choices'), editor, current.review, review)
+  const alternatives = panelView === 'alternatives'
+  $('panel-title').textContent = alternatives ? 'Alternatives' : 'Writing checks'
+  $('panel').setAttribute('aria-label', alternatives ? 'Alternatives' : 'Writing checks')
+  $('close-panel').setAttribute('aria-label', alternatives ? 'Close alternatives' : 'Close writing checks')
+  $('close-panel').title = alternatives ? 'Close alternatives' : 'Close writing checks'
+  for (const [id, selected] of [['panel-alternatives', alternatives], ['panel-writing', !alternatives]] as const) {
+    $(id).setAttribute('aria-selected', String(selected)); $(id).tabIndex = selected ? 0 : -1
+  }
+  ;($('panel-alternatives') as HTMLButtonElement).disabled = editor.markdown
+  $('choices').hidden = !alternatives
+  $('writing-checks').hidden = alternatives
+  editor.review(visible && alternatives ? current.review : null)
+  if (visible && alternatives) renderAlternatives($('choices'), editor, current.review, review)
+  else if (visible) renderWritingChecks($('writing-checks'), editor.view, notice)
 }
 function updateToolbar() {
   if (!editor || !current || inspecting) return
@@ -253,9 +269,6 @@ function updateSelection() {
   updateToolbar()
   current.review = editor.context()?.id ?? null
   drawPanel()
-}
-function checker(language: string) {
-  return loadSpelling(language, ['en','es'].includes(language) ? undefined : code => api.readPack(code))
 }
 async function selectTab(tab: Tab | null) {
   if (!tab && library.folder) {
@@ -294,17 +307,11 @@ async function switchTab(tab: Tab | null) {
     const doc = record(tab.documentId)
     let instance = editors.get(doc.id)
     if (!instance) {
-      let spelling
-      try { spelling = await checker(doc.language) }
-      catch (error) {
-        report(error)
-        spelling = { language: doc.language, correct: () => true, suggest: () => [] }
-      }
       if (epoch !== switching) return
       const host = element('div')
       $('editors').append(host)
       instance = new WritingEditor(host, doc.manuscript, {
-        plugins: [spellingPlugin(spelling), headingSpawns(() => record(doc.id).spawnedHeadingIds ?? [], openSpawn)], message: notice,
+        plugins: [writingPlugin({ language: doc.language, preferences: writingPreferences(), check: request => api.checkWriting(request), changed: () => { if (current?.documentId === doc.id && panelView === 'writing') drawPanel() }, message: notice }), headingSpawns(() => record(doc.id).spawnedHeadingIds ?? [], openSpawn)], message: notice,
         change(manuscript) {
           const updated = record(tab.documentId)
           updated.manuscript = manuscript
@@ -337,8 +344,7 @@ async function switchTab(tab: Tab | null) {
     }
     const group = tab.review && instance.view.dom.querySelector('[data-choice-id="' + CSS.escape(tab.review) + '"]')
     if (!group || group.closest('[aria-hidden=true]')) tab.review = null
-    if (![...language.options].some(option => option.value === doc.language)) language.add(new Option(doc.language + ' (dictionary needed)', doc.language))
-    language.value = doc.language
+    updateLanguages()
     $('draft-action').replaceChildren(icon('draft'), document.createTextNode(doc.source ? 'Review draft' : 'Create draft'))
     drawTranslationNote($('translation-note'), doc, library.workspace!.project.documents, { open: id => openDocument(id), again: translateDialog })
     scroll.scrollTop = tab.scroll
@@ -399,7 +405,7 @@ async function loadLibrary(next: LibraryState, showHome = false) {
   await switchTab(showHome ? null : selected)
   status('Saved locally', true)
   void checkManuscriptFont().catch(report)
-  void checkForUpdate()
+  startUpdateChecks()
 }
 async function changeFolder(action: 'choose'|'new', path?: string) {
   if (!flush()) return
@@ -502,30 +508,49 @@ async function deleteHomeItem(item: HomeItem) {
     await refreshHome(next)
   }, detail)
 }
+function revealPanel() {
+  if (matchMedia('(max-width: 580px)').matches && !$('panel').hidden) {
+    $('panel').scrollIntoView({ block: 'start' })
+    $('close-panel').focus({ preventScroll: true })
+  }
+}
 function togglePanel(open: boolean) {
   panelOpen = open
   if (open && current && !current.review) current.review = editor?.context()?.id ?? null
   drawPanel()
+  if (open) revealPanel()
   saveSession()
 }
-async function updateLanguages() {
-  packs = await api.listPacks()
-  language.replaceChildren(...languageOptions(packs).map(([code, name]) => new Option(name, code)))
-  language.value = activeDocument()?.language ?? prefs.defaultLanguage
-  const content = modal.querySelector<HTMLElement>('.settings-body')
-  if (content) updateSettingsPacks(content, packs, prefs.defaultLanguage)
+function updateLanguages() {
+  const code = activeDocument()?.language ?? prefs.defaultLanguage
+  language.replaceChildren(...languageOptions().map(([code, name]) => new Option(name, code)))
+  if (![...language.options].some(option => option.value === code)) {
+    const legacy = new Option(languageName(code) + ' (checks unavailable)', code)
+    legacy.disabled = true
+    language.add(legacy)
+  }
+  language.value = code
 }
 // The characters of every manuscript in the open project, to check a font against.
 function projectCharacters(): string | null {
   return library.workspace ? manuscriptCharacters(library.workspace.project.documents.map(doc => doc.manuscript)) : null
 }
-// A newer release is looked for once, when Tinto opens, unless the writer turned it off.
-let updateChecked = false
+// A newer release is looked for when Tinto opens, unless the writer turned it off.
+// It is looked for again once a day while Tinto stays open; each new version
+// is announced once per session.
+let updateTimer: ReturnType<typeof setInterval> | null = null
+let announced = ''
+function startUpdateChecks() {
+  if (updateTimer) return
+  void checkForUpdate()
+  updateTimer = setInterval(() => void checkForUpdate(), api.updateInterval)
+}
 async function checkForUpdate() {
-  if (updateChecked || !prefs.checkUpdates) return
-  updateChecked = true
+  if (!prefs.checkUpdates) return
   const release = await api.checkForUpdate().catch(() => null)
-  if (release) notice('Tinto ' + release.version + ' is available. You have ' + api.version + '.', () => api.openRelease(), 'Download')
+  if (!release || release.version === announced) return
+  announced = release.version
+  notice('Tinto ' + release.version + ' is available. You have ' + api.version + '.', () => api.openRelease(), 'Download')
 }
 // A font the writer added is checked once per project and session when the project opens.
 const fontChecks = new Set<string>()
@@ -545,14 +570,9 @@ async function checkManuscriptFont() {
   }
 }
 function settings(section?: SettingsSection) {
-  const panels = showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
-    await api.installPack(code)
-    await updateLanguages()
-    for (const [id, instance] of editors) {
-      if (record(id).language === code) setSpellingLanguage(instance.view, await checker(code))
-    }
-  }, section)
+  const panels = showSettings(modal, prefs, library.workspace?.path ?? null, section)
   typographySettings(panels, prefs, projectCharacters)
+  writingSettings(panels.writing, languageOptions())
   // Drive backup has not been tried with a real Google account yet, so it is experimental.
   if (library.workspace && api.experimental) backupSettings(panels.project, flush, () => {
     modal.close()
@@ -615,7 +635,7 @@ function publishDialog() {
   if (!doc || !current || !flush()) return
   // The credential includes the writing measured up to now.
   for (const tracker of evidence.values()) tracker.flush()
-  const nameOf = (code: string) => languageOptions(packs).find(([value]) => value === code)?.[1] ?? languageName(code)
+  const nameOf = (code: string) => languageOptions().find(([value]) => value === code)?.[1] ?? languageName(code)
   const title = current.headingId ? label(current) : doc.title
   // A translation goes out with its original, and an original with its first translation.
   const documents = library.workspace!.project.documents
@@ -636,7 +656,7 @@ function translateDialog() {
   if (!doc || !workspace) return
   const where = { path: workspace.path, projectId: workspace.project.id }
   void showTranslate(modal, {
-    doc, documents: workspace.project.documents, languages: languageOptions(packs), flush, notice,
+    doc, documents: workspace.project.documents, languages: languageOptions(), flush, notice,
     create(next) {
       const problem = api.save(where.path, where.projectId, next)
       if (problem) return problem
@@ -700,7 +720,18 @@ function wire() {
   $('home-tab').querySelector('button')!.onclick = () => void selectTab(null).catch(report)
   $('heading-list').addEventListener('beforetoggle', event => { if (event.newState === 'open') drawHeadingList() })
   $('toolbar').onmousedown = event => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }
-  $('toggle-alternatives').onclick = () => togglePanel(!panelOpen)
+  $('toggle-alternatives').onclick = () => { const open = !panelOpen || panelView !== 'alternatives'; panelView = 'alternatives'; togglePanel(open) }
+  $('check-writing').onclick = () => { if (!editor) return; panelView = 'writing'; panelOpen = true; checkWriting(editor.view); drawPanel(); revealPanel(); saveSession() }
+  $('panel-alternatives').onclick = () => { panelView = 'alternatives'; drawPanel() }
+  $('panel-writing').onclick = () => { panelView = 'writing'; drawPanel() }
+  $('panel-tabs').onkeydown = event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const id = event.key === 'Home' ? 'panel-alternatives' : event.key === 'End' ? 'panel-writing' : panelView === 'writing' ? 'panel-alternatives' : 'panel-writing'
+    const tab = $(id) as HTMLButtonElement
+    if (!tab.disabled) { tab.click(); tab.focus() }
+  }
+  observeWritingPreferences(preferences => { for (const instance of editors.values()) configureWriting(instance.view, { preferences }) })
   $('markdown').onclick = () => {
     if (!editor || !current) return
     editor.setMarkdown(!editor.markdown)
@@ -710,10 +741,10 @@ function wire() {
     drawTrail()
     editor.view.focus()
   }
-  $('close-panel').onclick = () => { togglePanel(false); $('toggle-alternatives').focus() }
+  $('close-panel').onclick = () => { togglePanel(false); $(panelView === 'writing' ? 'check-writing' : 'toggle-alternatives').focus() }
   $('add-alternative').onclick = () => {
     const id = editor?.addAlternative()
-    if (id) { panelOpen = true; review(id) }
+    if (id) { panelOpen = true; review(id); revealPanel() }
   }
   document.querySelectorAll<HTMLElement>('[data-format]').forEach(el => { el.onclick = () => editor?.format(el.dataset.format as Format) })
   blockStyle.onchange = () => editor?.format(blockStyle.value as Format)
@@ -739,9 +770,7 @@ function wire() {
     const code = language.value
     if (!doc || !target) return
     try {
-      const spelling = await checker(code)
-      if (doc !== activeDocument() || language.value !== code) return
-      setSpellingLanguage(target.view, spelling)
+      configureWriting(target.view, { language: code })
       doc.language = code
       changed(doc)
     } catch (error) { language.value = doc.language; report(error) }
@@ -769,7 +798,7 @@ async function start() {
   applyPreferences(prefs)
   registerFontFaces(await api.fonts().catch(() => []))
   wire()
-  await updateLanguages()
+  updateLanguages()
   await loadLibrary(await api.library())
 }
 void start().catch(error => { status('Could not open editor'); report(error) })

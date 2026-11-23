@@ -1,15 +1,14 @@
 import { WritingEditor } from '../src/editor'
 import { renderAlternatives } from '../src/alternatives'
 import { newBlock } from '../src/model'
-import { loadSpelling, spellingPlugin } from '../src/spelling'
+import { writingPlugin } from '../src/writing-checks'
 
 const saved = await window.readManuscript()
 const doc = saved ?? { type: 'doc', content: [newBlock('I want to eat a cat.')] }
-const dictionary = await loadSpelling('en')
 const status = document.querySelector('output')
 let groupId = null
 const editor = new WritingEditor(document.querySelector('main'), doc, {
-  plugins: [spellingPlugin(dictionary)],
+  plugins: [writingPlugin({ language: 'en', preferences: { spelling: true, grammar: false, words: {}, disabledRules: [] }, check: request => window.checkWriting(request) })],
   selection() { if (groupId) showGroup(groupId) },
   message(message) { status.textContent = message }
 })

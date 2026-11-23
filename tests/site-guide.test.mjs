@@ -51,6 +51,7 @@ test('writing the module twice updates the code and keeps the site configuration
 async function simulate(app) {
   await app.evaluate(({ safeStorage, dialog, clipboard, shell }) => {
     safeStorage.isAsyncEncryptionAvailable = async () => true
+    if (process.platform === 'linux') safeStorage.getSelectedStorageBackend = () => 'gnome_libsecret'
     safeStorage.encryptStringAsync = async text => Buffer.from('sealed:' + text)
     safeStorage.decryptStringAsync = async bytes => ({ result: Buffer.from(bytes).toString().slice(7), shouldReEncrypt: false })
     const state = globalThis.guide = { folders: [], answers: [], questions: [], copied: [], opened: [], requests: [], live: false }
@@ -86,6 +87,8 @@ test('the guide adds the module to a site, hands the agent its prompts, creates 
   const button = name => guide.getByRole('button', { name, exact: true })
   const status = guide.locator('.guide-status')
   await guide.getByRole('heading', { name: '1. Your site' }).waitFor()
+  assert.match(await guide.innerText(), /a coding agent that can edit and test it/)
+  assert.doesNotMatch(await guide.innerText(), /Claude|ChatGPT|Codex/)
   await button('Next').click()
   assert.equal(await status.innerText(), 'Give the website a name of up to 80 characters.')
   await guide.getByLabel('Site name', { exact: true }).fill('Field Notes')
@@ -126,10 +129,11 @@ test('the guide adds the module to a site, hands the agent its prompts, creates 
   await guide.getByRole('button', { name: 'Copy Design prompt' }).click()
   await status.getByText('Design prompt copied.').waitFor()
   const [connect, design] = (await guideState(fixture.app)).copied
-  for (const part of ['Tinto saved the module in ' + site + '/tinto.', 'name is "Field Notes" and site is "https://blog.example"', '"d1_databases": [{ "binding": "TINTO_DB" }]', '"r2_buckets": [{ "binding": "TINTO_MEDIA" }]',
+  for (const part of ['The module is in the tinto/ folder of this project.', 'name is "Field Notes" and site is "https://blog.example"', '"d1_databases": [{ "binding": "TINTO_DB" }]', '"r2_buckets": [{ "binding": "TINTO_MEDIA" }]',
     'after any redirect to the canonical host and before static assets', 'Do not create secrets, deploy, commit or push.', 'The publishing URL will be https://blog.example/api/tinto.']) {
     assert.ok(connect.includes(part), part)
   }
+  assert.ok(!connect.includes(site) && !design.includes(site), 'copied prompts omit the local absolute path')
   assert.match(design, /reuse the site's existing layout, components, typography and styles\. Do not add a new visual style\./)
   await button('Next').click()
 
@@ -145,6 +149,13 @@ test('the guide adds the module to a site, hands the agent its prompts, creates 
   assert.deepEqual(state.copied.slice(2), [key, 'npx wrangler secret put TINTO_API_KEY', 'npx wrangler secret put TINTO_DEPLOY_HOOK'])
   assert.deepEqual(state.opened, ['https://dash.cloudflare.com/?to=/:account/workers-and-pages'])
   assert.ok(await guide.getByText('https://blog.example/api/tinto/feed').isVisible())
+  await button('Back').click()
+  await guide.getByRole('button', { name: 'Copy Connect prompt' }).click()
+  await guide.getByRole('button', { name: 'Copy Design prompt' }).click()
+  const promptsWithKey = (await guideState(fixture.app)).copied.slice(-2)
+  assert.deepEqual(promptsWithKey, [connect, design])
+  assert.ok(promptsWithKey.every(prompt => !prompt.includes(key)))
+  await button('Next').click()
   await button('Next').click()
 
   await guide.getByRole('heading', { name: '5. Connect Tinto' }).waitFor()

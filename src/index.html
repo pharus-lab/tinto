@@ -15,7 +15,7 @@
       <div class="tab" id="home-tab"><button type="button" title="Home" data-tab-key="home"><i data-icon="home"></i><span class="tab-label">Home</span></button></div>
       <div id="document-tabs"></div>
     </nav>
-    <button id="settings" title="Reading and project settings" aria-label="Reading and project settings" ><i data-icon="settings"></i>Settings</button>
+    <button id="settings" title="Reading and project settings" aria-label="Reading and project settings" ><i data-icon="settings"></i><span>Settings</span></button>
   </header>
   <div class="location">
     <div class="location-start">
@@ -48,14 +48,17 @@
         <button id="add-alternative" aria-label="Add alternative" title="Add alternative"><i data-icon="branch"></i><span>Add alternative</span></button>
         <button id="show-origins" class="icon-button" aria-pressed="false" aria-label="Show pasted and imported text" title="Show pasted and imported text" data-icon="origins"></button>
         <span class="tool-fill"></span>
+        <button id="check-writing" aria-controls="panel" aria-expanded="false" title="Check this document or linked section">Check writing</button>
         <button id="undo" class="icon-button" aria-label="Undo" title="Undo" data-icon="undo"></button>
         <button id="redo" class="icon-button" aria-label="Redo" title="Redo" data-icon="redo"></button>
       </div>
       <div id="scroll"><div id="translation-note" class="translation-note" role="note" hidden></div><div id="editors"></div></div>
     </section>
     <aside id="panel" aria-label="Alternatives">
-      <header class="panel-title"><h2>Alternatives</h2><button id="close-panel" class="icon-button" title="Close alternatives" aria-label="Close alternatives" data-icon="close"></button></header>
-      <div id="choices"></div>
+      <header class="panel-title"><h2 id="panel-title">Alternatives</h2><button id="close-panel" class="icon-button" title="Close alternatives" aria-label="Close alternatives" data-icon="close"></button></header>
+      <div id="panel-tabs" role="tablist" aria-label="Sidebar views"><button id="panel-alternatives" role="tab" aria-selected="true" aria-controls="choices">Alternatives</button><button id="panel-writing" role="tab" aria-selected="false" aria-controls="writing-checks" tabindex="-1">Writing checks</button></div>
+      <div id="choices" role="tabpanel" aria-labelledby="panel-alternatives"></div>
+      <div id="writing-checks" role="tabpanel" aria-labelledby="panel-writing" hidden></div>
     </aside>
     <section id="home" aria-label="Home" hidden></section>
   </main>

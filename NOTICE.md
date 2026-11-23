@@ -11,9 +11,13 @@ Tinto converts Markdown, RTF, ODT and EPUB files with **pandoc 3.10**, compiled 
 - **Source code.** The complete source of pandoc 3.10 is attached to each Tinto release on GitHub as `pandoc-3.10.tar.gz`, and is also available at <https://hackage.haskell.org/package/pandoc-3.10/pandoc-3.10.tar.gz> and <https://github.com/jgm/pandoc/tree/3.10>.
 - The JavaScript wrapper `pandoc-wasm` is © Tweag I/O Limited, Johannes Wilm and contributors, under the MIT license.
 
+## Harper
+
+English spelling and grammar use the official **harper.js 3.2.0** package and its full, inlined WebAssembly engine. Harper is released under **Apache License 2.0**; the complete license is included as `licenses/harper.js-LICENSE` in the packaged app. Harper's source is available at <https://github.com/Automattic/harper/tree/v3.2.0>. Tinto does not modify or rebuild the bundled engine.
+
 ## Dictionaries
 
-- **English** (`dictionary-en`): MIT and BSD; the word list's notice is included in the app.
+- **English and UK English** are provided by Harper.
 - **Spanish** (`dictionary-es`): available under GPL-3.0, LGPL-3.0 or MPL-1.1; Tinto distributes it under the MPL-1.1. The dictionary files are their own source.
 
 ## Other components

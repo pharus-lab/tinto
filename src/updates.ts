@@ -1,12 +1,15 @@
 import { app, ipcMain, shell } from 'electron'
 
-// When Tinto opens, it asks GitHub once for the latest release and says so when
-// there is a newer version. Nothing from the writer's projects is sent, and the
-// writer can turn the check off in Settings → About. GitHub follows the
-// repository if it moves to another owner.
+// When Tinto opens, and then once a day while it stays open, it asks GitHub for
+// the latest release and says so when there is a newer version. Nothing from the
+// writer's projects is sent, and the writer can turn the check off in
+// Settings → About. GitHub follows the repository if it moves to another owner.
 const REPOSITORY = 'pharus-lab/tinto'
 const LATEST = process.env.TINTO_RELEASES_URL || 'https://api.github.com/repos/' + REPOSITORY + '/releases/latest'
 export interface Release { version: string; url: string }
+// A day between checks; tests shorten it with TINTO_UPDATE_INTERVAL_MS.
+const DAY = 24 * 60 * 60 * 1000
+const INTERVAL = Math.max(1000, Number(process.env.TINTO_UPDATE_INTERVAL_MS) || DAY)
 
 // Whether a version (1.2.3) is newer than another.
 export function newer(candidate: string, current: string): boolean {
@@ -34,6 +37,7 @@ export async function latestRelease(current: string, fetcher: typeof fetch = glo
 export function registerUpdates(context: { trusted(event: Electron.IpcMainInvokeEvent): void }) {
   let found: Release | null = null
   ipcMain.on('app:version', event => { event.returnValue = app.getVersion() })
+  ipcMain.on('app:update-interval', event => { event.returnValue = INTERVAL })
   ipcMain.handle('updates:check', async event => {
     context.trusted(event)
     found = await latestRelease(app.getVersion())

@@ -10,7 +10,16 @@
           "src/index.html"
         ],
         "createdAt": "2026-11-21T19:17:19.392Z",
-        "reason": "Audit 2026-11-21 (Claude): static guess about .location; the rendered DevTools scan of every screen shows its 50px bar centers its children with inset, so no cramped padding"
+        "reason": "Audit 2026-11-21: static guess about .location; the rendered DevTools scan of every screen shows its 50px bar centers its children with inset, so no cramped padding"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "assets/dmg-background.html"
+        ],
+        "createdAt": "2026-11-23T12:54:41.778Z",
+        "reason": "user chose DESIGN.md North Star Ink on Paper: Paper #FCFAF6 is the design system's paper token, reused by the installer window"
       }
     ]
   }

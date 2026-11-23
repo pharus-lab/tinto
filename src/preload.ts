@@ -2,9 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Desktop } from './desktop'
 
 const desktop: Desktop = {
+  checkWriting: request => ipcRenderer.invoke('writing:check', request),
   platform: process.platform,
   experimental: ipcRenderer.sendSync('app:experimental') === true,
   version: String(ipcRenderer.sendSync('app:version')),
+  updateInterval: Number(ipcRenderer.sendSync('app:update-interval')),
   checkForUpdate: () => ipcRenderer.invoke('updates:check'),
   openRelease: () => ipcRenderer.invoke('updates:open'),
   backupStatus: () => ipcRenderer.invoke('backup:status'),
@@ -62,9 +64,6 @@ const desktop: Desktop = {
   createDraft: (id, headingId, title) => ipcRenderer.invoke('draft:create', id, headingId, title),
   reviewDraft: id => ipcRenderer.invoke('draft:review', id),
   applyDraft: (id, resolutions) => ipcRenderer.invoke('draft:apply', id, resolutions),
-  listPacks: () => ipcRenderer.invoke('packs:list'),
-  readPack: code => ipcRenderer.invoke('packs:read', code),
-  installPack: code => ipcRenderer.invoke('packs:install', code),
   library: () => ipcRenderer.invoke('library'),
   chooseFolder: folder => ipcRenderer.invoke('library:choose', folder),
   newFolder: () => ipcRenderer.invoke('library:create'),

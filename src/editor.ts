@@ -6,7 +6,7 @@ import { closeHistory, history, redo, undo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
 import { copyInlines, markTags, newBlock, visibleText, type BlockJSON, type ChoiceJSON, type InlineJSON, type Manuscript, type OptionJSON, type TextJSON } from "./model";
 import { diffChars } from "diff";
-import { spellingKey } from "./spelling";
+import { writingKey } from "./writing-checks";
 import { markdownFormatting, markdownInlines, readMarkdownBlock } from "./exchange";
 import { findSection, linkedSection, sectionKey } from "./section";
 
@@ -600,8 +600,8 @@ export class WritingEditor {
     };
     const selection = TextSelection.create(next.doc, position(previous.selection.$anchor), position(previous.selection.$head));
     const selectionTr = next.tr.setSelection(selection).setMeta(sectionKey, section?.id ?? null).setMeta("addToHistory", false);
-    const checker = spellingKey.getState(previous)?.checker;
-    if (checker && checker !== spellingKey.getState(next)?.checker) selectionTr.setMeta(spellingKey, checker);
+    const checks = writingKey.getState(previous);
+    if (checks) selectionTr.setMeta(writingKey, { type: 'view', source: checks, fromDoc: previous.doc, markdown: enabled });
     next = next.apply(selectionTr);
     this.view.updateState(next);
 

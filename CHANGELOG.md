@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0 — 2026-11-23
+
+- Tinto also looks for a new version once a day while it stays open, not only when it opens. Each new version is announced once, and Settings → About still turns the check off.
+- Independent live spelling and English grammar checks, both off by default, with **Check writing** for the current document or linked section.
+- A Writing checks sidebar with explanations, individual corrections, Ignore, and controls to disable and restore grammar rules. Right-click and Shift+F10 offer the same suggestions.
+- A personal dictionary shared across projects on this computer, with shared accepted words for English dialects.
+- Writing controls retain the chosen replacement and focus as results arrive, avoid duplicate manual checks, and preserve saved preferences when storage fails. Restoring rules/removing accepted words can reveal retained results, with a clear refresh state after text or checking settings change.
+- Writing checks now support English, UK English, and Spanish only. The optional French dictionary download is removed; existing French documents keep their language and remain editable.
+- Website setup instructions work with any coding agent and use project-relative paths in copied prompts. The README includes screenshots of the main writing, draft review, history, checking, publishing, and website setup workflows.
+- Official Harper.js 3.2.0 runs locally in a dedicated worker with bundled WebAssembly. English and UK English need no download; Spanish retains nspell spelling support. Style, readability and word-choice advice are excluded.
+- Corrections preserve formatting, Markdown, chosen alternatives and existing text origins, and are individually undoable. Writing checks add no typing or AI-generation evidence, signed fields, or project migration.
+- The macOS installer, `Tinto-1.1.0-mac-arm64.dmg`, opens to a window that shows where to drag Tinto, and how to upgrade over an earlier version.
+- Version 1.1 targets macOS on Apple silicon. Linux distribution follows native Linux validation in a later release; the full checklist is in `docs/v1.1-release.md`.
+
 ## 1.0.0 — 2026-11-22
 
 The first release of Tinto, a local manuscript editor that keeps a writer's undecided wordings, drafts and history beside the text, translates them when asked, and publishes to the writer's own websites with signed authorship.

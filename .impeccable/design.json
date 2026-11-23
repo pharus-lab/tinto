@@ -1,163 +1,163 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-21T20:24:43+00:00",
+  "generatedAt": "2026-11-23T06:26:31.425Z",
   "title": "Design System: Tinto",
   "extensions": {
     "colorMeta": {
       "paper": {
         "role": "neutral",
         "displayName": "Paper",
-        "canonical": "oklch(98.6% 0.006 84.6)",
+        "canonical": "oklch(98.553% 0.00571 84.566)",
         "tonalRamp": [
           "#0C0B0A",
-          "#262523",
+          "#262522",
           "#43423F",
-          "#62615E",
-          "#84827F",
-          "#A6A5A2",
+          "#63615E",
+          "#84827E",
+          "#A7A5A1",
           "#CAC9C6",
-          "#EFEEEC"
+          "#EFEEED"
         ]
       },
       "paper-dark": {
         "role": "neutral",
         "displayName": "Paper (dark)",
-        "canonical": "oklch(23.2% 0.007 345.9)",
+        "canonical": "oklch(23.183% 0.00721 345.937)",
         "tonalRamp": [
           "#0C0B0B",
-          "#272425",
-          "#444142",
+          "#272426",
+          "#454043",
           "#646062",
           "#868183",
-          "#A8A3A6",
+          "#A9A3A6",
           "#CCC8CA",
-          "#F1EDEF"
+          "#EFEEEF"
         ]
       },
       "panel": {
         "role": "neutral",
         "displayName": "Panel Paper",
-        "canonical": "oklch(95.1% 0.008 73.7)",
+        "canonical": "oklch(95.083% 0.00796 73.743)",
         "tonalRamp": [
           "#0C0B09",
-          "#262522",
-          "#44423F",
-          "#64615D",
+          "#272521",
+          "#45413D",
+          "#64615C",
           "#85827D",
           "#A8A4A0",
-          "#CBC9C5",
-          "#F0EEEB"
+          "#CCC8C5",
+          "#EFEEED"
         ]
       },
       "panel-dark": {
         "role": "neutral",
         "displayName": "Panel Paper (dark)",
-        "canonical": "oklch(26.4% 0.010 346.2)",
+        "canonical": "oklch(26.406% 0.01048 346.151)",
         "tonalRamp": [
           "#0D0A0C",
-          "#272426",
-          "#454043",
-          "#655F62",
+          "#292326",
+          "#464043",
+          "#665F62",
           "#878084",
-          "#AAA3A6",
-          "#CDC7CA",
-          "#F2EDEF"
+          "#AAA2A6",
+          "#CEC7CA",
+          "#F0EEEF"
         ]
       },
       "ink": {
         "role": "neutral",
         "displayName": "Ink",
-        "canonical": "oklch(25.4% 0.008 351.5)",
+        "canonical": "oklch(25.416% 0.00839 351.537)",
         "tonalRamp": [
           "#0D0A0B",
-          "#272425",
-          "#454142",
-          "#656062",
+          "#282425",
+          "#464042",
+          "#655F62",
           "#878083",
           "#A9A3A5",
-          "#CCC7C9",
-          "#F1EDEF"
+          "#CDC7C9",
+          "#F0EEEE"
         ]
       },
       "ink-dark": {
         "role": "neutral",
         "displayName": "Ink (dark)",
-        "canonical": "oklch(95.1% 0.009 44.9)",
+        "canonical": "oklch(95.072% 0.00860 44.890)",
         "tonalRamp": [
           "#0D0B0A",
-          "#272423",
-          "#45413F",
-          "#65605E",
+          "#282422",
+          "#46413E",
+          "#66605D",
           "#87817E",
-          "#A9A4A1",
-          "#CDC8C6",
-          "#F2EDEC"
+          "#AAA3A1",
+          "#CDC8C5",
+          "#F0EEED"
         ]
       },
       "secondary": {
         "role": "neutral",
         "displayName": "Pencil Grey",
-        "canonical": "oklch(49.5% 0.013 10.7)",
+        "canonical": "oklch(49.527% 0.01294 10.672)",
         "tonalRamp": [
           "#0E0A0A",
-          "#292424",
-          "#474041",
-          "#675F60",
+          "#2A2324",
+          "#493F40",
+          "#685E5F",
           "#8A7F80",
-          "#ACA2A3",
-          "#CFC7C7",
-          "#F3ECED"
+          "#ADA2A3",
+          "#D0C6C7",
+          "#F0EEEE"
         ]
       },
       "secondary-dark": {
         "role": "neutral",
         "displayName": "Pencil Grey (dark)",
-        "canonical": "oklch(76.4% 0.018 3.8)",
+        "canonical": "oklch(76.435% 0.01771 3.805)",
         "tonalRamp": [
-          "#0E0A0B",
-          "#2A2324",
-          "#483F41",
-          "#695E60",
+          "#0F0A0B",
+          "#2C2224",
+          "#4B3E41",
+          "#6B5D60",
           "#8C7E81",
-          "#AEA1A4",
-          "#D1C6C8",
-          "#F5ECEE"
+          "#AFA1A4",
+          "#D2C5C8",
+          "#F1EDEE"
         ]
       },
       "wine": {
         "role": "primary",
         "displayName": "Tinto Wine",
-        "canonical": "oklch(48.2% 0.121 16.1)",
+        "canonical": "oklch(48.161% 0.12109 16.144)",
         "tonalRamp": [
-          "#1E0104",
-          "#421218",
-          "#692B31",
-          "#94454C",
-          "#BF6269",
-          "#DE8A8F",
-          "#FDB2B6",
-          "#FFDCDE"
+          "#1E0004",
+          "#4C0012",
+          "#751D2B",
+          "#9A3F49",
+          "#C06169",
+          "#E7848B",
+          "#FFAFB3",
+          "#FFE7E7"
         ]
       },
       "wine-dark": {
         "role": "primary",
         "displayName": "Tinto Wine (dark)",
-        "canonical": "oklch(75.5% 0.093 14.4)",
+        "canonical": "oklch(75.465% 0.09303 14.418)",
         "tonalRamp": [
-          "#1A0306",
-          "#3C181C",
-          "#613236",
-          "#894D53",
-          "#B36B71",
-          "#D29195",
-          "#F2B8BB",
-          "#FFE0E3"
+          "#1B0306",
+          "#440E18",
+          "#6A2932",
+          "#8E4951",
+          "#B36A71",
+          "#D98D93",
+          "#F7B5BA",
+          "#FEE9EA"
         ]
       },
       "on-wine": {
         "role": "primary",
         "displayName": "On Wine",
-        "canonical": "oklch(100.0% 0.000 89.9)",
+        "canonical": "oklch(100.000% 0.00000 89.876)",
         "tonalRamp": [
           "#0B0B0B",
           "#252525",
@@ -172,166 +172,196 @@
       "on-wine-dark": {
         "role": "primary",
         "displayName": "On Wine (dark)",
-        "canonical": "oklch(23.2% 0.027 3.0)",
+        "canonical": "oklch(23.158% 0.02657 2.987)",
         "tonalRamp": [
           "#10090B",
-          "#2C2224",
-          "#4C3E41",
-          "#6D5C60",
+          "#2F2024",
+          "#4F3C41",
+          "#6F5B60",
           "#917C81",
-          "#B29FA3",
-          "#D5C4C8",
-          "#F8EAED"
+          "#B49EA3",
+          "#D6C4C8",
+          "#F3EDEE"
         ]
       },
       "wash": {
         "role": "neutral",
         "displayName": "Wash",
-        "canonical": "oklch(93.4% 0.016 12.8)",
+        "canonical": "oklch(93.411% 0.01642 12.795)",
         "tonalRamp": [
           "#0E0A0A",
-          "#2A2324",
-          "#483F40",
-          "#695E5F",
+          "#2C2223",
+          "#4A3F3F",
+          "#6A5E5E",
           "#8C7F7F",
-          "#AEA2A2",
-          "#D1C6C7",
-          "#F5ECEC"
+          "#AFA1A2",
+          "#D2C6C7",
+          "#F1EDEE"
         ]
       },
       "wash-dark": {
         "role": "neutral",
         "displayName": "Wash (dark)",
-        "canonical": "oklch(32.8% 0.033 357.3)",
+        "canonical": "oklch(32.831% 0.03268 357.318)",
         "tonalRamp": [
           "#11080B",
-          "#2D2125",
-          "#4D3D42",
-          "#6F5B61",
+          "#311F25",
+          "#513B42",
+          "#715A61",
           "#937B82",
-          "#B59EA5",
-          "#D7C3C9",
-          "#FAE9EE"
+          "#B79DA5",
+          "#D9C2C9",
+          "#F3ECEE"
         ]
       },
       "divider": {
         "role": "neutral",
         "displayName": "Hairline",
-        "canonical": "oklch(86.7% 0.009 34.3)",
+        "canonical": "oklch(86.652% 0.00931 34.302)",
         "tonalRamp": [
           "#0D0A0A",
-          "#282423",
-          "#464140",
-          "#66605E",
+          "#292422",
+          "#47403F",
+          "#665F5E",
           "#88807F",
-          "#AAA3A2",
-          "#CDC8C6",
-          "#F2EDEC"
+          "#ABA3A1",
+          "#CEC7C6",
+          "#F0EEED"
         ]
       },
       "divider-dark": {
         "role": "neutral",
         "displayName": "Hairline (dark)",
-        "canonical": "oklch(37.7% 0.017 354.0)",
+        "canonical": "oklch(37.668% 0.01652 353.979)",
         "tonalRamp": [
           "#0E0A0B",
-          "#292325",
-          "#483F42",
-          "#685E62",
+          "#2B2225",
+          "#4A3E42",
+          "#695E62",
           "#8B7E83",
-          "#ADA2A5",
-          "#D0C6CA",
-          "#F4ECEF"
+          "#AEA1A6",
+          "#D1C6CA",
+          "#F1EDEE"
         ]
       },
       "outline": {
         "role": "neutral",
         "displayName": "Outline",
-        "canonical": "oklch(62.8% 0.019 4.0)",
+        "canonical": "oklch(62.771% 0.01867 3.978)",
         "tonalRamp": [
           "#0F0A0B",
-          "#2A2324",
-          "#493F41",
-          "#6A5E60",
+          "#2C2224",
+          "#4B3E41",
+          "#6B5D60",
           "#8D7E81",
-          "#AEA1A4",
-          "#D1C6C8",
-          "#F5ECED"
+          "#B0A0A4",
+          "#D3C5C8",
+          "#F1EDEE"
         ]
       },
       "outline-dark": {
         "role": "neutral",
         "displayName": "Outline (dark)",
-        "canonical": "oklch(59.2% 0.025 356.9)",
+        "canonical": "oklch(59.215% 0.02500 356.857)",
         "tonalRamp": [
-          "#0F090B",
-          "#2B2225",
-          "#4B3E42",
-          "#6C5C61",
-          "#8F7C82",
-          "#B1A0A5",
-          "#D4C5C9",
-          "#F7EBEE"
+          "#10090B",
+          "#2E2125",
+          "#4D3D42",
+          "#6E5C61",
+          "#907C82",
+          "#B39FA5",
+          "#D5C4C9",
+          "#F2EDEE"
         ]
       },
       "origin": {
         "role": "tertiary",
         "displayName": "Origin Sand",
-        "canonical": "oklch(92.7% 0.023 84.6)",
+        "canonical": "oklch(92.692% 0.02302 84.593)",
         "tonalRamp": [
           "#0D0B06",
-          "#28251D",
-          "#464138",
-          "#676154",
+          "#2A241A",
+          "#484134",
+          "#676053",
           "#898273",
-          "#ABA497",
-          "#CEC8BD",
-          "#F3EEE4"
+          "#ACA495",
+          "#CFC8BC",
+          "#F0EEEA"
         ]
       },
       "origin-dark": {
         "role": "tertiary",
         "displayName": "Origin Sand (dark)",
-        "canonical": "oklch(33.6% 0.014 54.1)",
+        "canonical": "oklch(33.574% 0.01432 54.080)",
         "tonalRamp": [
-          "#0E0A09",
-          "#292421",
-          "#47413D",
-          "#675F5B",
-          "#89807A",
-          "#ACA39E",
-          "#CFC7C3",
-          "#F3EDE9"
+          "#0E0A08",
+          "#2A241F",
+          "#48403B",
+          "#685F5A",
+          "#8A807A",
+          "#ADA39D",
+          "#D0C7C2",
+          "#F0EEEC"
         ]
       },
       "origin-ai": {
         "role": "tertiary",
         "displayName": "Origin Slate",
-        "canonical": "oklch(92.9% 0.014 258.3)",
+        "canonical": "oklch(92.906% 0.01380 258.346)",
         "tonalRamp": [
           "#090B0E",
-          "#232529",
-          "#3F4248",
-          "#5D6268",
+          "#21252B",
+          "#3E4249",
+          "#5C6269",
           "#7D838B",
-          "#A1A5AD",
-          "#C5C9D0",
-          "#EBEFF4"
+          "#A0A5AE",
+          "#C5C9D1",
+          "#EDEEF1"
         ]
       },
       "origin-ai-dark": {
         "role": "tertiary",
         "displayName": "Origin Slate (dark)",
-        "canonical": "oklch(32.4% 0.027 261.6)",
+        "canonical": "oklch(32.359% 0.02734 261.550)",
         "tonalRamp": [
           "#080B11",
-          "#21252D",
-          "#3C424D",
-          "#5A626F",
+          "#1F2531",
+          "#3A4251",
+          "#596271",
           "#798393",
-          "#9DA5B4",
-          "#C2CAD6",
-          "#E9EFFA"
+          "#9CA6B7",
+          "#C1CAD8",
+          "#ECEFF3"
+        ]
+      },
+      "history-addition": {
+        "role": "neutral",
+        "displayName": "History Addition",
+        "canonical": "oklch(93.286% 0.03234 145.310)",
+        "tonalRamp": [
+          "#070D07",
+          "#1C291D",
+          "#374738",
+          "#566656",
+          "#778877",
+          "#99AB99",
+          "#BFCEBF",
+          "#EBF0EB"
+        ]
+      },
+      "history-addition-dark": {
+        "role": "neutral",
+        "displayName": "History Addition (dark)",
+        "canonical": "oklch(36.334% 0.04202 161.591)",
+        "tonalRamp": [
+          "#040E08",
+          "#132B1F",
+          "#2D493B",
+          "#4C695A",
+          "#6C8B7A",
+          "#8EAE9D",
+          "#B6D1C2",
+          "#E9F1EC"
         ]
       }
     },
@@ -367,6 +397,18 @@
       "code": {
         "displayName": "Code",
         "purpose": "Commands, keys and agent prompts in the guide."
+      },
+      "supplementary": {
+        "displayName": "Supplementary",
+        "purpose": "Welcome explanations."
+      },
+      "section-title": {
+        "displayName": "Section title",
+        "purpose": "Guide and website subsection headings."
+      },
+      "passage": {
+        "displayName": "Passage",
+        "purpose": "The manuscript quoted by a writing suggestion."
       }
     },
     "shadows": [
@@ -393,12 +435,16 @@
         "value": "910px"
       },
       {
+        "name": "settings-row",
+        "value": "640px"
+      },
+      {
         "name": "compact",
         "value": "580px"
       },
       {
         "name": "toolbar-wrap",
-        "value": "460px (container)"
+        "value": "550px (container)"
       }
     ],
     "themes": [
@@ -467,8 +513,8 @@
       "kind": "nav",
       "refersTo": "tab-current",
       "description": "Browser-style tabs that open into the page.",
-      "html": "<div class=\"ds-tabs\"><span class=\"ds-tab\">Home</span><span class=\"ds-tab ds-current\">The long way home</span></div>",
-      "css": ".ds-tabs { display: flex; gap: 3px; padding-top: 9px; background: var(--panel, #F2EEE9); box-shadow: inset 0 -1px var(--divider, #D9D1CF); font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-tab { padding: 8px 12px; color: var(--secondary, #695F60); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; } .ds-tab:hover { color: var(--ink, #262123); } .ds-current { color: var(--ink, #262123); background: var(--paper, #FCFAF6); border-color: var(--divider, #D9D1CF); }"
+      "html": "<nav class=\"ds-tabs\" aria-label=\"Open documents\"><button class=\"ds-tab\">Home</button><button class=\"ds-tab ds-current\" aria-current=\"page\">The long way home</button></nav>",
+      "css": ".ds-tabs { display: flex; gap: 3px; padding-top: 9px; background: var(--panel, #F2EEE9); box-shadow: inset 0 -1px var(--divider, #D9D1CF); font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-tab { padding: 8px 12px; color: var(--secondary, #695F60); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; } .ds-tab:hover { color: var(--ink, #262123); } .ds-current { color: var(--ink, #262123); background: var(--paper, #FCFAF6); border-color: var(--divider, #D9D1CF); } .ds-tab { font: inherit; background: transparent; cursor: pointer; } .ds-tab.ds-current { background: var(--paper, #FCFAF6); } .ds-tab:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: -3px; }"
     },
     {
       "name": "Alternative Option",
@@ -492,20 +538,19 @@
       "refersTo": "dialog",
       "description": "A paper sheet lifted above the desk.",
       "html": "<div class=\"ds-dialog\"><h2>Publish</h2><p>95% written in Tinto · 5% pasted · signed as Mara Ruiz</p></div>",
-      "css": ".ds-dialog { width: 420px; padding: 24px; background: var(--paper, #FCFAF6); color: var(--ink, #262123); border: 1px solid var(--outline, #938487); border-radius: 9px; box-shadow: 0 15px 70px #170A1026; font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-dialog h2 { margin: 0 0 16px; font: 500 29px/1.2 \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif; letter-spacing: -.7px; } .ds-dialog p { margin: 0; color: var(--secondary, #695F60); }"
+      "css": ".ds-dialog { width: min(560px, 90vw); padding: 24px; background: var(--paper, #FCFAF6); color: var(--ink, #262123); border: 1px solid var(--outline, #938487); border-radius: 9px; box-shadow: var(--shadow-dialog, 0 15px 70px #170A1026); font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-dialog h2 { margin: 0 0 16px; font: 500 29px/1.2 \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif; letter-spacing: -.7px; } .ds-dialog p { margin: 0; color: var(--secondary, #695F60); }"
     },
     {
       "name": "Settings Sections",
-      "kind": "navigation",
-      "refersTo": "settings",
+      "kind": "nav",
       "description": "The vertical tab list of Settings; the chosen section takes Wash with wine text.",
-      "html": "<div class=\"ds-settings-nav\" role=\"tablist\" aria-orientation=\"vertical\"><button role=\"tab\" aria-selected=\"true\">Appearance</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Writing</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Websites</button></div>",
+      "html": "<div class=\"ds-settings-nav\" role=\"tablist\" aria-label=\"Settings sections\" aria-orientation=\"vertical\"><button role=\"tab\" aria-selected=\"true\" tabindex=\"0\">Appearance</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Writing</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Project</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Author</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Websites</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">About</button></div>",
       "css": ".ds-settings-nav { display: flex; flex-direction: column; gap: 2px; width: 152px; padding: 16px 12px; border-right: 1px solid var(--divider, #D9D1CF); font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-settings-nav button { min-height: 34px; padding: 6px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--secondary, #695F60); text-align: left; font: inherit; cursor: pointer; } .ds-settings-nav button:hover { background: var(--wash, #F4E5E6); color: var(--ink, #262123); } .ds-settings-nav button[aria-selected=true] { background: var(--wash, #F4E5E6); color: var(--wine, #963C46); font-weight: 600; } .ds-settings-nav button:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: -2px; }"
     }
   ],
   "narrative": {
     "northStar": "Ink on Paper",
-    "overview": "**Creative North Star: \"Ink on Paper\"**\n\nTinto is a writing desk, not a dashboard. The manuscript is ink, set in a book serif at reading size on warm paper. Everything around it is paper too: tabs, toolbars, panels and dialogs sit in the same family of off-whites (or deep plum-greys at night), separated by hairlines rather than boxes. The only strong color is wine, the ink of the name *tinto*. It marks what the writer chose, where the caret is, and the one action that matters in a dialog.\n\nThe interface speaks quietly in the system sans at 13px, so the serif belongs to the writing and to a few titles. Density is calm: generous margins around the text, compact controls at the edges. Depth comes from tone and hairlines. Shadows appear only on things that float above the page: dialogs, menus and notices.\n\nAuthorship marks follow the same restraint. Where words came from is shown only when asked, as a faint tint of a different paper behind them. It is never a badge or a color on the ink itself.",
+    "overview": "Tinto is a writing desk, not a dashboard. The manuscript is ink, set in a book serif at reading size on warm paper. Everything around it is paper too: tabs, toolbars, panels and dialogs sit in the same family of off-whites (or deep plum-greys at night), separated by hairlines rather than boxes. The only strong color is wine, the ink of the name *tinto*. It marks what the writer chose, where the caret is, and the one action that matters in a dialog.\n\nThe interface speaks quietly in the system sans at 13px, so the serif belongs to the writing and to a few titles. Density is calm: generous margins around the text, compact controls at the edges. Depth comes from tone and hairlines. Shadows appear only on things that float above the page: dialogs, menus and notices.\n\nAuthorship marks follow the same restraint. Where words came from is shown only when asked, as a faint tint of a different paper behind them. It is never a badge or a color on the ink itself.",
     "keyCharacteristics": [
       "A book serif for the manuscript and titles, and the system sans for the interface.",
       "Warm paper and wine ink, in light and dark through `light-dark()` tokens.",

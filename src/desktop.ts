@@ -1,8 +1,6 @@
 import type { AuthorSummary, AuthorshipPreview, ManuscriptFont, DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, FilePick, PickedFile, PostOverview, PostState, PublishRequest, SiteSummary, TranslatorSummary } from './project-types'
 import type { TranslationResult, TranslationSource } from './translation'
-
-import type { DictionaryPack } from './dictionary-packs'
-import type { DictionaryData } from './spelling'
+import type { WritingRequest, WritingResponse } from './writing-types'
 
 import type { ExportFormat, InputFile } from './exchange'
 import type { Manuscript } from './model'
@@ -11,6 +9,7 @@ import type { BackupStatus } from './backup-window'
 import type { DriveBackup } from './drive'
 
 export interface Desktop {
+  checkWriting(request: WritingRequest): Promise<WritingResponse>
   backupStatus(): Promise<BackupStatus>
   connectDrive(): Promise<BackupStatus>
   disconnectDrive(): Promise<BackupStatus>
@@ -55,9 +54,6 @@ export interface Desktop {
   pickFile(): Promise<InputFile | null>
   // font is the manuscript font choice; note says when the font could only be named.
   exportFile(format: ExportFormat, title: string, doc: Manuscript, language: string, font: string): Promise<false | { note: string | null }>
-  listPacks(): Promise<DictionaryPack[]>
-  readPack(code: string): Promise<DictionaryData>
-  installPack(code: string): Promise<void>
   createDraft(id: string, headingId: string | null, title: string): Promise<DocumentRecord>
   reviewDraft(id: string): Promise<DraftChange[]>
   applyDraft(id: string, resolutions: DraftResolution[]): Promise<{ source: DocumentRecord; draft: DocumentRecord }>
@@ -66,6 +62,8 @@ export interface Desktop {
   experimental: boolean
   version: string
   // A newer release on GitHub, checked once when Tinto opens.
+  // Milliseconds between checks while Tinto stays open: a day.
+  updateInterval: number
   checkForUpdate(): Promise<{ version: string; url: string } | null>
   openRelease(): Promise<void>
   library(): Promise<LibraryState>

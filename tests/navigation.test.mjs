@@ -177,7 +177,7 @@ test('a centered column is the default and narrows to fit without scrolling side
       return { left, width, right: pane.clientWidth - width - left }
     })
   }
-  const writing = () => page.getByRole('tab', { name: 'Writing' }).click()
+  const writing = () => page.getByRole('tab', { name: 'Writing', exact: true }).click()
   const sideways = () => page.locator('#scroll').evaluate(pane => pane.scrollWidth > pane.clientWidth)
   await resize(1100)
   await settings.click()
@@ -596,7 +596,8 @@ test('when Tinto opens, a newer release on GitHub is announced once, and the wri
   let page = await fixture.open()
   await fixture.app.evaluate(({ shell }) => { globalThis.opened = []; shell.openExternal = async url => { globalThis.opened.push(url) } })
   const notice = page.locator('#notice')
-  await notice.getByText('Tinto 9.9.9 is available. You have 1.0.0.').waitFor()
+  const version = await page.evaluate(() => window.tinto.version)
+  await notice.getByText('Tinto 9.9.9 is available. You have ' + version + '.').waitFor()
   await notice.getByRole('button', { name: 'Download', exact: true }).click()
   assert.deepEqual(await fixture.app.evaluate(() => globalThis.opened), ['https://github.com/pharus-lab/tinto/releases/tag/v9.9.9'])
   assert.equal(asked, 1)
@@ -605,8 +606,8 @@ test('when Tinto opens, a newer release on GitHub is announced once, and the wri
   await page.getByRole('button', { name: 'Reading and project settings' }).click()
   await modal.getByRole('tab', { name: 'About' }).click()
   const about = modal.getByRole('tabpanel', { name: 'About' })
-  await about.getByText('Tinto 1.0.0').waitFor()
-  const check = about.getByRole('checkbox', { name: 'Check for a new version when Tinto opens' })
+  await about.getByText('Tinto ' + version, { exact: true }).waitFor()
+  const check = about.getByRole('checkbox', { name: 'Check for new versions when Tinto opens and once a day' })
   assert.equal(await check.isChecked(), true)
   await check.uncheck()
   await fixture.close()
@@ -615,4 +616,41 @@ test('when Tinto opens, a newer release on GitHub is announced once, and the wri
   await page.waitForTimeout(1500)
   assert.equal(asked, 1, 'with the check off, Tinto asks nobody')
   assert.equal(await page.locator('#notice').getByText(/is available/).count(), 0)
+})
+
+test('while Tinto stays open it checks again once a day, announces each new version once, and stops when turned off', async t => {
+  const { createServer } = await import('node:http')
+  let asked = 0
+  let latest = '9.9.9'
+  const server = createServer((request, response) => {
+    asked++
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({ tag_name: 'v' + latest, html_url: 'https://github.com/pharus-lab/tinto/releases/tag/v' + latest, draft: false, prerelease: false }))
+  })
+  await new Promise(done => server.listen(0, '127.0.0.1', done))
+  t.after(() => server.close())
+  // A day, shortened for the test.
+  process.env.TINTO_RELEASES_URL = 'http://127.0.0.1:' + server.address().port + '/releases/latest'
+  process.env.TINTO_UPDATE_INTERVAL_MS = '1200'
+  t.after(() => { delete process.env.TINTO_RELEASES_URL; delete process.env.TINTO_UPDATE_INTERVAL_MS })
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const notice = page.locator('#notice')
+  await notice.getByText(/^Tinto 9\.9\.9 is available\./).waitFor()
+  await page.evaluate(() => { document.getElementById('notice').hidden = true })
+  const before = asked
+  await new Promise(done => setTimeout(done, 1600))
+  assert.ok(asked > before, 'Tinto asked again without reopening')
+  assert.equal(await notice.isHidden(), true, 'the same version is not announced twice')
+
+  latest = '9.9.10'
+  await notice.getByText(/^Tinto 9\.9\.10 is available\./).waitFor({ timeout: 5000 })
+
+  const modal = page.getByRole('dialog')
+  await page.getByRole('button', { name: 'Reading and project settings' }).click()
+  await modal.getByRole('tab', { name: 'About' }).click()
+  await modal.getByRole('tabpanel', { name: 'About' }).getByRole('checkbox', { name: 'Check for new versions when Tinto opens and once a day' }).uncheck()
+  const off = asked
+  await new Promise(done => setTimeout(done, 2600))
+  assert.equal(asked, off, 'with the check off, the daily check asks nobody')
 })

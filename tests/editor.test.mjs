@@ -6,6 +6,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { chromium } from 'playwright'
+import { writingService } from './writing-fixture.mjs'
 
 const root = new URL('../', import.meta.url)
 const html = `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/styles.css">
@@ -25,6 +26,7 @@ async function launchBrowser(t) {
 }
 
 async function prepareProof(t) {
+  const service = writingService(t)
   const bundle = await build({ entryPoints: [fileURLToPath(new URL('editor-fixture.js', import.meta.url))], platform: 'browser', format: 'esm', bundle: true, write: false })
   const folder = await mkdtemp(path.join(tmpdir(), 'tinto-editor-proof-'))
   t.after(() => rm(folder, { recursive: true, force: true }))
@@ -33,6 +35,7 @@ async function prepareProof(t) {
 
   return async function openManuscript() {
     const context = await browser.newContext()
+    await context.exposeBinding('checkWriting', (_source, request) => service.check(request))
     await context.exposeBinding('readManuscript', async () => {
       try {
         return JSON.parse(await readFile(file, 'utf8'))
@@ -47,11 +50,6 @@ async function prepareProof(t) {
       if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: html })
       if (pathname === '/editor.js') return route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0].text })
       if (pathname === '/styles.css') return route.fulfill({ contentType: 'text/css', body: await readFile(new URL('src/styles.css', root)) })
-      if (/^\/dictionaries\/en\.(dic|aff)$/.test(pathname)) {
-        const extension = path.extname(pathname)
-        const data = await readFile(new URL('node_modules/dictionary-en/index' + extension, root))
-        return route.fulfill({ contentType: 'text/plain', body: data })
-      }
       return route.abort()
     })
     const page = await context.newPage()
@@ -249,6 +247,7 @@ test('nested wording survives real typing, undo, option switching, save and reop
   assert.equal(await paragraph(page).textContent(), 'I want to eat cream.')
   await page.keyboard.press(undo)
   assert.equal(await paragraph(page).textContent(), 'I want to eat creem.')
+  await misspelling.waitFor()
   assert.equal(await misspelling.count(), 1)
   await button(page, 'ice cream').click()
   assert.equal(await paragraph(page).textContent(), 'I want to eat ice cream.')

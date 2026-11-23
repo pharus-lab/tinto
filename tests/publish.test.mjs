@@ -14,6 +14,7 @@ const sites = [
 async function simulateWebsites(app, files) {
   await app.evaluate(({ safeStorage, dialog, shell }, { files, sites }) => {
     safeStorage.isAsyncEncryptionAvailable = async () => true
+    if (process.platform === 'linux') safeStorage.getSelectedStorageBackend = () => 'gnome_libsecret'
     safeStorage.encryptStringAsync = async text => Buffer.from('sealed:' + text)
     safeStorage.decryptStringAsync = async bytes => ({ result: Buffer.from(bytes).toString().slice(7), shouldReEncrypt: false })
     globalThis.picks = []

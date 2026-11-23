@@ -21,7 +21,8 @@ export async function desktopFixture(t) {
   })
 
   async function launch() {
-    app = await electron.launch({ executablePath, args: executablePath ? [] : [root], cwd: root, env: { ...process.env, TINTO_USER_DATA: profile, TINTO_RELEASES_URL: process.env.TINTO_RELEASES_URL ?? 'http://127.0.0.1:9/releases/latest' } })
+    app = await electron.launch({ executablePath, chromiumSandbox: process.platform === 'linux' && !!executablePath, args: executablePath ? [] : [root], cwd: root, env: { ...process.env, TINTO_USER_DATA: profile, TINTO_RELEASES_URL: process.env.TINTO_RELEASES_URL ?? 'http://127.0.0.1:9/releases/latest' } })
+    app.once('close', () => { app = undefined })
     const page = await app.firstWindow()
     page.setDefaultTimeout(8000)
     await page.waitForURL('tinto://app/index.html')
@@ -39,7 +40,7 @@ export async function desktopFixture(t) {
     return page
   }
   async function close() {
-    await app.close()
+    if (app) await app.close()
     app = undefined
   }
   return { open, launch, close, directory, profile, folder, get app() { return app } }

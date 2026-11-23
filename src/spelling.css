@@ -11,6 +11,7 @@
   z-index: 40;
   display: grid;
   min-width: 11rem;
+  max-width: min(360px, calc(100vw - 8px));
   max-height: calc(100vh - 8px);
   overflow: auto;
   padding: 4px;
@@ -21,6 +22,25 @@
   box-shadow: var(--shadow);
   font: 14px/1.4 system-ui, sans-serif;
 }
+
+.tinto-grammar { text-decoration: underline dotted var(--wine); text-underline-offset: .22em; text-decoration-thickness: 1.5px; }
+#panel-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: -12px 0 24px; }
+#panel-tabs button { padding: 6px 8px; border-radius: 4px; color: var(--secondary); }
+#panel-tabs [aria-selected=true] { background: var(--wash); color: var(--ink); }
+.writing-actions { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.writing-actions button { white-space: normal; text-align: left; }
+.writing-results { margin-top: 24px; }
+.writing-result { padding: 0 0 20px; margin-bottom: 20px; border-bottom: 1px solid var(--divider); }
+.writing-passage { display: block; max-width: 100%; padding: 0; font: 19px/1.4 var(--serif); text-align: left; overflow-wrap: anywhere; white-space: pre-wrap; }
+.writing-explanation { margin: 10px 0; font-size: 13px; line-height: 1.5; }
+.writing-replacement { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.writing-replacement select { min-width: 0; flex: 1; }
+.writing-result .settings-note { margin-block: 10px; }
+.personal-word-form { display: flex; gap: 8px; margin: 12px 0; }
+.personal-word-form input { min-width: 0; flex: 1; padding: 7px 10px; border: 1px solid var(--outline); border-radius: 4px; background: var(--paper); }
+.personal-words { max-height: 190px; overflow: auto; }
+.personal-word { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding-block: 4px; }
+.personal-word span { min-width: 0; overflow-wrap: anywhere; }
 
 .tinto-spelling-menu > div { padding: 4px 8px; font-size: 12px; color: var(--secondary); }
 .tinto-spelling-menu button { padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; font: inherit; }

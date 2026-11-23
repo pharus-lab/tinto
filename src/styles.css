@@ -4,6 +4,7 @@
   --shadow: 0 4px 16px light-dark(#20081622, #0000004D);
   --shadow-dialog: 0 15px 70px light-dark(#170A1026, #00000066);
   --scrim: light-dark(#1B101C45, #00000080);
+  --history-addition: light-dark(#dcefdc, #294537);
   --size: 21px;
   --leading: 1.72;
   /* The book serif is the brand's; --serif is the writer's choice of manuscript font. */
@@ -99,7 +100,7 @@ body.mac .titlebar { padding-left: 88px; }
 .wordmark span { color: var(--wine); }
 #tabs { display: flex; height: 100%; min-width: 0; flex: 1; gap: 3px; padding-top: 9px; }
 #document-tabs { display: flex; min-width: 0; flex: 1; gap: 3px; overflow-x: auto; scrollbar-width: none; }
-.tab { display: inline-flex; flex: none; max-width: 260px; color: var(--secondary); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; }
+.tab { display: inline-flex; flex: none; max-width: min(260px, 100%); color: var(--secondary); border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; }
 .tab:hover { color: var(--ink); background: color-mix(in srgb, var(--wine) 9%, var(--panel)); box-shadow: inset 0 -1px var(--divider); }
 .tab.current { color: var(--ink); background: var(--paper); border-color: var(--divider); box-shadow: none; }
 .tab.current:hover { background: color-mix(in srgb, var(--wine) 4%, var(--paper)); border-color: var(--outline); }
@@ -111,8 +112,8 @@ body.mac .titlebar { padding-left: 88px; }
 .tab > .close-tab svg { width: 12px; height: 12px; }
 .tab > .close-tab:hover svg { stroke-width: 2.8; }
 .icon-button { width: 30px; height: 30px; padding: 6px; }
-.location { flex: none; display: flex; align-items: center; gap: 16px; justify-content: space-between; padding: 0 24px; height: 50px; border-bottom: 1px solid var(--divider); }
-.location-start { display: flex; align-items: center; min-width: 0; gap: 12px; }
+.location { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; justify-content: space-between; padding: 8px 24px; min-height: 50px; border-bottom: 1px solid var(--divider); }
+.location-start { display: flex; flex: 1 1 120px; align-items: center; min-width: 0; gap: 12px; }
 #headings { flex: none; anchor-name: --headings; }
 .down-chevron svg { width: 10px; height: 10px; transform: rotate(90deg); }
 #heading-list {
@@ -129,7 +130,7 @@ body.mac .titlebar { padding-left: 88px; }
 #trail span { text-overflow: ellipsis; overflow: hidden; }
 #trail span:last-child { color: var(--ink); }
 #trail .separator { width: 11px; height: 11px; }
-.tools { flex: none; }
+.tools { flex: 0 1 auto; max-width: 100%; flex-wrap: wrap; }
 .tools button { min-height: 30px; }
 #toggle-alternatives[aria-expanded=true] { color: var(--wine); background: var(--wash); }
 #workspace { flex: 1; min-height: 0; display: flex; }
@@ -233,10 +234,13 @@ dialog.alt-editor { position: fixed; inset: auto; margin: 0; padding: 10px; bord
 .alt-editor-notice { color: var(--wine); }
 .alt-actions { margin-top: 6px; font-size: 12px; color: var(--secondary); flex-wrap: wrap; }
 .alt-parent { color: var(--secondary); }
-footer { height: 34px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 20px; background: var(--panel); border-top: 1px solid var(--divider); color: var(--secondary); font-size: 12px; }
+footer { min-height: 34px; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; padding: 2px 20px; background: var(--panel); border-top: 1px solid var(--divider); color: var(--secondary); font-size: 12px; }
 footer svg { width: 14px; height: 14px; }
 #save-status, #language-label { display: inline-flex; align-items: center; gap: 6px; }
 #save-status svg { color: var(--wine); }
+#save-status, #word-count { white-space: nowrap; }
+#language-label { min-width: 0; max-width: 100%; }
+#language-label select { min-width: 0; }
 #notice { position: fixed; z-index: 30; bottom: 46px; left: 20px; max-width: min(520px,85vw); overflow-wrap: anywhere; padding: 12px 16px; border: 1px solid var(--outline); border-radius: 6px; background: var(--paper); box-shadow: var(--shadow); }
 #notice:has(button) { display: flex; align-items: center; gap: 12px; }
 #home { width: 100%; padding: 42px max(32px, calc((100% - 920px)/2)) 64px; }
@@ -365,7 +369,7 @@ dialog:has(> .history-body) { width: min(900px, 94vw); max-height: calc(100% - 3
 .history-block-style, .history-empty-line, .history-empty, .version-text details { color: var(--secondary); }
 .history-block-style + .history-prose { font-weight: 600; }
 .history-empty { text-align: center; margin: 20px; }
-.version-text ins { background: light-dark(#dcefdc, #294537); text-decoration: none; }
+.version-text ins { background: var(--history-addition); text-decoration: none; }
 .version-text del { background: var(--wash); text-decoration-color: var(--wine); }
 .version-text details { margin-top: 8px; font-size: 12px; }
 .version-text summary { cursor: pointer; }
@@ -386,20 +390,27 @@ dialog:has(> .history-body) { width: min(900px, 94vw); max-height: calc(100% - 3
   #add-alternative span { display: none; }
 }
 @media (max-width: 580px) {
+  #settings span, #home-tab .tab-label { display: none; }
+  .titlebar { padding-right: 8px; gap: 4px; }
+  #workspace { flex-direction: column; overflow: auto; }
+  #writing { flex: none; min-height: 260px; height: 75vh; }
   #home { padding: 24px 18px; }
   .home-heading, .folder-bar { flex-direction: column; align-items: stretch; gap: 12px; }
   .home-actions { flex-wrap: wrap; }
   .home-columns { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .document-list { padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--divider); }
-  .location { padding: 0 10px; gap: 6px; }
+  .location { padding: 6px 10px; gap: 4px; }
   #headings span { display: none; }
   .location-start { gap: 4px; }
   .tools { gap: 0; }
   .tools button { gap: 4px; padding-inline: 5px; }
   #history span { display: none; }
-  #panel { width: 42%; padding: 12px 8px; }
+  #panel { flex: none; width: 100%; overflow: visible; padding: 20px 16px; border-left: 0; border-top: 1px solid var(--divider); }
   .panel-title h2 { font-size: 21px; }
   .alt-group-header { flex-wrap: wrap; }
+  footer { gap: 4px 12px; padding-inline: 10px; }
+  footer .tool-fill { display: none; }
+  #language-label { margin-left: auto; }
 }
 .alt-check { flex: 0 0 14px; font: 600 14px system-ui; }
 .alt-arrow { min-width: 24px; height: 25px; font-size: 19px; line-height: 1; }

@@ -245,8 +245,10 @@ test('Markdown source edits headings and emphasis, keeps alternatives, and opens
   await first.evaluate(el => {
     el.closest('[contenteditable=true]').focus()
     window.getSelection().collapse(el.firstChild, 0)
+    document.dispatchEvent(new Event('selectionchange'))
   })
   await page.keyboard.insertText('#')
+  assert.equal(await source().locator('h1:visible, h2:visible').first().textContent(), '## The kitchen', 'the heading prefix changes before switching view')
   await toggle().click()
   assert.equal(await rich().locator('h2:visible').textContent(), 'The kitchen')
 
@@ -256,7 +258,7 @@ test('Markdown source edits headings and emphasis, keeps alternatives, and opens
   assert.match(await source().textContent(), /__example__ with \[a link\]\(https:\/\/example.org\)/)
   await toggle().click()
   await button(page, 'Reading and project settings').click()
-  await page.getByRole('tab', { name: 'Writing' }).click()
+  await page.getByRole('tab', { name: 'Writing', exact: true }).click()
   const preference = page.getByRole('checkbox', { name: setting })
   assert.equal(await preference.isChecked(), false)
   await preference.check()
@@ -314,6 +316,6 @@ test('Markdown source edits headings and emphasis, keeps alternatives, and opens
   assert.equal(await rich().locator('strong').textContent(), 'pasted')
   assert.equal(await rich().locator('h2 [data-origin=pasted]').textContent(), 'A pasted heading')
   await button(page, 'Reading and project settings').click()
-  await page.getByRole('tab', { name: 'Writing' }).click()
+  await page.getByRole('tab', { name: 'Writing', exact: true }).click()
   assert.equal(await page.getByRole('checkbox', { name: setting }).isChecked(), true)
 })

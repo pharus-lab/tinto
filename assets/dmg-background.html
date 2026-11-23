@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- The window of Tinto's installer DMG, 660×500 points. scripts/macos-dmg.mjs
+     places Tinto at (170, 150), Applications at (490, 150) and Install Tinto.txt
+     at (330, 410). After changing it, render it at 1x and 2x (for example with
+     Chrome at 660×500) and join the two images:
+     tiffutil -cathidpicheck background.png background@2x.png -out assets/dmg-background.tiff -->
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; width: 660px; height: 500px; background: #FCFAF6; overflow: hidden; }
+  body { position: relative; color: #262123; font-family: -apple-system, 'Helvetica Neue', sans-serif; }
+  .arrow { position: absolute; left: 246px; top: 122px; }
+  .rule { position: absolute; left: 60px; right: 60px; top: 254px; border-top: 1px solid #D9D1CF; }
+  h1 { position: absolute; top: 270px; width: 100%; margin: 0; text-align: center; font: 500 24px/1.2 'Iowan Old Style', Palatino, Georgia, serif; letter-spacing: -0.3px; }
+  p { position: absolute; width: 100%; margin: 0; text-align: center; font-size: 12.5px; line-height: 1.5; color: #695F60; }
+  .upgrade { top: 310px; }
+  .first { top: 330px; }
+</style></head><body>
+  <svg class="arrow" width="168" height="56" viewBox="0 0 168 56" aria-hidden="true">
+    <path d="M8 28 H150" stroke="#963C46" stroke-width="3" stroke-linecap="round" fill="none"/>
+    <path d="M136 14 L154 28 L136 42" stroke="#963C46" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </svg>
+  <div class="rule"></div>
+  <h1>Drag Tinto to Applications</h1>
+  <p class="upgrade">Already have Tinto? Quit it first, then choose <b>Replace</b>. Your manuscripts stay as they are.</p>
+  <p class="first">The first time you open it, choose <b>Open Anyway</b> in System Settings → Privacy &amp; Security.</p>
+</body></html>

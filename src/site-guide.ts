@@ -12,10 +12,9 @@ const BASE_PATH = '/api/tinto'
 export const publishingURL = (site: string) => site.replace(/\/+$/, '') + BASE_PATH
 
 export function connectPrompt(values: GuideValues): string {
-  const where = values.folder ? 'Tinto saved the module in ' + values.folder + '/tinto.' : 'The module is in the tinto/ folder of this project.'
   return `Connect the Tinto blog module to this website, so the Tinto writing app can publish posts to it.
 
-${where} Follow the "For coding agents" section of tinto/README.md. In short:
+The module is in the tinto/ folder of this project. Follow the "For coding agents" section of tinto/README.md. In short:
 1. Confirm that the site deploys to Cloudflare Workers (wrangler.jsonc, wrangler.json or wrangler.toml). If it does not, stop and tell me.
 2. In tinto/tinto.config.mjs, name is ${JSON.stringify(values.name)} and site is ${JSON.stringify(values.site)}. Set languages and postPath only if the site's routes need them. Leave author as it is: it is my author key. Do not change the other files in tinto/.
 3. Add the storage bindings without IDs, so Wrangler (4.45 or later) creates them on the next deploy:
@@ -96,7 +95,7 @@ export function showSiteGuide(onConnected: (site: SiteSummary) => void) {
     const needs = element('ul', 'guide-list')
     needs.append(
       element('li', '', 'A website that deploys to Cloudflare Workers. Its project folder has wrangler.jsonc, wrangler.json or wrangler.toml.'),
-      element('li', '', 'The website’s code on this computer, and a coding agent such as Claude Code.'),
+      element('li', '', 'The website’s code on this computer, and a coding agent that can edit and test it.'),
       element('li', '', 'Node.js, to run two Wrangler commands.')
     )
     const name = field('Site name', values.name)

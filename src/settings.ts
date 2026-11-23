@@ -1,6 +1,6 @@
 import { button, element } from './ui'
 import { THEMES, fontStack } from './typography'
-import type { DictionaryPack } from './dictionary-packs'
+import { supportedWritingLanguage, WRITING_LANGUAGES } from './writing-types'
 
 export interface Preferences {
   appearance: string
@@ -20,8 +20,9 @@ export interface Preferences {
 export function preferences(): Preferences {
   const saved = JSON.parse(localStorage.getItem('reading') ?? '{}')
   return {
-    appearance: 'system', theme: 'tinto', font: 'book', size: 21, leading: 1.72, defaultLanguage: 'en',
+    appearance: 'system', theme: 'tinto', font: 'book', size: 21, leading: 1.72,
     columnWidth: 680, sideMargin: 48, lineNumbers: false, markdownImports: false, checkUpdates: true, ...saved,
+    defaultLanguage: supportedWritingLanguage(saved?.defaultLanguage) ? saved.defaultLanguage : 'en',
     // A centered column of about 66 characters, unless the writer chose margins.
     textWidth: saved?.textWidth === 'fixed-margin' ? 'fixed-margin' : 'fixed-width'
   }
@@ -39,8 +40,8 @@ export function applyPreferences(prefs: Preferences) {
   style.setProperty('--side-margin', prefs.sideMargin + 'px')
   localStorage.setItem('reading', JSON.stringify(prefs))
 }
-export function languageOptions(packs: DictionaryPack[]): [string, string][] {
-  return [['en', 'English'], ['es', 'Spanish'], ...packs.filter(pack => pack.installed).map(pack => [pack.code, pack.name] as [string, string])]
+export function languageOptions(): [string, string][] {
+  return WRITING_LANGUAGES.map(([code, name]) => [code, name])
 }
 export function dialogHeader(dialog: HTMLDialogElement, title: string) {
   const head = element('div', 'dialog-head')
@@ -51,15 +52,6 @@ export function dialogHeader(dialog: HTMLDialogElement, title: string) {
   head.append(heading, close)
   return head
 }
-export function updateSettingsPacks(content: HTMLElement, packs: DictionaryPack[], defaultLanguage: string) {
-  const language = content.querySelector<HTMLSelectElement>('[name=default-language]')!
-  language.replaceChildren(...languageOptions(packs).map(([code, name]) => new Option(name, code)))
-  language.value = defaultLanguage
-  const available = content.querySelector<HTMLSelectElement>('[name=dictionary]')!
-  available.replaceChildren(...packs.filter(pack => !pack.installed).map(pack => new Option(pack.name, pack.code)))
-  available.closest<HTMLElement>('.dictionary-picker')!.hidden = !available.length
-}
-
 // Settings is one window with a section per subject, chosen from the list on the left.
 export type SettingsSection = 'appearance' | 'writing' | 'project' | 'author' | 'websites' | 'about'
 const SECTIONS: [SettingsSection, string][] = [
@@ -75,7 +67,7 @@ export function group(parent: HTMLElement, label?: string) {
   parent.append(section)
   return section
 }
-export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, projectPath: string | null, packs: DictionaryPack[], install: (language: string) => Promise<void>, section?: SettingsSection): SettingsPanels {
+export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, projectPath: string | null, section?: SettingsSection): SettingsPanels {
   const content = element('div', 'settings-body')
   const nav = element('div', 'settings-nav')
   nav.setAttribute('role', 'tablist')
@@ -178,29 +170,7 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
   checkbox(page, 'Show line numbers', 'lineNumbers')
   checkbox(group(panels.writing, 'Importing'), 'Automatically activate markdown editing for imported .md files', 'markdownImports')
   const spelling = group(panels.writing, 'Spelling')
-  field(spelling, 'Default spelling language', [], prefs.defaultLanguage, value => { prefs.defaultLanguage = value }).name = 'default-language'
-  const picker = element('div', 'dictionary-picker')
-  const row = element('label', 'field', 'More dictionaries')
-  const select = element('select')
-  select.name = 'dictionary'
-  select.ariaLabel = 'Available dictionaries'
-  row.append(select)
-  const message = element('p', 'settings-note')
-  message.setAttribute('role', 'alert')
-  const download = button('Download dictionary', async () => {
-    message.textContent = ''
-    select.disabled = true
-    download.disabled = true
-    download.textContent = 'Downloading…'
-    try { await install(select.value) }
-    catch (error) { message.textContent = error instanceof Error ? error.message : String(error) }
-    finally { select.disabled = false; download.disabled = false; download.textContent = 'Download dictionary' }
-  }, 'outline')
-  const actions = element('div', 'field-actions')
-  actions.append(download)
-  picker.append(row, actions)
-  spelling.append(picker, message)
-  updateSettingsPacks(content, packs, prefs.defaultLanguage)
+  field(spelling, 'Default spelling language', languageOptions(), prefs.defaultLanguage, value => { prefs.defaultLanguage = value }).name = 'default-language'
 
   // Project: where this project lives and how it is kept.
   if (projectPath) {
@@ -210,8 +180,8 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
 
   // About: the version, and whether Tinto looks for a newer one when it opens.
   const about = group(panels.about, 'Tinto ' + window.tinto.version)
-  checkbox(about, 'Check for a new version when Tinto opens', 'checkUpdates')
-  about.append(element('p', 'settings-note', 'When Tinto opens, it asks GitHub once for the latest release and tells you when there is a newer one. Nothing from your projects is sent. You install a new version from its download; Tinto does not replace itself.'))
+  checkbox(about, 'Check for new versions when Tinto opens and once a day', 'checkUpdates')
+  about.append(element('p', 'settings-note', 'When Tinto opens, and then once a day while it stays open, it asks GitHub for the latest release and tells you when there is a newer one. Nothing from your projects is sent. You install a new version from its download; Tinto does not replace itself.'))
   group(panels.about, 'License').append(element('p', '', 'Tinto is released under the MIT license. It includes pandoc (GNU GPL 2 or later) and other open-source software; see NOTICE.md in the app and on GitHub.'))
 
   dialog.replaceChildren(dialogHeader(dialog, 'Settings'), content)
