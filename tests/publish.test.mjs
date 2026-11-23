@@ -59,6 +59,8 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   await page.locator('#publish').click()
   await modal.getByText('Add a website in Settings').waitFor()
   await button(modal, 'Open Settings').click()
+  // Publish opens Settings at Websites.
+  assert.equal(await modal.getByRole('tab', { name: 'Websites' }).getAttribute('aria-selected'), 'true')
   for (const site of sites) {
     await modal.getByLabel('Publishing URL', { exact: true }).fill(site.url)
     await modal.getByLabel('API key', { exact: true }).fill(site.key)
@@ -158,6 +160,7 @@ test('a writer publishes to one website by category, drafts on another, sees cha
   assert.deepEqual((await requests(fixture.app)).map(item => item.request + ' ' + item.key), ['DELETE https://one.example/tinto/posts/<post> Field Notes'])
 
   await page.locator('#settings').click()
+  await modal.getByRole('tab', { name: 'Websites' }).click()
   await modal.getByRole('button', { name: 'Test Field Notes' }).click()
   await modal.getByText('Field Notes accepted the API key.').waitFor()
   await modal.getByRole('button', { name: 'Remove Second Site' }).click()

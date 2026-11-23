@@ -24,6 +24,7 @@ export function siteSettings(parent: HTMLElement) {
     }
   }
   function draw(sites: SiteSummary[]) {
+    if (!sites.length) return list.replaceChildren(element('p', 'settings-note', 'No websites yet.'))
     list.replaceChildren(...sites.map(site => {
       const row = element('div', 'site-row')
       const label = element('div', 'site-label')

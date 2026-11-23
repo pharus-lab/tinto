@@ -1,5 +1,6 @@
 import { parser as markdownParser } from '@lezer/markdown'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
+import type { DocxFont } from './export-font'
 import { formatMarks, markTags, newBlock, originOf, visibleText, type BlockJSON, type InlineJSON, type Manuscript, type MarkJSON, type TextJSON } from './model'
 
 const word = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -10,14 +11,16 @@ export interface InputFile { name: string; bytes: Uint8Array; convertedToHTML?: 
 export const exportFormats = { docx: 'Word document', pdf: 'PDF', txt: 'Plain text', md: 'Markdown', html: 'HTML', rtf: 'Rich text', odt: 'OpenDocument text', epub: 'EPUB' } as const
 export type ExportFormat = keyof typeof exportFormats
 const xml = (value: string) => value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+const xmlAttribute = (value: string) => xml(value).replaceAll('"','&quot;')
 const xmlFile = (value: string) => strToU8('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + value)
 const descendants = (el: XMLDocument | Element, name: string) => [...el.getElementsByTagNameNS(word, name)]
 const attr = (el: Element | undefined, name: string) => el?.getAttributeNS(word, name) ?? ''
 const child = (el: Element | undefined, name: string) => el && [...el.children].find(item => item.namespaceURI === word && item.localName === name)
 const headingSizes = [18, 17, 16, 15, 14, 13]
-export const printStyles = `
+// Exports are set in the manuscript font; without one, in Georgia.
+export const printStyles = (stack = 'Georgia, serif') => `
   @page { size: A4; margin: 1in; }
-  body { margin: 0; font: 12pt/1.333 Georgia, serif; color: #262123; }
+  body { margin: 0; font: 12pt/1.333 ${stack}; color: #262123; }
   p, h1, h2, h3, h4, h5, h6 { margin: 0 0 8pt; white-space: pre-wrap; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
   ${headingSizes.map((size, index) => 'h' + (index + 1) + ' { font-size: ' + size + 'pt; }').join('\n')}
@@ -190,8 +193,10 @@ export function ebookHTML(doc: Manuscript, title: string) {
   const titleHeading = first?.type === 'heading' && first.attrs.level === 1 ? '' : '<h1 class="tinto-book-title">' + xml(title) + '</h1>'
   return titleHeading + documentHTML(doc)
 }
-export function standaloneHTML(doc: Manuscript, title: string) {
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="generator" content="Tinto"><title>' + xml(title) + '</title><style>' + printStyles + '</style></head><body>' + documentHTML(doc) + '</body></html>'
+// font.faces are @font-face rules that travel with the page.
+export function standaloneHTML(doc: Manuscript, title: string, font?: { stack: string; faces?: string }) {
+  const style = (font?.faces ? font.faces + '\n' : '') + printStyles(font?.stack)
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="generator" content="Tinto"><title>' + xml(title) + '</title><style>' + style + '</style></head><body>' + documentHTML(doc) + '</body></html>'
 }
 // A post carries the chosen wording only. Blank paragraphs are spacing in a
 // manuscript, not content, so the site never receives empty elements.
@@ -207,7 +212,8 @@ export function postParts(blocks: BlockJSON[]): { html: string; characters: Char
     return { html: blockHTML(block, ''), characters }
   })
 }
-export function writeDocx(doc: Manuscript): Uint8Array {
+// Word names the manuscript font, and carries its TrueType files when it may.
+export function writeDocx(doc: Manuscript, font: DocxFont = { names: ['Georgia'], generic: 'serif', embedded: [] }): Uint8Array {
   const paragraphs = doc.content.map(block => {
     const style = block.type === 'heading' ? '<w:pPr><w:pStyle w:val="Heading' + block.attrs.level + '"/></w:pPr>' : ''
     const runs = activeRuns(block.content ?? []).map(run => {
@@ -217,13 +223,25 @@ export function writeDocx(doc: Manuscript): Uint8Array {
     return '<w:p>' + style + runs.join('') + '</w:p>'
   })
   const headings = headingSizes.map((size, index) => '<w:style w:type="paragraph" w:styleId="Heading' + (index + 1) + '"><w:name w:val="heading ' + (index + 1) + '"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="' + index + '"/></w:pPr><w:rPr><w:b/><w:sz w:val="' + (size * 2) + '"/></w:rPr></w:style>')
-  return zipSync({
-    '[Content_Types].xml': xmlFile('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'),
+  const name = xmlAttribute(font.names[0])
+  const embeds = font.embedded.map((item, index) => '<w:embed' + item.slot + ' r:id="rIdFont' + (index + 1) + '" w:fontKey="' + item.key + '"/>').join('')
+  const alternates = font.names.length > 1 ? '<w:altName w:val="' + xmlAttribute(font.names.slice(1).join(',')) + '"/>' : ''
+  const family = { serif: 'roman', 'sans-serif': 'swiss', monospace: 'modern' }[font.generic]
+  const files: Record<string, Uint8Array> = {
+    '[Content_Types].xml': xmlFile('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' + (embeds ? '<Default Extension="odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscatedFont"/>' : '') + '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>'),
     '_rels/.rels': xmlFile('<Relationships xmlns="' + rels + '"><Relationship Id="rId1" Type="' + office + '/officeDocument" Target="word/document.xml"/></Relationships>'),
-    'word/_rels/document.xml.rels': xmlFile('<Relationships xmlns="' + rels + '"><Relationship Id="rId1" Type="' + office + '/styles" Target="styles.xml"/></Relationships>'),
-    'word/styles.xml': xmlFile('<w:styles xmlns:w="' + word + '"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="160" w:line="320" w:lineRule="auto"/></w:pPr><w:rPr><w:rFonts w:ascii="Georgia" w:hAnsi="Georgia"/><w:sz w:val="24"/></w:rPr></w:style>' + headings.join('') + '</w:styles>'),
+    'word/_rels/document.xml.rels': xmlFile('<Relationships xmlns="' + rels + '"><Relationship Id="rId1" Type="' + office + '/styles" Target="styles.xml"/><Relationship Id="rId2" Type="' + office + '/fontTable" Target="fontTable.xml"/><Relationship Id="rId3" Type="' + office + '/settings" Target="settings.xml"/></Relationships>'),
+    'word/styles.xml': xmlFile('<w:styles xmlns:w="' + word + '"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="160" w:line="320" w:lineRule="auto"/></w:pPr><w:rPr><w:rFonts w:ascii="' + name + '" w:hAnsi="' + name + '" w:cs="' + name + '"/><w:sz w:val="24"/></w:rPr></w:style>' + headings.join('') + '</w:styles>'),
+    'word/fontTable.xml': xmlFile('<w:fonts xmlns:w="' + word + '" xmlns:r="' + office + '"><w:font w:name="' + name + '">' + alternates + '<w:family w:val="' + family + '"/><w:pitch w:val="' + (font.generic === 'monospace' ? 'fixed' : 'variable') + '"/>' + embeds + '</w:font></w:fonts>'),
+    // Word keeps embedded fonts when the file is saved again.
+    'word/settings.xml': xmlFile('<w:settings xmlns:w="' + word + '">' + (embeds ? '<w:embedTrueTypeFonts/>' : '') + '</w:settings>'),
     'word/document.xml': xmlFile('<w:document xmlns:w="' + word + '"><w:body>' + paragraphs.join('') + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:bottom="1440" w:left="1440" w:right="1440"/></w:sectPr></w:body></w:document>')
-  })
+  }
+  if (embeds) {
+    files['word/_rels/fontTable.xml.rels'] = xmlFile('<Relationships xmlns="' + rels + '">' + font.embedded.map((_, index) => '<Relationship Id="rIdFont' + (index + 1) + '" Type="' + office + '/font" Target="fonts/font' + (index + 1) + '.odttf"/>').join('') + '</Relationships>')
+    font.embedded.forEach((item, index) => { files['word/fonts/font' + (index + 1) + '.odttf'] = item.bytes })
+  }
+  return zipSync(files)
 }
 function readDocx(bytes: Uint8Array): ImportedFile {
   const files = unzipSync(bytes, { filter: file => ['word/document.xml','word/styles.xml','word/comments.xml'].includes(file.name) })

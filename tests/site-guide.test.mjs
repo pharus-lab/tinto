@@ -80,6 +80,7 @@ test('the guide adds the module to a site, hands the agent its prompts, creates 
   await writeFile(join(site, 'wrangler.jsonc'), '{ "name": "my-site" }')
 
   await page.locator('#settings').click()
+  await page.getByRole('tab', { name: 'Websites' }).click()
   await page.getByRole('button', { name: 'How to connect a website', exact: true }).click()
   const guide = page.locator('dialog.guide')
   const button = name => guide.getByRole('button', { name, exact: true })

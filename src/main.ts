@@ -32,9 +32,9 @@ function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
 // is saved in the project before the project or document changes.
 function registerProjectActions(updateBackupPath: (path: string, destination?: string) => void, publishing: () => Promise<unknown>) {
   ipcMain.handle('file:pick', event => { trusted(event); return pickInputFile(window!) })
-  ipcMain.handle('file:export', (event, format: ExportFormat, title: string, doc: Manuscript, language: string) => {
+  ipcMain.handle('file:export', async (event, format: ExportFormat, title: string, doc: Manuscript, language: string, font: unknown) => {
     trusted(event)
-    return exportFile(window!, format, title, doc, language)
+    return exportFile(window!, format, title, doc, language, await fonts.exportFont(typeof font === 'string' ? font : 'book'))
   })
   ipcMain.handle('draft:create', (event, id: string, heading: string | null, title: string) => {
     trusted(event)

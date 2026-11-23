@@ -170,6 +170,7 @@ test('history aligns changed lines in both windows and uses the manuscript line-
   assert.deepEqual(await rows.nth(2).locator('td').allTextContents(), ['', '8Original passage 7'])
   await button(modal, 'Close history').click()
   await button(page, 'Reading and project settings').click()
+  await page.getByRole('tab', { name: 'Writing' }).click()
   const numbers = page.getByRole('checkbox', { name: 'Show line numbers' })
   assert.equal(await numbers.isChecked(), false)
   await numbers.check()

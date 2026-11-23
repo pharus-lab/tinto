@@ -493,6 +493,14 @@
       "description": "A paper sheet lifted above the desk.",
       "html": "<div class=\"ds-dialog\"><h2>Publish</h2><p>95% written in Tinto · 5% pasted · signed as Mara Ruiz</p></div>",
       "css": ".ds-dialog { width: 420px; padding: 24px; background: var(--paper, #FCFAF6); color: var(--ink, #262123); border: 1px solid var(--outline, #938487); border-radius: 9px; box-shadow: 0 15px 70px #170A1026; font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-dialog h2 { margin: 0 0 16px; font: 500 29px/1.2 \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif; letter-spacing: -.7px; } .ds-dialog p { margin: 0; color: var(--secondary, #695F60); }"
+    },
+    {
+      "name": "Settings Sections",
+      "kind": "navigation",
+      "refersTo": "settings",
+      "description": "The vertical tab list of Settings; the chosen section takes Wash with wine text.",
+      "html": "<div class=\"ds-settings-nav\" role=\"tablist\" aria-orientation=\"vertical\"><button role=\"tab\" aria-selected=\"true\">Appearance</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Writing</button><button role=\"tab\" aria-selected=\"false\" tabindex=\"-1\">Websites</button></div>",
+      "css": ".ds-settings-nav { display: flex; flex-direction: column; gap: 2px; width: 152px; padding: 16px 12px; border-right: 1px solid var(--divider, #D9D1CF); font: 13px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-settings-nav button { min-height: 34px; padding: 6px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--secondary, #695F60); text-align: left; font: inherit; cursor: pointer; } .ds-settings-nav button:hover { background: var(--wash, #F4E5E6); color: var(--ink, #262123); } .ds-settings-nav button[aria-selected=true] { background: var(--wash, #F4E5E6); color: var(--wine, #963C46); font-weight: 600; } .ds-settings-nav button:focus-visible { outline: 2px solid var(--wine, #963C46); outline-offset: -2px; }"
     }
   ],
   "narrative": {

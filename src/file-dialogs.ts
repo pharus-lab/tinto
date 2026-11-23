@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads'
 import { documentHTML, ebookHTML, exportFormats, markdownText, standaloneHTML, writeDocx, type ExportFormat, type InputFile } from './exchange'
+import { dataURL, docxFont, epubWithFont, fontFaces, fontNote, odtWithFont, rtfWithFont, systemExportFont, type ExportFont } from './export-font'
 import { visibleText, type Manuscript } from './model'
 
 interface Conversion { bytes: Uint8Array<ArrayBuffer>; from: string; to: string; title?: string; language?: string }
@@ -93,27 +94,34 @@ export async function pickInputFile(parent: BrowserWindow): Promise<InputFile | 
   }
   return { name, bytes }
 }
-export async function exportFile(parent: BrowserWindow, format: ExportFormat, title: string, manuscript: Manuscript, language: string) {
+// The manuscript goes out in its font; the result says when the font could only be named.
+export async function exportFile(parent: BrowserWindow, format: ExportFormat, title: string, manuscript: Manuscript, language: string, font: ExportFont = systemExportFont('georgia')): Promise<false | { note: string | null }> {
   if (!Object.hasOwn(exportFormats, format)) throw Error('Choose a supported export format.')
   const { BrowserWindow, dialog } = await import('electron')
   const result = await dialog.showSaveDialog(parent, { title: 'Export manuscript', defaultPath: title.replace(/[/\\:]/g, '-') + '.' + format, filters: [{ name: exportFormats[format], extensions: [format] }] })
   if (result.canceled || !result.filePath) return false
+  const embed = font.embeddable && font.faces.length > 0
   let output: string | Uint8Array
   if (format === 'pdf') {
+    // The PDF is drawn in the font, so its faces always come along; Chromium
+    // embeds what each font's license permits.
     const print = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, nodeIntegration: false, contextIsolation: true } })
     try {
-      await print.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(standaloneHTML(manuscript, title)))
+      await print.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(standaloneHTML(manuscript, title, { stack: font.stack, faces: fontFaces(font, dataURL) })))
       output = await print.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true })
     } finally { print.destroy() }
-  } else if (format === 'docx') output = writeDocx(manuscript)
+  } else if (format === 'docx') output = writeDocx(manuscript, docxFont(font))
   else if (format === 'txt') output = visibleText(manuscript)
-  else if (format === 'html') output = standaloneHTML(manuscript, title)
+  else if (format === 'html') output = standaloneHTML(manuscript, title, { stack: font.stack, faces: embed ? fontFaces(font, dataURL) : '' })
   else if (format === 'md' && manuscript.content.some(block => block.markdown)) output = markdownText(manuscript)
   else {
     const to = format === 'md' ? 'gfm' : format === 'epub' ? 'epub3' : format
     const html = format === 'epub' ? ebookHTML(manuscript, title) : documentHTML(manuscript, format === 'md' ? '&nbsp;' : '<br>')
     output = await convertDocument('html', to, new TextEncoder().encode(html), title, language)
+    if (format === 'odt') output = odtWithFont(output, font)
+    else if (format === 'rtf') output = rtfWithFont(output, font)
+    else if (format === 'epub') output = epubWithFont(output, font, embed)
   }
   await writeFile(result.filePath, output)
-  return true
+  return { note: fontNote(font, format) }
 }

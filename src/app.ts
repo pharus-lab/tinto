@@ -19,7 +19,7 @@ import { typographySettings } from './typography-settings'
 import { listCharacters, manuscriptCharacters, registerFontFaces } from './typography'
 import { trackWriting } from './writing-evidence'
 import { showHistory } from './history'
-import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks } from './settings'
+import { dialogHeader, applyPreferences, languageOptions, preferences, showSettings, updateSettingsPacks, type SettingsSection } from './settings'
 import { $, button, element, errorMessage, icon, spawnButton } from './ui'
 
 interface Tab { documentId: string; headingId: string | null; scroll: number; review: string | null }
@@ -531,22 +531,22 @@ async function checkManuscriptFont() {
     notice('“' + check.family + '” cannot draw ' + check.missing.length + (check.missing.length === 1 ? ' character' : ' characters') + ' in this project: ' + listCharacters(check.missing) + '. They appear in a fallback font.')
   }
 }
-function settings() {
-  const body = showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
+function settings(section?: SettingsSection) {
+  const panels = showSettings(modal, prefs, library.workspace?.path ?? null, packs, async code => {
     await api.installPack(code)
     await updateLanguages()
     for (const [id, instance] of editors) {
       if (record(id).language === code) setSpellingLanguage(instance.view, await checker(code))
     }
-  })
-  if (library.workspace) backupSettings(body, flush, () => {
+  }, section)
+  typographySettings(panels, prefs, projectCharacters)
+  if (library.workspace) backupSettings(panels.project, flush, () => {
     modal.close()
     saveSession()
     void api.library().then(next => loadLibrary(next)).catch(report)
   })
-  typographySettings(body.querySelector<HTMLElement>('.field')!, prefs, projectCharacters)
-  authorSettings(body)
-  siteSettings(body)
+  authorSettings(panels.author)
+  siteSettings(panels.websites)
 }
 async function importDocument() {
   const workspace = library.workspace
@@ -582,7 +582,10 @@ function exportDialog() {
   const language = doc.language
   async function write(format: ExportFormat) {
     modal.close()
-    try { if (await api.exportFile(format, title, manuscript, language)) notice('Exported ' + title + ' as ' + format.toUpperCase() + '.') }
+    try {
+      const exported = await api.exportFile(format, title, manuscript, language, prefs.font)
+      if (exported) notice('Exported ' + title + ' as ' + format.toUpperCase() + '.' + (exported.note ? ' ' + exported.note : ''))
+    }
     catch (error) { report(error) }
   }
   const actions = element('div', 'export-formats')
@@ -599,7 +602,7 @@ function publishDialog() {
   for (const tracker of evidence.values()) tracker.flush()
   const languageName = [...language.options].find(option => option.value === doc.language)?.text ?? doc.language
   const title = current.headingId ? label(current) : doc.title
-  void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, settings, notice, postsDialog).catch(report)
+  void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, () => settings('websites'), notice, postsDialog).catch(report)
 }
 function postsDialog() {
   void showPosts(modal, (id, headingId) => openDocument(id, headingId ?? undefined)).catch(report)
@@ -666,7 +669,7 @@ function wire() {
   blockStyle.onchange = () => editor?.format(blockStyle.value as Format)
   undoButton.onclick = () => { editor?.undo(); editor?.view.focus() }
   redoButton.onclick = () => { editor?.redo(); editor?.view.focus() }
-  $('settings').onclick = settings
+  $('settings').onclick = () => settings()
   // Show origins tints text the writer did not type in Tinto. It is off by default.
   const origins = $('show-origins')
   const showOrigins = (on: boolean) => {

@@ -158,7 +158,7 @@ test('Home renames project files and trashes the chosen project without switchin
   assert.equal((await page.evaluate(() => window.tinto.library())).workspace, null)
 })
 
-test('text width modes retain their dimensions as the writing area resizes', async t => {
+test('a centered column is the default and narrows to fit without scrolling sideways, while margins keep their size', async t => {
   const fixture = await desktopFixture(t)
   const page = await fixture.open()
   const settings = page.getByRole('button', { name: 'Reading and project settings' })
@@ -177,8 +177,11 @@ test('text width modes retain their dimensions as the writing area resizes', asy
       return { left, width, right: pane.clientWidth - width - left }
     })
   }
+  const writing = () => page.getByRole('tab', { name: 'Writing' }).click()
+  const sideways = () => page.locator('#scroll').evaluate(pane => pane.scrollWidth > pane.clientWidth)
   await resize(1100)
   await settings.click()
+  await writing()
   const controls = page.getByRole('dialog').getByRole('combobox')
   const widths = await controls.evaluateAll(controls => controls.map(control => control.offsetWidth))
   assert.equal(new Set(widths).size, 1)
@@ -193,7 +196,24 @@ test('text width modes retain their dimensions as the writing area resizes', asy
   })
   assert.deepEqual(clipped, [])
   assert.deepEqual(await mode.locator('option').allTextContents(), ['Fixed Width', 'Fixed Margin'])
-  assert.equal(await mode.inputValue(), 'fixed-margin')
+
+  // A new writer starts with a centered column of about 66 characters.
+  assert.equal(await mode.inputValue(), 'fixed-width')
+  assert.equal(await column.inputValue(), '680')
+  await column.fill('640')
+  const fixed = await geometry()
+  assert.equal(fixed.width, 640)
+  assert.ok(Math.abs(fixed.left - fixed.right) <= 1)
+  // Where the column does not fit, it narrows and keeps 24px each side, never scrolling sideways.
+  await resize(800)
+  const narrowed = await geometry()
+  assert.ok(narrowed.width < 640)
+  assert.deepEqual([Math.round(narrowed.left), Math.round(narrowed.right)], [24, 24])
+  assert.equal(await sideways(), false)
+  await resize(1100)
+  assert.equal((await geometry()).width, 640)
+
+  await mode.selectOption({ label: 'Fixed Margin' })
   assert.equal(await margin.inputValue(), '48')
   await margin.fill('62')
   const wide = await geometry()
@@ -203,19 +223,11 @@ test('text width modes retain their dimensions as the writing area resizes', asy
   assert.deepEqual([narrow.left, narrow.right], [62, 62])
   assert.ok(narrow.width < wide.width)
 
-  await mode.selectOption({ label: 'Fixed Width' })
-  assert.equal(await column.inputValue(), '680')
-  await column.fill('640')
-  assert.equal((await geometry()).width, 640)
-  assert.ok(await page.locator('#scroll').evaluate(pane => pane.scrollWidth > pane.clientWidth))
-  await resize(1100)
-  const fixed = await geometry()
-  assert.equal(fixed.width, 640)
-  assert.ok(Math.abs(fixed.left - fixed.right) <= 1)
-
   await page.reload()
   await settings.click()
-  assert.equal(await mode.inputValue(), 'fixed-width')
+  await writing()
+  assert.equal(await mode.inputValue(), 'fixed-margin')
+  assert.equal(await margin.inputValue(), '62')
   await page.evaluate(() => {
     const saved = JSON.parse(localStorage.getItem('reading'))
     saved.textWidth = 'free'
@@ -223,9 +235,8 @@ test('text width modes retain their dimensions as the writing area resizes', asy
   })
   await page.reload()
   await settings.click()
-  assert.equal(await mode.inputValue(), 'fixed-margin')
-  assert.equal(await margin.inputValue(), '62')
-  await mode.selectOption({ label: 'Fixed Width' })
+  await writing()
+  assert.equal(await mode.inputValue(), 'fixed-width')
   assert.equal(await column.inputValue(), '640')
 })
 
@@ -338,6 +349,7 @@ test('linked sections share edits, the trail follows scrolling, and keyboard rev
     if (scheme === 'dark' && process.env.TINTO_DARK_SCREENSHOT) await page.screenshot({ path: process.env.TINTO_DARK_SCREENSHOT, scale: 'css' })
   }
   await button('Reading and project settings').click()
+  await page.getByRole('tab', { name: 'Appearance' }).click()
   await page.getByLabel('Manuscript font size').selectOption('25')
   await page.getByLabel('Line spacing').selectOption('1.95')
   await page.keyboard.press('Escape')
@@ -503,4 +515,49 @@ test('first launch lets the writer choose, create and revisit local project fold
   await chooser().selectOption(second)
   await page.waitForFunction(async path => (await window.tinto.library()).workspace?.path === path, secondFile)
   assert.match(JSON.stringify((await library()).workspace.project.documents[0].manuscript), /Words in the second project/)
+})
+
+test('Settings shows one section at a time, moves between them with the arrow keys and reopens at the last one', async t => {
+  const fixture = await desktopFixture(t)
+  const page = await fixture.open()
+  const modal = page.getByRole('dialog')
+  const list = modal.getByRole('tablist', { name: 'Settings sections' })
+  const selected = () => list.getByRole('tab', { selected: true }).innerText()
+  await page.getByRole('button', { name: 'Reading and project settings' }).click()
+  assert.deepEqual(await list.getByRole('tab').allInnerTexts(), ['Appearance', 'Writing', 'Project', 'Author', 'Websites'])
+  assert.equal(await list.getAttribute('aria-orientation'), 'vertical')
+  assert.equal(await selected(), 'Appearance')
+  assert.equal(await modal.getByRole('tabpanel').count(), 1)
+  assert.equal(await modal.getByRole('tabpanel', { name: 'Appearance' }).getByRole('radiogroup', { name: 'Theme' }).count(), 1)
+
+  // Only the chosen section is reachable with Tab; the arrows, Home and End move between sections.
+  await list.getByRole('tab', { name: 'Appearance' }).focus()
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await selected(), 'Writing')
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Writing')
+  await modal.getByRole('tabpanel', { name: 'Writing' }).getByLabel('Text width').waitFor()
+  await page.keyboard.press('End')
+  assert.equal(await selected(), 'Websites')
+  await page.keyboard.press('ArrowDown')
+  assert.equal(await selected(), 'Appearance')
+  await page.keyboard.press('ArrowUp')
+  assert.equal(await selected(), 'Websites')
+  assert.deepEqual(await list.getByRole('tab').evaluateAll(tabs => tabs.map(tab => tab.tabIndex)), [-1, -1, -1, -1, 0])
+
+  // Every section fits the window's width; the window keeps its size between sections.
+  const sizes = []
+  for (const name of ['Appearance', 'Writing', 'Project', 'Author', 'Websites']) {
+    await list.getByRole('tab', { name }).click()
+    const panel = modal.getByRole('tabpanel', { name })
+    assert.equal(await panel.evaluate(el => el.scrollWidth <= el.clientWidth), true, name + ' fits')
+    sizes.push(await modal.evaluate(dialog => dialog.offsetWidth + 'x' + dialog.offsetHeight))
+  }
+  assert.equal(new Set(sizes).size, 1)
+  assert.equal(await modal.getByRole('tabpanel', { name: 'Appearance' }).count(), 0)
+
+  await list.getByRole('tab', { name: 'Author' }).click()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Reading and project settings' }).click()
+  assert.equal(await selected(), 'Author')
+  await modal.getByRole('tabpanel', { name: 'Author' }).getByLabel('Your name').waitFor()
 })

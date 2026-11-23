@@ -225,10 +225,10 @@ One column of text in a full-height workspace. From top to bottom:
 
 The Alternatives panel sits on the right at `clamp(270px, 27%, 345px)`.
 
-- **Text width.** *Fixed Margin* (48px each side by default) or *Fixed Width* (a centered column, 680px by default), chosen in Settings.
+- **Text width.** *Fixed Width* (the default: a centered column of 680px, about 66 characters at 21px) or *Fixed Margin* (48px each side), chosen in Settings. Where the window is narrower than the column, the column narrows and keeps 24px each side, so the manuscript never scrolls sideways.
 - **Rhythm.** Spacing steps of 4, 8, 16, 24 and 32px. The manuscript starts 38px below the toolbar and leaves at least 42% of the viewport below the last line, so the end of the text can be written at eye level.
 - **Narrow windows.** Below 910px the panel narrows to 248px. Below 580px Home stacks into one column, and tool labels drop to icons.
-- **Dialogs.** Up to 560px wide (760px for the guide, 900px for History), at most 82% of the window height, with their own scrolling body.
+- **Dialogs.** Up to 560px wide (760px for the guide and Settings, 900px for History), at most 82% of the window height, with their own scrolling body. Settings keeps one size, `min(640px, 100% − 48px)` tall, as its sections change.
 
 ## Elevation & Depth
 
@@ -261,7 +261,7 @@ Quiet by default, with one strong action per dialog.
 - **Style:** Paper background, 1px `--outline` border, 4px radius, 7px × 10px padding, 34px tall in Settings.
 - **Selects:** custom chevron drawn in currentColor; native appearance under forced colors.
 - **Placeholders:** Pencil Grey at full opacity.
-- **Form rows:** label on the left, control on the right at `min(320px, 64%)` in Publish and Websites, and `min(156px, 48%)` for reading settings.
+- **Form rows:** label on the left, control on the right, at least 34px tall and 12px apart. Controls are `min(320px, 64%)` in Publish. In Settings, choices are `min(200px, 46%)` and typed values (name, URL, key) `min(300px, 62%)`. A control's buttons and notes sit 8px under it.
 
 ### Tabs
 Browser-style document tabs in the title bar. The current tab is Paper with a hairline border, open at the bottom into the page. Others are Pencil Grey, warming to wine-mixed paper on hover.
@@ -271,6 +271,9 @@ Each wording in the Alternatives panel is a serif option on Paper with an outlin
 
 ### Dialogs
 Paper sheets with a 9px radius, the Sheet shadow and the Scrim. The title uses the serif at 29px with a close button on the right. Secondary text is Pencil Grey, and actions sit at the bottom right.
+
+### Settings
+One dialog with a list of sections on the left (Appearance, Writing, Project, Author, Websites) and one section at a time on the right, below a hairline under the title. The list is a vertical tab list: the arrows, Home and End move between sections, and the chosen one takes Wash with wine text, like the current project on Home. Each section is a column of groups 28px apart, each named by a Label. Settings reopens at the section shown last; Publish opens it at Websites.
 
 ### Authorship line and origin marks
 In Publish, one line of Pencil Grey such as *Original · written in Tinto · signed as Ana*. In the manuscript, Origin Sand and Origin Slate tints, shown only on request.

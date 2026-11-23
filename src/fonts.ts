@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { create, type Font } from 'fontkit'
+import { addedFontStack, systemExportFont, type ExportFace, type ExportFont, type FontFormat } from './export-font'
 import type { FontFaceFile, ManuscriptFont } from './project-types'
 
 // Fonts the writer adds for the manuscript. Each file is read with fontkit,
@@ -101,5 +102,36 @@ export class FontLibrary {
       if (bytes) for (const char of readFace(bytes, face.file, characters).missing) missing.add(char)
     }
     return { family: font.family, missing: [...missing] }
+  }
+
+  // The manuscript font as exports carry it: a font on this computer by name, a
+  // font the writer added with its files, its license and its kind of letter.
+  async exportFont(choice: string): Promise<ExportFont> {
+    const font = choice.startsWith('user:') ? (await this.list()).find(item => item.id === choice.slice(5)) : undefined
+    if (!font) return systemExportFont(choice)
+    const faces: ExportFace[] = []
+    let embeddable = true, generic: ExportFont['generic'] = 'serif'
+    for (const face of font.faces) {
+      const bytes = await this.bytes(face.file)
+      if (!bytes) continue
+      const format = face.file.split('.')[1] as FontFormat
+      let truetype = false
+      try {
+        const read = create(bytes)
+        if ('fonts' in read) throw Error('A collection is not a face.')
+        // Usage permissions (OpenType OS/2 fsType): editable and installable fonts
+        // may travel in documents; restricted and preview-only fonts may not.
+        const permission = read['OS/2']?.fsType
+        if (permission && !permission.editable && (permission.viewOnly || permission.noEmbedding)) embeddable = false
+        truetype = (format === 'ttf' || format === 'otf') && Boolean(read.directory?.tables?.glyf)
+        // PANOSE serif styles 11–15 are sans; a fixed pitch is monospace.
+        const serifStyle = read['OS/2']?.panose?.[1] ?? 0
+        if (read.post?.isFixedPitch) generic = 'monospace'
+        else if (serifStyle >= 11 && serifStyle <= 15) generic = 'sans-serif'
+      } catch { embeddable = false }
+      faces.push({ file: face.file, format, weight: face.weight, italic: face.style === 'italic', bytes, truetype })
+    }
+    if (!faces.length) return systemExportFont('book')
+    return { family: font.family, names: [font.family], stack: addedFontStack(font.family), generic, faces, embeddable }
   }
 }

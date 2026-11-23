@@ -3,9 +3,10 @@ import { applyPreferences, type Preferences } from './settings'
 import { SYSTEM_FONTS, THEMES, listCharacters, registerFontFaces, userFont } from './typography'
 import { button, element, errorMessage } from './ui'
 
-// Settings → Theme and Manuscript font, placed after Appearance. A theme is a
-// paper and its ink, for light and dark; Appearance picks between them.
-export function typographySettings(after: HTMLElement, prefs: Preferences, characters: () => string | null) {
+// Settings → Appearance: the theme above Appearance, and the manuscript font first
+// in the Text group. A theme is a paper and its ink, for light and dark; Appearance
+// picks between them.
+export function typographySettings(groups: { theme: HTMLElement, text: HTMLElement }, prefs: Preferences, characters: () => string | null) {
   const api = window.tinto
   let fonts: ManuscriptFont[] = []
   let loaded = false
@@ -35,13 +36,14 @@ export function typographySettings(after: HTMLElement, prefs: Preferences, chara
   const select = element('select')
   select.setAttribute('aria-label', 'Manuscript font')
   row.append(select)
-  const actions = element('div', 'home-actions')
-  const status = element('p', 'font-status')
+  const actions = element('div', 'field-actions')
+  const status = element('p', 'font-status settings-note')
   status.setAttribute('role', 'status')
   const add = button('Add font…', () => void addFonts(), 'outline')
   const remove = button('Remove font', () => void removeFont(), 'outline')
   actions.append(add, remove)
-  after.after(heading, themes, row, actions, status)
+  groups.theme.prepend(heading, themes)
+  groups.text.querySelector('.group-label')!.after(row, actions, status)
 
   const selected = () => fonts.find(font => userFont(font.id) === prefs.font) ?? null
   function draw() {

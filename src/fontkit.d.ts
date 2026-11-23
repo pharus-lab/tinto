@@ -7,7 +7,9 @@ declare module 'fontkit' {
     postscriptName: string
     italicAngle: number
     variationAxes: Record<string, { name: string; min: number; default: number; max: number }>
-    'OS/2'?: { usWeightClass?: number; fsSelection?: { italic?: boolean; oblique?: boolean } }
+    'OS/2'?: { usWeightClass?: number; fsSelection?: { italic?: boolean; oblique?: boolean }; fsType?: { noEmbedding?: boolean; viewOnly?: boolean; editable?: boolean }; panose?: number[] }
+    post?: { isFixedPitch?: number }
+    directory?: { tables?: Record<string, unknown> }
     getName(key: string, lang?: string): string | null
     hasGlyphForCodePoint(codePoint: number): boolean
   }
