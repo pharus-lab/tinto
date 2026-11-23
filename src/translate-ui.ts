@@ -3,6 +3,7 @@ import type { DocumentRecord, DocumentTranslation } from './project-types'
 import { dialogHeader } from './settings'
 import { translatedManuscript, translationSource } from './translation'
 import { button, element, errorMessage, icon } from './ui'
+import { WRITING_LANGUAGES } from './writing-types'
 
 // Translate: a document becomes a new document in another language, marked as
 // an automatic translation. Translating again replaces the text of that
@@ -21,6 +22,8 @@ export interface TranslateContext {
 }
 
 export const languageName = (code: string) => {
+  const named = WRITING_LANGUAGES.find(([value]) => value === code)?.[1]
+  if (named) return named
   try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code } catch { return code }
 }
 const words = (doc: DocumentRecord) => visibleText(doc.manuscript).split(/\s+/).filter(Boolean).length
@@ -39,7 +42,7 @@ export async function showTranslate(dialog: HTMLDialogElement, ctx: TranslateCon
   }
   if (!translator) {
     actions.append(button('Cancel', () => dialog.close(), 'outline'), button('Open Settings', () => { dialog.close(); ctx.openSettings() }, 'primary'))
-    return show(element('p', '', 'Add an API key from OpenAI, Anthropic or OpenRouter in Settings → Writing → Automatic translation, then translate.'))
+    return show(element('p', '', 'Add an API key from OpenAI, Anthropic or OpenRouter in Settings → Writing → AI service, then translate.'))
   }
   // A translation is translated again from its original.
   const original = again ? ctx.documents.find(doc => doc.id === ctx.doc.translation!.of) ?? null : ctx.doc

@@ -24,6 +24,9 @@
 }
 
 .tinto-grammar { text-decoration: underline dotted var(--wine); text-underline-offset: .22em; text-decoration-thickness: 1.5px; }
+/* The writing coach: a dashed line in the secondary ink, distinct from Harper's
+   wine underlines and from the tint that marks AI-generated text. */
+.tinto-coach { text-decoration: underline dashed var(--secondary); text-underline-offset: .3em; text-decoration-thickness: 1.2px; }
 #panel-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: -12px 0 24px; }
 #panel-tabs button { padding: 6px 8px; border-radius: 4px; color: var(--secondary); }
 #panel-tabs [aria-selected=true] { background: var(--wash); color: var(--ink); }
@@ -45,3 +48,17 @@
 .tinto-spelling-menu > div { padding: 4px 8px; font-size: 12px; color: var(--secondary); }
 .tinto-spelling-menu button { padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; text-align: left; font: inherit; }
 .tinto-spelling-menu button:is(:hover, :focus-visible) { background: var(--wash); outline: 2px solid var(--wine); outline-offset: -2px; }
+
+.writing-advanced { margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--divider); }
+.writing-advanced > .settings-note[role=status] { margin-block: 12px 20px; }
+/* After local results, their last divider already separates the coach. */
+.writing-results:has(.writing-result) ~ .writing-advanced { border-top: 0; padding-top: 0; }
+.writing-advanced .group-label { margin: 0 0 8px; }
+.writing-coach-toggle { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.writing-coach-toggle input { flex: none; width: 17px; height: 17px; margin: 0; accent-color: var(--wine); }
+.writing-coach-toggle svg { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--wine); stroke-width: 1.6; stroke-linejoin: round; }
+.writing-coach-toggle input:disabled ~ * { opacity: .55; }
+.coach-kind { margin: 0 0 6px; font-size: 12px; letter-spacing: .02em; color: var(--secondary); }
+.coach-suggestion { margin: 10px 0; padding: 8px 10px; border-left: 2px solid var(--wine); background: var(--wash); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.tinto-spelling-menu > .coach-menu-title { color: var(--ink); font-weight: 600; }
+.tinto-spelling-menu > .coach-menu-suggestion { color: var(--ink); }

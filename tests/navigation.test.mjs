@@ -663,3 +663,40 @@ test('while Tinto stays open it checks again once a day, announces each new vers
   await new Promise(done => setTimeout(done, 2600))
   assert.equal(asked, off, 'with the check off, the daily check asks nobody')
 })
+
+test('the writer chooses which tools the toolbars show; hidden tools keep their shortcuts and stay hidden after a restart', async t => {
+  const fixture = await desktopFixture(t)
+  let page = await fixture.open()
+  const tools = page.locator('#toolbar, #document-tools')
+  const visibleRules = () => page.locator('#toolbar .tool-rule').evaluateAll(rules => rules.filter(rule => getComputedStyle(rule).display !== 'none').length)
+  assert.equal(await visibleRules(), 2)
+  await page.getByRole('button', { name: 'Reading and project settings' }).click()
+  const modal = page.getByRole('dialog')
+  await modal.getByRole('tab', { name: 'Appearance', exact: true }).click()
+  const panel = modal.getByRole('tabpanel', { name: 'Appearance' })
+  await panel.getByText('Hidden tools keep their keyboard shortcuts.').waitFor()
+  for (const name of ['Export', 'Publish', 'Translate', 'Create and review drafts', 'History', 'Alternatives', 'Paragraph style', 'Bold', 'Italic', 'Underline', 'Markdown', 'Add alternative', 'Show pasted and imported text', 'Check writing', 'Undo and redo']) {
+    assert.equal(await panel.getByRole('checkbox', { name, exact: true }).isChecked(), true, name + ' is shown by default')
+  }
+  for (const name of ['Translate', 'Bold', 'Italic', 'Underline', 'Markdown']) await panel.getByRole('checkbox', { name, exact: true }).uncheck()
+  await modal.getByRole('button', { name: 'Close dialog' }).click()
+  for (const id of ['#translate', '#markdown', '#toolbar [data-format=bold]', '#toolbar [data-format=italic]', '#toolbar [data-format=underline]']) assert.equal(await tools.locator(id).isVisible(), false, id)
+  for (const id of ['#publish', '#block-style', '#add-alternative', '#check-writing', '#undo']) assert.equal(await tools.locator(id).isVisible(), true, id)
+  assert.equal(await visibleRules(), 1, 'one divider between the paragraph style and the remaining tools')
+
+  // Bold still works from the keyboard.
+  const paragraph = page.locator('.ProseMirror:visible p').first()
+  await paragraph.click()
+  await page.keyboard.press('Home')
+  await page.keyboard.press('Shift+End')
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+B' : 'Control+B')
+  await page.locator('.ProseMirror:visible p strong').first().waitFor()
+
+  await fixture.close()
+  page = await fixture.open()
+  assert.equal(await page.locator('#translate').isVisible(), false, 'hidden after a restart')
+  assert.equal(await page.locator('#markdown').isVisible(), false)
+  await page.getByRole('button', { name: 'Reading and project settings' }).click()
+  await page.getByRole('dialog').getByRole('tabpanel', { name: 'Appearance' }).getByRole('checkbox', { name: 'Translate', exact: true }).check()
+  assert.equal(await page.locator('#translate').isVisible(), true)
+})

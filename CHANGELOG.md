@@ -1,10 +1,19 @@
 # Changelog
 
-## 1.1.1 — release candidate
+## 1.1.2 — release candidate
 
 - Debian installers for amd64 and arm64 verify the application version and architecture before packaging. The Linux window groups under Tinto’s launcher icon and keeps the menu bar hidden until you press Alt.
 - A failed save keeps pending typing evidence available for retry. Renaming the active project preserves subsequent authorship records. A failure to remember open tabs no longer prevents the final manuscript edit from being saved on close.
 - On Linux, Tinto checks that Electron used the system keyring before saving credentials. Local writing and saving remain available when the keyring is locked or unavailable.
+
+## 1.1.1 — 2026-11-23
+
+- **Writing coach (AI)**, an advanced check marked with sparkles in the Writing checks sidebar and in Settings → Writing, off by default. With the key and model of Settings → Writing → AI service, **Check writing** also asks it to review the open document or linked section: it explains problems with grammar, punctuation, sentence structure and confusing or needlessly long wording, and suggests how to improve each passage. It is a coach, not an editor: notes have no Apply, only Dismiss, and it never changes the text or the authorship record. Its switch and notes sit below the local results. It works in English, English (UK) and Spanish (Mexico), answers in the document's language, and sends nothing while you type.
+- Wider local grammar checks: word choice and usage (“should of”, “taller then”, “will effect”), word order, misheard idioms, double comparatives, and stray spaces. A filter bug that hid words written together or apart (“alot”) is fixed. House-style rules stay off.
+- **Include style hints**, a new switch that starts off, adds wordiness and long sentences to English grammar checks.
+- Spanish documents are Spanish (Mexico): the spelling dictionary is now `dictionary-es-mx` 2.0.0, and translations into Spanish follow Mexican Spanish. Documents keep the language code `es`.
+- Settings → Writing → Automatic translation is now **AI service**, shared by Translate and the writing coach.
+- **Settings → Appearance → Toolbar** chooses which tools the document bar and the formatting bar show, to keep the workspace uncluttered. All start shown; hidden tools keep their keyboard shortcuts, and dividers between empty groups disappear.
 
 ## 1.1.0 — 2026-11-23
 

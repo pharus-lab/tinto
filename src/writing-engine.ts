@@ -19,6 +19,7 @@ export class WritingEngine {
       this.linter ??= new LocalLinter({ binary: binaryInlined })
       const linter = this.linter
       const configuration = JSON.stringify([request.language, request.spelling, request.grammar, request.words, request.disabledRules])
+      const style = request.grammar && request.style === true
       if (configuration !== this.configuration) {
         await linter.setDialect(request.language === 'en-GB' ? Dialect.British : Dialect.American)
         const defaults = await linter.getDefaultLintConfig()
@@ -34,7 +35,7 @@ export class WritingEngine {
         const groups = await linter.organizedLints(block.text, { language: 'plaintext', dedup: false })
         for (const [rule, lints] of Object.entries(groups)) for (const lint of lints) {
           try {
-            const category = writingCategory(lint.lint_kind(), rule)
+            const category = writingCategory(lint.lint_kind(), rule, style)
             if (!category || (category === 'Spelling' ? !request.spelling : !request.grammar) || request.disabledRules.includes(rule)) continue
             const span = lint.span()
             // harper.js 3.2.0 exposes UTF-16 spans (its core uses Unicode

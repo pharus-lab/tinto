@@ -79,7 +79,7 @@ test('the translator asks OpenAI for a strict schema without storing the text, a
   assert.equal(request.model, 'gpt-6.2-astra')
   assert.equal(request.store, false)
   assert.equal(request.max_output_tokens, 32000)
-  assert.match(request.instructions, /^You translate a writer's manuscript from English into Spanish for publication\./)
+  assert.match(request.instructions, /^You translate a writer's manuscript from English into Mexican Spanish for publication\./)
   assert.deepEqual(JSON.parse(request.input), { title: 'Title', blocks: [blocks[0]] })
   assert.equal(request.text.format.type, 'json_schema')
   assert.equal(request.text.format.strict, true)
@@ -132,7 +132,7 @@ test('Claude translates through Anthropic\'s SDK with a JSON format, and OpenRou
   const request = sent[0].body
   assert.match(sent[0].url, /\/v1\/messages/)
   assert.deepEqual([request.model, request.max_tokens, request.output_config.format.type, request.output_config.effort, request.fallbacks], ['claude-opus-5-5', 16000, 'json_schema', 'medium', 'default'])
-  assert.match(request.system, /^Translate each text from English into Spanish/)
+  assert.match(request.system, /^Translate each text from English into Mexican Spanish/)
   assert.deepEqual(JSON.parse(request.messages[0].content), { texts: ['Hello'] })
   assert.match(sent[0].headers.get('anthropic-beta'), /server-side-fallback-2026-07-01/)
   // Sonnet 5.5 also takes the fallback; an older model gets neither effort nor fallback.
