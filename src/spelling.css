@@ -59,6 +59,9 @@
 .writing-coach-toggle svg { width: 16px; height: 16px; flex: none; fill: none; stroke: var(--wine); stroke-width: 1.6; stroke-linejoin: round; }
 .writing-coach-toggle input:disabled ~ * { opacity: .55; }
 .coach-kind { margin: 0 0 6px; font-size: 12px; letter-spacing: .02em; color: var(--secondary); }
+.coach-flag { margin-left: 8px; padding: 1px 6px; border-radius: 4px; background: var(--wash); color: var(--ink); font-size: 11px; white-space: nowrap; }
+.tinto-coach-edited { text-decoration-color: color-mix(in srgb, var(--secondary) 45%, transparent); }
+.writing-passage:disabled { opacity: .6; cursor: default; }
 .coach-suggestion { margin: 10px 0; padding: 8px 10px; border-left: 2px solid var(--wine); background: var(--wash); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .tinto-spelling-menu > .coach-menu-title { color: var(--ink); font-weight: 600; }
 .tinto-spelling-menu > .coach-menu-suggestion { color: var(--ink); }

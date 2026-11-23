@@ -311,6 +311,15 @@ dialog:has(> .settings-body) > .dialog-head { flex: none; margin: 0; padding: 20
    buttons and notes sit 8px under it. */
 .settings-panel > * + * { margin-top: 28px; }
 .settings-panel .group-label { margin: 0 0 8px; }
+.ai-usage { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--divider); }
+.ai-usage-total { margin: 0 0 8px; font-size: 14px; }
+.ai-usage-bar { display: flex; height: 10px; overflow: hidden; border-radius: 5px; background: var(--wash); }
+.ai-usage-part { flex-basis: 0; min-width: 0; }
+.ai-usage-part.translate, .ai-usage-key.translate i { background: var(--wine); }
+.ai-usage-part.coach, .ai-usage-key.coach i { background: var(--secondary); }
+.ai-usage-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 4px; font-size: 12px; color: var(--secondary); }
+.ai-usage-key { display: inline-flex; align-items: center; gap: 6px; }
+.ai-usage-key i { width: 8px; height: 8px; border-radius: 2px; }
 .settings-panel .toolbar-bar { margin: 14px 0 2px; font-size: 13px; font-weight: 500; color: var(--ink); }
 .settings-panel .field { min-height: 34px; margin: 0 0 12px; }
 .settings-panel .field :is(select, input:not([type=checkbox])) { flex: none; width: min(200px, 46%); height: 34px; }

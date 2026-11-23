@@ -1,5 +1,5 @@
 import type { EditorView } from 'prosemirror-view'
-import { applyWriting, checkWriting, coachIssues, coachStatus, dismissCoach, dismissWriting, ignoreWriting, retryWriting, selectCoach, selectWriting, writingIssues, writingKey, writingStatus, type WritingIssue, type WritingState } from './writing-checks'
+import { applyWriting, checkWriting, coachIssues, coachStatus, dismissCoach, dismissWriting, solveCoach, ignoreWriting, retryWriting, selectCoach, selectWriting, writingIssues, writingKey, writingStatus, type WritingIssue, type WritingState } from './writing-checks'
 import { sectionKey } from './section'
 import { acceptWord, disableWritingRule, saveWritingPreferences, writingPreferences } from './writing-preferences'
 import { english, supportedWritingLanguage, validPersonalWord } from './writing-types'
@@ -138,23 +138,30 @@ function drawCoach(host: HTMLElement, view: EditorView, unsupported: boolean, me
   section.append(element('h3', 'group-label', 'Advanced'), row)
   if (service === null) section.append(element('p', 'settings-note', 'Add an AI key in Settings → Writing → AI service.'))
   host.append(section)
-  const { check } = coachStatus(view.state)
+  const { check, solved } = coachStatus(view.state)
   if (!check || !toggle.checked) return
   const issues = coachIssues(view.state)
   const status = element('p', 'settings-note')
   status.setAttribute('role', 'status')
-  const from = check.model ? ' · ' + check.model : ''
-  status.textContent = check.status === 'checking' ? 'Reviewing…' : check.status === 'error' ? 'The writing coach could not review this passage. ' + (check.error ?? '') : check.stale ? 'Check again to include changes since the last review.' : (issues.length ? issues.length + (issues.length === 1 ? ' suggestion' : ' suggestions') : 'No suggestions') + from
+  const count = (issues.length ? issues.length + (issues.length === 1 ? ' suggestion' : ' suggestions') : 'No suggestions') + (check.model ? ' · ' + check.model : '')
+  status.textContent = check.status === 'checking' ? 'Reviewing…' : check.status === 'error' ? 'The writing coach could not review this passage. ' + (check.error ?? '') : count
   section.append(status)
-  if (check.status !== 'ready') return
+  // Notes stay while you edit; Check again reviews your changes.
+  if (check.status === 'ready' && check.stale) section.append(element('p', 'settings-note coach-stale', 'Edited since the review. Check again to review your changes.'))
+  if (solved && check.status !== 'checking') section.append(element('p', 'settings-note', solved + (solved === 1 ? ' solved note' : ' solved notes') + ' will be checked in the next review.'))
   for (const issue of issues) {
-    const id = issueId(issue), { note } = issue
+    const { note } = issue
     const result = element('section', 'writing-result coach-result')
     result.setAttribute('aria-label', COACH_LABELS[note.kind] + ': ' + note.quote)
-    result.append(element('p', 'coach-kind', COACH_LABELS[note.kind] + ' · ' + note.title))
+    const kind = element('p', 'coach-kind', COACH_LABELS[note.kind] + ' · ' + note.title)
+    if (note.repeat) kind.append(element('span', 'coach-flag', 'Still there'))
+    if (!issue.anchored) kind.append(element('span', 'coach-flag', 'Passage changed'))
+    else if (issue.edited) kind.append(element('span', 'coach-flag', 'Edited'))
+    result.append(kind)
     const passage = button(note.quote, () => selectCoach(view, issue), 'writing-passage')
-    passage.title = 'Show passage in manuscript'
-    passage.dataset.writingAction = 'coach-passage:' + id
+    passage.title = issue.anchored ? 'Show passage in manuscript' : 'This passage is no longer in the manuscript'
+    passage.disabled = !issue.anchored
+    passage.dataset.writingAction = 'coach-passage:' + issue.id
     result.append(passage, element('p', 'writing-explanation', note.explanation))
     if (note.suggestion) {
       const suggestion = element('p', 'coach-suggestion')
@@ -162,9 +169,11 @@ function drawCoach(host: HTMLElement, view: EditorView, unsupported: boolean, me
       result.append(suggestion)
     }
     const controls = element('div', 'writing-actions')
+    const solve = button('Mark as solved', () => solveCoach(view, issue), 'outline')
+    solve.dataset.writingAction = 'coach-solve:' + issue.id
     const dismiss = button('Dismiss', () => dismissCoach(view, issue), 'quiet')
-    dismiss.dataset.writingAction = 'coach-dismiss:' + id
-    controls.append(dismiss); result.append(controls); section.append(result)
+    dismiss.dataset.writingAction = 'coach-dismiss:' + issue.id
+    controls.append(solve, dismiss); result.append(controls); section.append(result)
   }
-  if (check.dropped) section.append(element('p', 'settings-note', check.dropped + ' left out: not quoted exactly from your text.'))
+  if (check.dropped && check.status === 'ready') section.append(element('p', 'settings-note', check.dropped + ' left out: not quoted exactly from your text.'))
 }

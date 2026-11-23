@@ -166,3 +166,11 @@ test('Claude translates through Anthropic\'s SDK with a JSON format, and OpenRou
   replies = [{ status: 402, body: { error: { code: 402, message: 'Insufficient credits' } } }]
   await assert.rejects(router('openai/gpt-6.2-astra').translateTexts(['Hello'], 'en', 'es'), /Your OpenRouter account has no credit left/)
 })
+
+test('each translation request reports its tokens for the usage estimate', async () => {
+  const used = []
+  const fetcher = async () => Response.json({ status: 'completed', usage: { input_tokens: 1200, input_tokens_details: { cached_tokens: 0 }, output_tokens: 1300 }, output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ texts: ['Hola'] }) }] }] })
+  const translator = createTranslator({ provider: 'openai', key: 'sk-test-0123456789abcdefghij', model: 'gpt-6.2-sol' }, fetcher, (task, usage) => used.push([task, usage]))
+  assert.deepEqual(await translator.translateTexts(['Hello'], 'en', 'es'), ['Hola'])
+  assert.deepEqual(used, [['translate', { model: 'gpt-6.2-sol', input: 1200, cached: 0, output: 1300 }]])
+})

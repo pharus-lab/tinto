@@ -328,7 +328,7 @@ test('the writing coach starts off, needs an AI key, and only suggests: no Apply
   await button(splice, 'I went to the store, I bought bread.').click()
   assert.equal(await page.evaluate(() => getSelection().toString()), 'I went to the store, I bought bread.')
 
-  // The context menu offers the explanation, the suggestion and Dismiss only.
+  // The context menu offers the explanation, the suggestion, Mark as solved and Dismiss.
   const subject = coach.getByRole('region', { name: 'Sentence structure: The report it was written badly.', exact: true })
   await button(subject, 'The report it was written badly.').click()
   assert.equal(await page.evaluate(() => document.activeElement.classList.contains('ProseMirror')), true, 'the passage is selected in the manuscript, ready to edit')
@@ -340,7 +340,7 @@ test('the writing coach starts off, needs an AI key, and only suggests: no Apply
   const menu = page.getByRole('menu', { name: 'Writing coach' })
   await menu.getByText('Sentence structure · Repeated subject').waitFor()
   await menu.getByText('Suggestion: Remove "it".').waitFor()
-  assert.deepEqual(await menu.getByRole('menuitem').allInnerTexts(), ['Dismiss'])
+  assert.deepEqual(await menu.getByRole('menuitem').allInnerTexts(), ['Mark as solved', 'Dismiss'])
   await page.keyboard.press('Escape')
 
   await button(splice, 'Dismiss').click()
@@ -348,12 +348,13 @@ test('the writing coach starts off, needs an AI key, and only suggests: no Apply
   assert.equal(await editor(page).locator('p').first().innerText(), first, 'the coach never changes the text')
   await coach.getByRole('status').filter({ hasText: '1 suggestion · gpt-6.2-astra' }).waitFor()
 
-  // An edit leaves the note to be checked again.
+  // Notes stay while you edit; the sidebar says the review is older than the text.
   await editor(page).locator('p').first().click()
   await page.keyboard.press('End')
   await page.keyboard.type(' Then I left.')
-  await coach.getByRole('status').filter({ hasText: 'Check again to include changes since the last review.' }).waitFor()
-  assert.equal(await editor(page).locator('.tinto-coach').count(), 0)
+  await coach.getByText('Edited since the review. Check again to review your changes.').waitFor()
+  assert.equal(await editor(page).locator('.tinto-coach').count(), 1)
+  await subject.waitFor()
 
   // A failing service leaves Harper's results in place.
   await fixture.app.evaluate(() => { globalThis.coachFails = true })
@@ -364,4 +365,145 @@ test('the writing coach starts off, needs an AI key, and only suggests: no Apply
   await toggle.uncheck()
   await coach.getByRole('status').waitFor({ state: 'detached' })
   assert.equal(await page.getByLabel('Document spelling language', { exact: true }).locator('option[value=es]').innerText(), 'Spanish (Mexico)')
+})
+
+// A simulated AI service whose coach quotes the text it was sent. A passage the
+// writer marked solved but still reads badly comes back with repeat.
+async function coachService(fixture) {
+  await fixture.app.evaluate(({ ipcMain }) => {
+    globalThis.coachRequests = []
+    ipcMain.removeHandler('translator:status')
+    ipcMain.handle('translator:status', () => ({ provider: 'openai', name: 'OpenAI', model: 'gpt-6.2-astra' }))
+    ipcMain.removeHandler('coach:review')
+    ipcMain.handle('coach:review', (_event, request) => {
+      globalThis.coachRequests.push(request)
+      const notes = []
+      const at = (quote, kind, title, repeat = false) => {
+        for (const block of request.blocks) {
+          const from = block.text.indexOf(quote)
+          if (from >= 0) notes.push({ block: block.id, quote, kind, title, explanation: 'Explained ' + title + '.', suggestion: 'Fix ' + title + '.', repeat, from, to: from + quote.length })
+        }
+      }
+      at('I went to the store, I bought bread.', 'punctuation', 'Comma splice')
+      at('The report it was written badly.', 'syntax', 'Repeated subject')
+      at('Their going home now.', 'grammar', 'Their or they’re')
+      if (request.resolved?.some(item => item.outcome === 'solved')) at('The report was written so badly.', 'syntax', 'Still unclear', true)
+      return { provider: 'OpenAI', model: 'gpt-6.2-astra', dropped: 0, notes }
+    })
+  })
+}
+async function selectText(page, text) {
+  assert.ok(await page.evaluate(text => {
+    const root = [...document.querySelectorAll('.ProseMirror')].find(el => el.offsetParent)
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const at = walker.currentNode.data.indexOf(text)
+      if (at < 0) continue
+      root.focus()
+      const range = document.createRange()
+      range.setStart(walker.currentNode, at); range.setEnd(walker.currentNode, at + text.length)
+      getSelection().removeAllRanges(); getSelection().addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+      return true
+    }
+    return false
+  }, text), 'found ' + text)
+}
+
+test('coach notes follow edits, can be solved or dismissed, survive Markdown and a restart, and the next review checks them', async t => {
+  const fixture = await desktopFixture(t)
+  let page = await fixture.open()
+  await seed(page, ['I went to the store, I bought bread. The report it was written badly.', 'Their going home now.'])
+  await coachService(fixture)
+  let checks = await manual(page)
+  await page.evaluate(() => window.dispatchEvent(new Event('tinto-ai-service')))
+  const toggle = checks.getByRole('checkbox', { name: 'Writing coach (AI)', exact: true })
+  await toggle.check()
+  checks = await manual(page)
+  const coach = checks.getByRole('region', { name: 'Writing coach', exact: true })
+  await coach.getByRole('status').filter({ hasText: '3 suggestions · gpt-6.2-astra' }).waitFor()
+  const note = name => coach.getByRole('region', { name, exact: true })
+  const splice = note('Punctuation: I went to the store, I bought bread.')
+  const subject = note('Sentence structure: The report it was written badly.')
+  const their = note('Grammar: Their going home now.')
+
+  // Typing in another paragraph keeps every note in place.
+  await editor(page).locator('p').nth(1).click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' Soon.')
+  await coach.getByText('Edited since the review. Check again to review your changes.').waitFor()
+  assert.equal(await editor(page).locator('.tinto-coach:not(.tinto-coach-edited)').count() >= 3, true)
+  // Revising the passage itself keeps its note, labeled Edited, on the new text.
+  await selectText(page, 'it ')
+  await page.keyboard.press('Backspace')
+  await selectText(page, 'written badly')
+  await page.keyboard.type('written so badly')
+  await subject.getByText('Edited', { exact: true }).waitFor()
+  assert.equal((await editor(page).locator('.tinto-coach-edited').allInnerTexts()).join(''), 'The report was written so badly.', 'the underline follows the revised passage')
+  assert.equal(await splice.getByText('Edited', { exact: true }).count(), 0)
+
+  // Dismiss results clears the local results only.
+  await button(checks, 'Dismiss results').click()
+  await splice.waitFor()
+  await button(subject, 'Mark as solved').click()
+  await subject.waitFor({ state: 'detached' })
+  await coach.getByText('1 solved note will be checked in the next review.').waitFor()
+  await button(their, 'Dismiss').click()
+  await their.waitFor({ state: 'detached' })
+  assert.equal(await editor(page).locator('.tinto-coach').count(), 1)
+
+  // Markdown and back: the note finds its passage again.
+  await button(page, 'Markdown').click()
+  await button(page, 'Markdown').click()
+  await editor(page).locator('.tinto-coach').first().waitFor()
+  assert.equal(await editor(page).locator('.tinto-coach').first().innerText(), 'I went to the store, I bought bread.')
+
+  // After a restart the notes and the solved list come back.
+  await page.waitForTimeout(600)
+  await fixture.close()
+  page = await fixture.open()
+  checks = page.locator('#writing-checks')
+  await page.waitForTimeout(300)
+  if (!await checks.isVisible()) {
+    if (!await page.getByRole('tab', { name: 'Writing checks', exact: true }).isVisible()) await button(page, 'Alternatives').click()
+    await page.getByRole('tab', { name: 'Writing checks', exact: true }).click()
+  }
+  await checks.getByRole('region', { name: 'Punctuation: I went to the store, I bought bread.', exact: true }).waitFor()
+  await checks.getByText('1 solved note will be checked in the next review.').waitFor()
+  assert.equal(await editor(page).locator('.tinto-coach').count(), 1)
+
+  // The next review receives what was solved and dismissed, as the passages read now.
+  await coachService(fixture)
+  await page.evaluate(() => window.dispatchEvent(new Event('tinto-ai-service')))
+  await button(checks, 'Check writing').click()
+  const again = checks.getByRole('region', { name: 'Writing coach', exact: true })
+  await again.getByRole('status').filter({ hasText: /suggestions · gpt-6\.2-astra/ }).waitFor({ timeout: 20_000 })
+  const [request] = await fixture.app.evaluate(() => globalThis.coachRequests)
+  assert.deepEqual(request.resolved.map(({ outcome, title, now }) => [outcome, title, now]), [
+    ['solved', 'Repeated subject', 'The report was written so badly.'],
+    ['dismissed', 'Their or they’re', 'Their going home now.']
+  ])
+  await again.getByRole('region', { name: 'Sentence structure: The report was written so badly.', exact: true }).getByText('Still there', { exact: true }).waitFor()
+  assert.equal(await editor(page).locator('p').first().innerText(), 'I went to the store, I bought bread. The report was written so badly.', 'the coach never changes the text')
+})
+
+test('AI service estimates what Translate and the writing coach have cost, and the estimate can be reset', async t => {
+  const fixture = await desktopFixture(t)
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  await mkdir(fixture.profile, { recursive: true })
+  const task = (cost, input, output, extra = {}) => ({ cost, input, output, requests: 3, unpriced: 0, unpricedModels: [], ...extra })
+  await writeFile(join(fixture.profile, 'ai-usage.json'), JSON.stringify({ since: '2026-11-23T12:00:00.000Z', translate: task(0.0612, 9000, 3000), coach: task(0.0123, 2000, 1000, { unpriced: 400, unpricedModels: ['my-model'] }) }))
+  const page = await fixture.open()
+  const modal = await settings(page)
+  const usage = modal.locator('.ai-usage')
+  await usage.getByText('≈ $0.07').waitFor()
+  assert.match(await usage.innerText(), /Estimated spend since Nov 23, 2026/)
+  await usage.getByText('Translate · $0.06 · 12,000 tokens').waitFor()
+  await usage.getByText('Writing coach · $0.01 · 3,000 tokens').waitFor()
+  await usage.getByText('400 tokens with my-model have no known price.').waitFor()
+  assert.equal(await usage.getByRole('img').getAttribute('aria-label'), 'Translate $0.06, writing coach $0.01')
+  const widths = await usage.locator('.ai-usage-part').evaluateAll(parts => parts.map(part => part.getBoundingClientRect().width))
+  assert.ok(widths[0] > widths[1] * 3, 'the bar is split by cost')
+  await usage.getByRole('button', { name: 'Reset the estimated spend' }).click()
+  await usage.getByText('≈ $0.00').waitFor()
 })

@@ -7,6 +7,7 @@ import { protect, reveal } from './secure-file'
 import { translationParts, type SourceBlock, type TranslationResult, type TranslationSource } from './translation'
 import type { TranslatorSummary } from './project-types'
 import { anchorNotes, coachInstructions, coachParts, COACH_SCHEMA, validateCoachRequest, type CoachRequest, type CoachResult } from './writing-coach'
+import { UsageLog, type RequestUsage, type UsageTask } from './ai-usage'
 
 // The writer's AI service, with their own API key: OpenAI, Anthropic (Claude)
 // or OpenRouter, each asked for a strict JSON schema. It translates documents
@@ -62,8 +63,13 @@ function fieldInstructions(from: string, to: string) {
 
 // What every provider shares: splitting a manuscript into parts and checking
 // that what comes back has the shape Tinto asked for.
+// Each request's tokens, as the service reports them, for the usage estimate.
+export type UsageListener = (task: UsageTask, usage: RequestUsage) => void
+const usageTask = (task: Task): UsageTask => task === 'review' ? 'coach' : 'translate'
+const tokens = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : 0
+
 abstract class Translator {
-  constructor(protected readonly settings: TranslatorSettings, protected readonly fetcher: Fetch = realFetch) {}
+  constructor(protected readonly settings: TranslatorSettings, protected readonly fetcher: Fetch = realFetch, protected readonly onUsage: UsageListener = () => {}) {}
   protected get name() { return PROVIDERS[this.settings.provider].name }
   // A key that can use the model can translate with it.
   abstract check(): Promise<void>
@@ -81,7 +87,9 @@ abstract class Translator {
     let dropped = 0
     progress(0, parts.length)
     for (const [index, part] of parts.entries()) {
-      const result = await this.ask<{ notes: unknown }>(coachInstructions(request.language), { blocks: part }, 'coaching', COACH_SCHEMA, 'review')
+      // Every part carries the resolved notes, wherever their passages are.
+      const input = request.resolved?.length ? { blocks: part, resolved: request.resolved } : { blocks: part }
+      const result = await this.ask<{ notes: unknown }>(coachInstructions(request.language), input, 'coaching', COACH_SCHEMA, 'review')
       if (!Array.isArray(result?.notes)) throw unreadable('review')
       const anchored = anchorNotes(part, result.notes)
       notes.push(...anchored.notes); dropped += anchored.dropped
@@ -137,7 +145,9 @@ class ResponsesTranslator extends Translator {
         // Only providers that honor the schema may answer.
         ...(this.settings.provider === 'openrouter' ? { provider: { require_parameters: true } } : {})
       })
-    }, 600_000, task) as { status?: string; incomplete_details?: { reason?: string }; output?: { type?: string; content?: { type?: string; text?: string; refusal?: string }[] }[] }
+    }, 600_000, task) as { model?: string; status?: string; incomplete_details?: { reason?: string }; output?: { type?: string; content?: { type?: string; text?: string; refusal?: string }[] }[]; usage?: { input_tokens?: number; input_tokens_details?: { cached_tokens?: number }; output_tokens?: number; cost?: number } }
+    // Incomplete answers and refusals are billed too.
+    if (body?.usage) this.onUsage(usageTask(task), { model: this.settings.model, input: tokens(body.usage.input_tokens), cached: tokens(body.usage.input_tokens_details?.cached_tokens), output: tokens(body.usage.output_tokens), ...(typeof body.usage.cost === 'number' ? { cost: body.usage.cost } : {}) })
     if (body?.status === 'incomplete') {
       throw Error((body.incomplete_details?.reason === 'max_output_tokens' ? TASK[task].long : TASK[task].stopped).replace('{name}', this.name))
     }
@@ -189,6 +199,9 @@ class ClaudeTranslator extends Translator {
         ...(fallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
       })
     } catch (error) { throw this.failure(error, task) }
+    // Priced by the model that answered, which a fallback can change.
+    const usage = message.usage
+    if (usage) this.onUsage(usageTask(task), { model: message.model || model, input: tokens(usage.input_tokens) + tokens(usage.cache_read_input_tokens) + tokens(usage.cache_creation_input_tokens), cached: tokens(usage.cache_read_input_tokens), output: tokens(usage.output_tokens) })
     if (message.stop_reason === 'refusal') throw Error('Claude declined to ' + TASK[task].verb + ' this text.')
     if (message.stop_reason === 'max_tokens') throw Error(TASK[task].long.replace('{name}', 'Claude'))
     const text = message.content.find(block => block.type === 'text')
@@ -213,8 +226,8 @@ function explain(name: string, model: string, status: number, code?: string, tas
   return Error(name + ' could not ' + TASK[task].verb + ' this text (error ' + status + ').')
 }
 
-export function createTranslator(settings: TranslatorSettings, fetcher: Fetch = realFetch): Translator {
-  return settings.provider === 'anthropic' ? new ClaudeTranslator(settings, fetcher) : new ResponsesTranslator(settings, fetcher)
+export function createTranslator(settings: TranslatorSettings, fetcher: Fetch = realFetch, onUsage?: UsageListener): Translator {
+  return settings.provider === 'anthropic' ? new ClaudeTranslator(settings, fetcher, onUsage) : new ResponsesTranslator(settings, fetcher, onUsage)
 }
 // Settings saved before providers existed were OpenAI's.
 const migrate = (saved: Partial<TranslatorSettings>): TranslatorSettings => ({ provider: saved.provider && saved.provider in PROVIDERS ? saved.provider : 'openai', key: String(saved.key ?? ''), model: String(saved.model ?? DEFAULT_MODEL) })
@@ -225,13 +238,16 @@ export function registerTranslation(context: TranslatorContext) {
   // The key and the model, encrypted with the system keychain.
   const file = join(app.getPath('userData'), 'translation.enc')
   const purpose = 'translate documents'
+  // What Translate and the writing coach have cost, approximately.
+  const usage = new UsageLog(join(app.getPath('userData'), 'ai-usage.json'))
+  const record: UsageListener = (task, request) => { void usage.record(task, request) }
   async function settings(): Promise<TranslatorSettings | null> {
     return existsSync(file) ? migrate(JSON.parse(await reveal(file, purpose))) : null
   }
   async function translator() {
     const saved = await settings()
     if (!saved) throw Error('Add an API key in Settings → Writing → AI service.')
-    return createTranslator(saved)
+    return createTranslator(saved, realFetch, record)
   }
   const summary = (saved: TranslatorSettings | null): TranslatorSummary | null => saved ? { provider: saved.provider, name: PROVIDERS[saved.provider].name, model: saved.model } : null
 
@@ -248,6 +264,8 @@ export function registerTranslation(context: TranslatorContext) {
   })
   ipcMain.handle('translator:test', async event => { context.trusted(event); await (await translator()).check(); return summary(await settings()) })
   ipcMain.handle('translator:remove', async event => { context.trusted(event); await rm(file, { force: true }) })
+  ipcMain.handle('ai-usage:get', async event => { context.trusted(event); return usage.read() })
+  ipcMain.handle('ai-usage:reset', async event => { context.trusted(event); return usage.reset() })
   ipcMain.handle('translator:translate', async (event, source: TranslationSource, from: string, to: string) => {
     context.trusted(event)
     return (await translator()).translate(source, from, to, (done, total) => {

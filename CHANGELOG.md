@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.2 — 2026-11-23
+
+- **Writing coach notes stay while you edit.** Each note follows its passage as you type around or inside it, marked **Edited** once you change it, and stays until **Check again**, **Dismiss** or the new **Mark as solved**. A passage you delete keeps its note in the sidebar, without an underline. Dismiss results clears the local results only.
+- **Mark as solved**: the next review checks the revised passage; if the problem remains, the coach raises it again, labeled **Still there**. **Dismiss** now tells the coach too, so it does not suggest the same change again.
+- Coach notes, and the notes you solved or dismissed, are kept on this computer for each document: they survive switching to Markdown, closing the document and restarting Tinto. They are not stored in the .tinto project.
+- **Settings → Writing → AI service** shows an estimate of what Translate and the writing coach have cost since you started or last reset, as a bar split between the two, from the tokens each service reports and its published prices. OpenRouter's own reported cost is used when it gives one; models chosen with Other… count tokens only. **Reset** starts the total again.
+
 ## 1.1.1 — 2026-11-23
 
 - **Writing coach (AI)**, an advanced check marked with sparkles in the Writing checks sidebar and in Settings → Writing, off by default. With the key and model of Settings → Writing → AI service, **Check writing** also asks it to review the open document or linked section: it explains problems with grammar, punctuation, sentence structure and confusing or needlessly long wording, and suggests how to improve each passage. It is a coach, not an editor: notes have no Apply, only Dismiss, and it never changes the text or the authorship record. Its switch and notes sit below the local results. It works in English, English (UK) and Spanish (Mexico), answers in the document's language, and sends nothing while you type.

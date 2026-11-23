@@ -1,4 +1,5 @@
 import type { TranslatorSummary } from './project-types'
+import type { TaskUsage, UsageTotal } from './ai-usage'
 import { button, element, errorMessage } from './ui'
 
 // Settings → Writing → AI service: the service, the writer's API key for it and
@@ -24,8 +25,44 @@ export function translationSettings(parent: HTMLElement) {
   const body = element('div')
   const message = element('p', '', intro)
   message.setAttribute('role', 'status')
-  section.append(element('h3', 'group-label', 'AI service'), body, message, element('p', 'settings-note', tested))
+  const usage = element('div', 'ai-usage')
+  section.append(element('h3', 'group-label', 'AI service'), body, message, element('p', 'settings-note', tested), usage)
   parent.append(section)
+
+  // An estimate of what Translate and the writing coach have cost since the
+  // writer started or last reset: the tokens each service reports, priced from
+  // published rates. The provider's bill is exact.
+  const money = (value: number) => '$' + (value > 0 && value < 0.01 ? '<0.01' : value.toFixed(2))
+  const tokens = (item: TaskUsage) => (item.input + item.output).toLocaleString('en') + ' tokens'
+  function drawUsage(total: UsageTotal) {
+    const sum = total.translate.cost + total.coach.cost
+    const since = new Date(total.since).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })
+    const heading = element('p', 'ai-usage-total')
+    heading.append(element('span', '', 'Estimated spend since ' + since + ': '), element('strong', '', '≈ ' + money(sum)))
+    const bar = element('div', 'ai-usage-bar')
+    bar.setAttribute('role', 'img')
+    bar.setAttribute('aria-label', 'Translate ' + money(total.translate.cost) + ', writing coach ' + money(total.coach.cost))
+    for (const [key, cost] of [['translate', total.translate.cost], ['coach', total.coach.cost]] as const) {
+      const part = element('span', 'ai-usage-part ' + key)
+      part.style.flexGrow = String(sum > 0 ? cost / sum : 0)
+      bar.append(part)
+    }
+    const legend = element('div', 'ai-usage-legend')
+    for (const [key, label, item] of [['translate', 'Translate', total.translate], ['coach', 'Writing coach', total.coach]] as const) {
+      const row = element('span', 'ai-usage-key ' + key)
+      row.append(element('i'), document.createTextNode(label + ' · ' + money(item.cost) + ' · ' + tokens(item)))
+      legend.append(row)
+    }
+    const unpriced = [...total.translate.unpricedModels, ...total.coach.unpricedModels].filter((model, index, all) => all.indexOf(model) === index)
+    const notes = [element('p', 'settings-note', 'An estimate from the tokens each service reports and its published prices (Nov 2026); your provider’s bill is exact.')]
+    if (unpriced.length) notes.push(element('p', 'settings-note', (total.translate.unpriced + total.coach.unpriced).toLocaleString('en') + ' tokens with ' + unpriced.join(', ') + ' have no known price.'))
+    const reset = button('Reset', async () => {
+      try { drawUsage(await api.resetAiUsage()) } catch (error) { message.textContent = errorMessage(error) }
+    }, 'quiet')
+    reset.setAttribute('aria-label', 'Reset the estimated spend')
+    usage.replaceChildren(heading, bar, legend, ...notes, reset)
+  }
+  void api.aiUsage().then(drawUsage).catch(() => usage.replaceChildren())
 
   function busy(task: () => Promise<string>, progress: string) {
     return async () => {

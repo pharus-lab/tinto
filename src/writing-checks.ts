@@ -6,16 +6,25 @@ import { findSection, sectionKey } from './section'
 import { writingProse, proseRanges, manualCorrectionReason, replaceProse, type Prose } from './writing-prose'
 import { acceptWord, disableWritingRule, type WritingPreferences } from './writing-preferences'
 import { dictionaryLanguage, english, normalizedWord, supportedWritingLanguage, validPersonalWord, WRITING_BATCH_LIMIT, WRITING_BLOCK_LIMIT, type WritingDiagnostic, type WritingFailure, type WritingRequest, type WritingResponse } from './writing-types'
-import { COACH_LABELS, COACH_LIMIT, type AnchoredNote, type CoachRequest, type CoachResult } from './writing-coach'
+import { COACH_LABELS, COACH_LIMIT, COACH_RESOLVED, findPassage, type AnchoredNote, type CoachRequest, type CoachResult, type ResolvedNote } from './writing-coach'
+import { clearCoach, loadCoach, saveCoachResolved, saveCoachScope, type StoredCheck } from './coach-store'
 import { errorMessage } from './ui'
 
 type Status = 'idle' | 'checking' | 'ready' | 'edited' | 'error'
 interface BlockCheck { node: Node; diagnostics: WritingDiagnostic[] }
 interface ManualCheck { blocks: BlockCheck[]; status: Status; error?: WritingFailure }
 interface Ignored { node: Node; key: string }
-// A writing coach review of one scope. stale: the passage changed since it
-// was sent. Notes are kept only for blocks that are still unchanged.
-interface CoachCheck { token: number; status: 'checking' | 'ready' | 'error'; stale: boolean; checked: Node[]; notes: { node: Node; note: AnchoredNote }[]; dropped: number; provider?: string; model?: string; error?: string }
+// A writing coach note in the manuscript. from and to are document positions
+// that follow every edit; original is the passage's text when it was placed,
+// to tell an edited passage (changed keeps that across a Markdown switch).
+// anchored is false once the passage is gone: the note stays, unmarked.
+export interface CoachNoteAt { id: string; note: AnchoredNote; from: number; to: number; original: string; anchored: boolean; changed?: boolean }
+// A note the writer marked solved or dismissed; the next review takes it into account.
+export interface CoachResolved extends CoachNoteAt { outcome: 'solved' | 'dismissed'; scope: string; at: string }
+// A writing coach review of one scope. Its notes stay until Check again
+// replaces them or the writer resolves them. stale: the scope changed since the
+// review; checked holds the blocks sent (empty for notes restored from storage).
+interface CoachCheck { token: number; status: 'checking' | 'ready' | 'error'; stale: boolean; checked: Node[]; notes: CoachNoteAt[]; dropped: number; provider?: string; model?: string; error?: string; reviewed?: string }
 export interface WritingState {
   language: string
   markdown: boolean
@@ -25,11 +34,11 @@ export interface WritingState {
   manual: Map<string, ManualCheck>
   ignored: Ignored[]
   coach: Map<string, CoachCheck>
-  coachDismissed: Ignored[]
+  coachResolved: CoachResolved[]
   autoStatus: Status
   error?: WritingFailure
 }
-export interface CoachIssue { node: Node; offset: number; prose: Prose; note: AnchoredNote; key: string }
+export interface CoachIssue { id: string; note: AnchoredNote; from: number; to: number; anchored: boolean; edited: boolean }
 export interface WritingIssue {
   node: Node
   offset: number
@@ -43,8 +52,8 @@ type WritingMeta =
   | { type: 'view'; source: WritingState; fromDoc: Node; markdown: boolean }
   | { type: 'manual'; coach?: boolean }
   | { type: 'dismiss' | 'retry' }
-  | { type: 'coach-results'; scope: string; token: number; notes: { node: Node; note: AnchoredNote }[]; dropped: number; provider?: string; model?: string; error?: string }
-  | { type: 'coach-dismiss'; node: Node; key: string }
+  | { type: 'coach-results'; scope: string; token: number; notes: { node: Node; start: number; note: AnchoredNote }[]; dropped: number; provider?: string; model?: string; error?: string }
+  | { type: 'coach-resolve'; id: string; outcome: 'solved' | 'dismissed' }
   | { type: 'started'; revision: number }
   | { type: 'ignore'; node: Node; key: string }
   | { type: 'results'; revision: number; manual: boolean; blocks: BlockCheck[]; done: boolean; error?: WritingFailure }
@@ -91,27 +100,59 @@ export function writingStatus(state: EditorState) {
   return { status: manual?.status ?? value.autoStatus, error: manual ? manual.error : value.error, manual: !!manual, enabled: liveEnabled(value), language: value.language,
     spelling: !!manual || value.preferences.spelling, grammar: english(value.language) && (!!manual || value.preferences.grammar) }
 }
-const coachKey = (note: AnchoredNote) => JSON.stringify([note.from, note.to, note.kind, note.quote])
-// The coach's notes for the current scope, on passages that are unchanged.
+let noteIds = 0
+const newNoteId = () => Date.now().toString(36) + '-' + (++noteIds).toString(36)
+// The manuscript range of prose offsets in one block.
+function blockRange(node: Node, offset: number, markdown: boolean, from: number, to: number) {
+  const ranges = proseRanges(writingProse(node, markdown), from, to)
+  return ranges.length ? { from: offset + ranges[0].from, to: offset + ranges.at(-1)!.to } : null
+}
+// The prose a writer sees between two document positions.
+function proseText(doc: Node, markdown: boolean, from: number, to: number) {
+  let text = ''
+  doc.forEach((node, offset) => {
+    if (offset + node.nodeSize <= from || offset >= to) return
+    const prose = writingProse(node, markdown)
+    for (let i = 0; i < prose.text.length; i++) {
+      const at = offset + prose.positions[i]
+      if (prose.positions[i] >= 0 && at >= from && at < to) text += prose.text[i]
+    }
+  })
+  return text
+}
+// Find a quoted passage again, nearest a position: in its block first, then
+// in the rest of the scope.
+export function anchorPassage(doc: Node, markdown: boolean, quote: string, near: number, within?: { from: number; to: number } | null) {
+  const blocks: { node: Node; offset: number; distance: number }[] = []
+  doc.forEach((node, offset) => {
+    if (within && (offset < within.from || offset >= within.to)) return
+    blocks.push({ node, offset, distance: near >= offset && near < offset + node.nodeSize ? 0 : Math.min(Math.abs(offset - near), Math.abs(offset + node.nodeSize - near)) })
+  })
+  for (const { node, offset } of blocks.sort((a, b) => a.distance - b.distance)) {
+    const found = findPassage(writingProse(node, markdown).text, quote, Math.max(0, near - offset))
+    const range = found && blockRange(node, offset, markdown, found.from, found.to)
+    if (range) return range
+  }
+  return null
+}
+const passageText = (doc: Node, from: number, to: number) => doc.textBetween(from, to, '\n')
+// The coach's notes for the current scope that the writer has not resolved.
+// edited: the passage changed since the review.
 export function coachIssues(state: EditorState): CoachIssue[] {
   const value = writingKey.getState(state)
   const check = value?.coach.get(scopeOf(state))
-  if (!value || !check?.notes.length) return []
-  const offsets = new Map(scopedBlocks(state).map(({ node, offset }) => [node, offset]))
-  const issues: CoachIssue[] = []
-  for (const { node, note } of check.notes) {
-    const offset = offsets.get(node), key = coachKey(note)
-    if (offset === undefined || value.coachDismissed.some(item => item.node === node && item.key === key)) continue
-    const prose = writingProse(node, value.markdown)
-    if (prose.text.slice(note.from, note.to) !== note.quote) continue
-    issues.push({ node, offset, prose, note, key })
-  }
-  return issues.sort((a, b) => a.offset - b.offset || a.note.from - b.note.from)
+  if (!value || !value.preferences.coach || !check?.notes.length) return []
+  const size = state.doc.content.size
+  return check.notes.map(item => {
+    const anchored = item.anchored && item.to > item.from && item.to <= size
+    return { id: item.id, note: item.note, from: item.from, to: item.to, anchored, edited: !anchored || !!item.changed || passageText(state.doc, item.from, item.to) !== item.original }
+  }).sort((a, b) => Number(b.anchored) - Number(a.anchored) || a.from - b.from)
 }
 export function coachStatus(state: EditorState) {
   const value = writingKey.getState(state)!
-  const check = value.coach.get(scopeOf(state))
-  return { enabled: value.preferences.coach, check: check ? { status: check.status, stale: check.stale, provider: check.provider, model: check.model, dropped: check.dropped, error: check.error } : null }
+  const scope = scopeOf(state), check = value.coach.get(scope)
+  const solved = value.coachResolved.filter(item => item.outcome === 'solved' && item.scope === scope).length
+  return { enabled: value.preferences.coach, solved, check: check ? { status: check.status, stale: check.stale, provider: check.provider, model: check.model, dropped: check.dropped, error: check.error } : null }
 }
 function send(view: EditorView, meta: WritingMeta) { view.dispatch(view.state.tr.setMeta(writingKey, meta).setMeta('addToHistory', false)) }
 export function configureWriting(view: EditorView, config: Omit<Extract<WritingMeta, { type: 'configure' }>, 'type'>) { send(view, { type: 'configure', ...config }) }
@@ -121,8 +162,15 @@ export function checkWriting(view: EditorView) {
   const value = writingKey.getState(view.state)
   if (value?.manual.get(scopeOf(view.state))?.status !== 'checking') send(view, { type: 'manual', coach: !!value?.preferences.coach && supportedWritingLanguage(value.language) })
 }
-export function dismissCoach(view: EditorView, issue: CoachIssue) { send(view, { type: 'coach-dismiss', node: issue.node, key: issue.key }) }
-export function selectCoach(view: EditorView, issue: CoachIssue) { selectPassage(view, issue.node, issue.offset, issue.prose, issue.note.from, issue.note.to) }
+// Solved: the next review checks the revised passage. Dismissed: the writer
+// keeps the wording, and the coach does not suggest it again.
+export function solveCoach(view: EditorView, issue: CoachIssue) { send(view, { type: 'coach-resolve', id: issue.id, outcome: 'solved' }) }
+export function dismissCoach(view: EditorView, issue: CoachIssue) { send(view, { type: 'coach-resolve', id: issue.id, outcome: 'dismissed' }) }
+export function selectCoach(view: EditorView, issue: CoachIssue) {
+  if (!issue.anchored || issue.to > view.state.doc.content.size) return
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, issue.from, issue.to)).scrollIntoView())
+  view.focus()
+}
 export function dismissWriting(view: EditorView) { send(view, { type: 'dismiss' }) }
 export function retryWriting(view: EditorView) { send(view, { type: 'retry' }) }
 export function ignoreWriting(view: EditorView, issue: WritingIssue) { send(view, { type: 'ignore', node: issue.node, key: issue.key }) }
@@ -146,15 +194,16 @@ export function applyWriting(view: EditorView, issue: WritingIssue, index: numbe
   return true
 }
 
-export function writingPlugin(options: { language: string; preferences: WritingPreferences; check: (request: WritingRequest) => Promise<WritingResponse>; coach?: (request: CoachRequest) => Promise<CoachResult>; changed?: () => void; message?: (message: string) => void }): Plugin<WritingState> {
+// storage: the document whose coach notes are kept on this computer.
+export function writingPlugin(options: { language: string; preferences: WritingPreferences; check: (request: WritingRequest) => Promise<WritingResponse>; coach?: (request: CoachRequest) => Promise<CoachResult>; storage?: { documentId: string }; changed?: () => void; message?: (message: string) => void }): Plugin<WritingState> {
   let dismissMenu: (() => void) | undefined
   let revision = 0
   let coachToken = 0
   let decorated: { doc: Node; value: WritingState; set: DecorationSet } | undefined
   function menu(view: EditorView, position: number, x: number, y: number, preferCoach = false) {
     const at = (offset: number, prose: Prose, from: number, to: number) => proseRanges(prose, from, to).some(range => position >= offset + range.from && position <= offset + range.to)
-    // A coach note offers its explanation and suggestion, and Dismiss only.
-    const coachNote = coachIssues(view.state).find(item => at(item.offset, item.prose, item.note.from, item.note.to))
+    // A coach note offers its explanation and suggestion, Mark as solved and Dismiss.
+    const coachNote = coachIssues(view.state).find(item => item.anchored && position >= item.from && position <= item.to)
     const issue = preferCoach && coachNote ? undefined : writingIssues(view.state).find(item => at(item.offset, item.prose, item.diagnostic.from, item.diagnostic.to))
     const note = issue ? undefined : coachNote
     if (!issue && !note) return false
@@ -177,6 +226,7 @@ export function writingPlugin(options: { language: string; preferences: WritingP
       line(COACH_LABELS[note.note.kind] + ' · ' + note.note.title, 'coach-menu-title')
       line(note.note.explanation)
       if (note.note.suggestion) line('Suggestion: ' + note.note.suggestion, 'coach-menu-suggestion')
+      action('Mark as solved', () => { solveCoach(view, note); view.focus() })
       action('Dismiss', () => { dismissCoach(view, note); view.focus() })
     } else if (issue) {
       line(issue.diagnostic.message)
@@ -214,10 +264,27 @@ export function writingPlugin(options: { language: string; preferences: WritingP
     doc.addEventListener('pointerdown', outside, true); doc.addEventListener('focusin', outside, true); doc.addEventListener('scroll', outside, true)
     return true
   }
+  // Notes kept on this computer come back on the passages they quote.
+  function restoreCoach(doc: Node): Pick<WritingState, 'coach' | 'coachResolved'> {
+    const coach = new Map<string, CoachCheck>()
+    if (!options.storage) return { coach, coachResolved: [] }
+    const stored = loadCoach(options.storage.documentId)
+    const size = doc.content.size
+    const place = <T extends CoachNoteAt & { text: string }>(item: T): CoachNoteAt => {
+      const { text, ...note } = item
+      if (note.anchored && note.to <= size && note.from < note.to && passageText(doc, note.from, note.to) === text) return note
+      const range = anchorPassage(doc, false, text || note.note.quote, note.from)
+      return range ? { ...note, ...range, anchored: true, changed: note.changed || text !== note.original } : { ...note, anchored: false }
+    }
+    for (const [scope, check] of stored.checks) {
+      coach.set(scope, { token: 0, status: 'ready', stale: check.stale, checked: [], notes: check.notes.map(place), dropped: check.dropped, provider: check.provider, model: check.model, reviewed: check.reviewed })
+    }
+    return { coach, coachResolved: stored.resolved.map(item => ({ ...place(item), outcome: item.outcome, scope: item.scope, at: item.at })) }
+  }
   return new Plugin<WritingState>({
     key: writingKey,
     state: {
-      init: () => ({ language: options.language, markdown: false, preferences: options.preferences, revision: ++revision, automatic: [], manual: new Map(), ignored: [], coach: new Map(), coachDismissed: [], autoStatus: 'idle' }),
+      init: (_config, instance) => ({ language: options.language, markdown: false, preferences: options.preferences, revision: ++revision, automatic: [], manual: new Map(), ignored: [], ...restoreCoach(instance.doc), autoStatus: 'idle' }),
       apply(tr, previous, oldState, state) {
         const meta: WritingMeta | undefined = tr.getMeta(writingKey)
         const scopeChanged = scopeOf(oldState) !== scopeOf(state)
@@ -241,16 +308,20 @@ export function writingPlugin(options: { language: string; preferences: WritingP
             const checked = new Set(blocks.map(item => item.node))
             if (blocks.length !== manual.blocks.length || [...inScope].some(node => !checked.has(node))) next.manual.set(scope, { ...manual, blocks, status: 'edited', error: undefined })
           }
-          next.coachDismissed = previous.coachDismissed.filter(item => nodes.has(item.node))
+          // Coach notes follow the text; a deleted passage leaves its note unmarked.
+          const moved = <T extends CoachNoteAt>(item: T): T => {
+            if (!item.anchored) return item
+            const from = tr.mapping.map(item.from, 1), to = tr.mapping.map(item.to, -1)
+            return to > from ? { ...item, from, to } : { ...item, from, to: from, anchored: false }
+          }
+          next.coachResolved = previous.coachResolved.map(moved)
           for (const [scope, check] of next.coach) {
             const section = scope ? findSection(state.doc, scope) : null
-            if (scope && !section) { next.coach.delete(scope); continue }
             const inScope = new Set<Node>()
             state.doc.forEach((node, offset) => { if (!section || (offset >= section.from && offset < section.to)) inScope.add(node) })
             const checked = check.checked.filter(node => inScope.has(node)), sent = new Set(check.checked)
-            if (checked.length !== check.checked.length || [...inScope].some(node => !sent.has(node))) {
-              next.coach.set(scope, { ...check, checked, notes: check.notes.filter(item => inScope.has(item.node)), stale: true })
-            }
+            const stale = check.stale || !check.checked.length || checked.length !== check.checked.length || [...inScope].some(node => !sent.has(node))
+            next.coach.set(scope, { ...check, checked, notes: check.notes.map(moved), stale })
           }
         }
         if (meta?.type === 'view') {
@@ -267,21 +338,34 @@ export function writingPlugin(options: { language: string; preferences: WritingP
             const blocks = remap(manual.blocks)
             return [scope, { ...manual, blocks, status: blocks.length !== manual.blocks.length || manual.status === 'checking' ? 'edited' : manual.status }]
           }))
+          // Markdown and formatted views are different documents: find each
+          // coach note's passage again by its text, in the same paragraph.
+          const starts: number[] = []
+          state.doc.forEach((_node, offset) => { starts.push(offset) })
+          const reanchor = <T extends CoachNoteAt>(item: T): T => {
+            if (!item.anchored) return item
+            let index = 0
+            meta.fromDoc.forEach((node, offset, i) => { if (item.from >= offset && item.from < offset + node.nodeSize) index = i })
+            const text = proseText(meta.fromDoc, meta.source.markdown, item.from, item.to)
+            const range = text ? anchorPassage(state.doc, meta.markdown, text, starts[index] ?? 0) : null
+            if (!range) return { ...item, anchored: false }
+            const changed = !!item.changed || passageText(meta.fromDoc, item.from, item.to) !== item.original
+            return { ...item, ...range, original: passageText(state.doc, range.from, range.to), changed }
+          }
           next.coach = new Map([...meta.source.coach].map(([scope, check]) => {
             const checked = check.checked.filter(node => nodes.has(node)).map(node => nodes.get(node)!)
-            const notes = check.notes.filter(item => nodes.has(item.node)).map(item => ({ ...item, node: nodes.get(item.node)! }))
-            return [scope, { ...check, checked, notes, stale: check.stale || checked.length !== check.checked.length }]
+            return [scope, { ...check, checked, notes: check.notes.map(reanchor), stale: check.stale || checked.length !== check.checked.length }]
           }))
-          next.coachDismissed = meta.source.coachDismissed.filter(item => nodes.has(item.node)).map(item => ({ ...item, node: nodes.get(item.node)! }))
+          next.coachResolved = meta.source.coachResolved.map(reanchor)
         } else if (meta?.type === 'configure') {
           const language = meta.language ?? next.language, markdown = meta.markdown ?? next.markdown
           if (language !== next.language || markdown !== next.markdown || meta.reset) {
             next.manual.clear(); next.ignored = []
-            next.coach.clear(); next.coachDismissed = []
           }
+          // Coach notes belong to the document's language; turning the coach
+          // off only hides them.
+          if (language !== next.language || meta.reset) { next.coach.clear(); next.coachResolved = [] }
           const preferences = meta.preferences ?? next.preferences
-          // Turning the coach off removes its notes.
-          if (!preferences.coach) next.coach.clear()
           const dictionary = dictionaryLanguage(language)
           const filtersChanged = JSON.stringify([next.preferences.words[dictionary], next.preferences.disabledRules, next.preferences.style]) !== JSON.stringify([preferences.words[dictionary], preferences.disabledRules, preferences.style])
           next.language = language; next.markdown = markdown; next.preferences = preferences
@@ -291,17 +375,34 @@ export function writingPlugin(options: { language: string; preferences: WritingP
           if (filtersChanged) for (const [scope, manual] of next.manual) next.manual.set(scope, { ...manual, status: 'edited', error: undefined })
         } else if (meta?.type === 'manual') {
           next.manual.set(scopeOf(state), { blocks: [], status: 'checking' })
-          if (meta.coach) next.coach.set(scopeOf(state), { token: ++coachToken, status: 'checking', stale: false, checked: scopedBlocks(state).map(item => item.node), notes: [], dropped: 0 })
-          else next.coach.delete(scopeOf(state))
-        } else if (meta?.type === 'dismiss') { next.manual.delete(scopeOf(state)); next.coach.delete(scopeOf(state)) }
+          // The current notes stay visible until the new review replaces them.
+          const old = next.coach.get(scopeOf(state))
+          if (meta.coach) next.coach.set(scopeOf(state), { notes: [], dropped: 0, ...old, token: ++coachToken, status: 'checking', stale: false, checked: scopedBlocks(state).map(item => item.node), error: undefined })
+        } else if (meta?.type === 'dismiss') next.manual.delete(scopeOf(state))
         else if (meta?.type === 'coach-results') {
           const check = next.coach.get(meta.scope)
-          if (check?.token === meta.token) {
-            // A result for a passage edited meanwhile keeps only unchanged blocks.
-            const kept = new Set(check.checked)
-            next.coach.set(meta.scope, { ...check, status: meta.error ? 'error' : 'ready', notes: meta.notes.filter(item => kept.has(item.node)), dropped: meta.dropped, provider: meta.provider, model: meta.model, error: meta.error })
+          if (check?.token === meta.token && meta.error) next.coach.set(meta.scope, { ...check, status: 'error', error: meta.error })
+          else if (check?.token === meta.token) {
+            // Each note is placed on its passage now; a paragraph edited during
+            // the review is searched for the quote.
+            const offsets = new Map<Node, number>()
+            state.doc.forEach((node, offset) => { offsets.set(node, offset) })
+            const section = meta.scope ? findSection(state.doc, meta.scope) : null
+            const notes = meta.notes.map(({ node, start, note }): CoachNoteAt => {
+              const offset = offsets.get(node)
+              const range = offset !== undefined ? blockRange(node, offset, next.markdown, note.from, note.to) : anchorPassage(state.doc, next.markdown, note.quote, start, section)
+              return range ? { id: newNoteId(), note, ...range, original: passageText(state.doc, range.from, range.to), anchored: true } : { id: newNoteId(), note, from: 0, to: 0, original: note.quote, anchored: false }
+            })
+            next.coach.set(meta.scope, { ...check, status: 'ready', notes, dropped: meta.dropped, provider: meta.provider, model: meta.model, error: undefined, reviewed: new Date().toISOString() })
           }
-        } else if (meta?.type === 'coach-dismiss') next.coachDismissed = [...next.coachDismissed, { node: meta.node, key: meta.key }]
+        } else if (meta?.type === 'coach-resolve') {
+          for (const [scope, check] of next.coach) {
+            const item = check.notes.find(note => note.id === meta.id)
+            if (!item) continue
+            next.coach.set(scope, { ...check, notes: check.notes.filter(note => note !== item) })
+            next.coachResolved = [...next.coachResolved, { ...item, outcome: meta.outcome, scope, at: new Date().toISOString() }].slice(-COACH_RESOLVED)
+          }
+        }
         else if (meta?.type === 'retry') next.automatic = []
         else if (meta?.type === 'ignore') next.ignored = [...next.ignored, { node: meta.node, key: meta.key }]
         else if (meta?.type === 'started' && meta.revision === next.revision) next.autoStatus = 'checking'
@@ -326,8 +427,8 @@ export function writingPlugin(options: { language: string; preferences: WritingP
           const spelling = issue.diagnostic.category === 'Spelling'
           decorations.push(Decoration.inline(issue.offset + range.from, issue.offset + range.to, { class: spelling ? 'tinto-misspelling' : 'tinto-grammar', 'data-word': issue.diagnostic.source, 'data-writing-rule': issue.diagnostic.rule }))
         }
-        for (const issue of coachIssues(state)) for (const range of proseRanges(issue.prose, issue.note.from, issue.note.to)) {
-          decorations.push(Decoration.inline(issue.offset + range.from, issue.offset + range.to, { class: 'tinto-coach', 'data-coach-note': issue.note.kind }))
+        for (const issue of coachIssues(state)) if (issue.anchored) {
+          decorations.push(Decoration.inline(issue.from, issue.to, { class: issue.edited ? 'tinto-coach tinto-coach-edited' : 'tinto-coach', 'data-coach-note': issue.note.kind }))
         }
         const set = DecorationSet.create(state.doc, decorations)
         decorated = { doc: state.doc, value, set }
@@ -421,26 +522,50 @@ export function writingPlugin(options: { language: string; preferences: WritingP
         }
       }
       // The writing coach is asked once per Check writing, with the chosen
-      // wording of the blocks checked. Its answer is placed on the blocks that
-      // are still unchanged; nothing in the manuscript is modified.
+      // wording of the blocks checked and the notes the writer resolved in this
+      // scope. Nothing in the manuscript is modified.
       let coachSent = 0
       function coach() {
         const state = writingKey.getState(view.state)!, scope = scopeOf(view.state), check = state.coach.get(scope)
         if (!check || check.status !== 'checking' || check.token === coachSent) return
         const token = coachSent = check.token
         const done = (result: Omit<Extract<WritingMeta, { type: 'coach-results' }>, 'type' | 'scope' | 'token'>) => { if (!destroyed) send(view, { type: 'coach-results', scope, token, ...result }) }
-        const nodes = new Map<string, Node>()
+        const doc = view.state.doc, starts = new Map<Node, number>()
+        doc.forEach((node, offset) => { starts.set(node, offset) })
+        const nodes = new Map<string, { node: Node; start: number }>()
         const blocks = check.checked.map(node => ({ node, text: writingProse(node, state.markdown).text })).filter(block => block.text.trim()).map((block, index) => {
-          nodes.set('p' + (index + 1), block.node)
+          nodes.set('p' + (index + 1), { node: block.node, start: starts.get(block.node) ?? 0 })
           return { id: 'p' + (index + 1), text: block.text }
         })
+        const section = scope ? findSection(doc, scope) : null
+        const resolved: ResolvedNote[] = state.coachResolved
+          .filter(item => item.scope === scope || (item.anchored && (!section || (item.from >= section.from && item.from < section.to))))
+          .slice(-COACH_RESOLVED)
+          .map(item => ({ outcome: item.outcome, kind: item.note.kind, title: item.note.title, quote: item.note.quote, now: (item.anchored && item.to <= doc.content.size && proseText(doc, state.markdown, item.from, item.to)) || item.note.quote }))
         if (!blocks.length) return queueMicrotask(() => done({ notes: [], dropped: 0 }))
         if (blocks.reduce((sum, block) => sum + block.text.length, 0) > COACH_LIMIT) return queueMicrotask(() => done({ notes: [], dropped: 0, error: 'The writing coach reviews up to about 10,000 words at a time. Check a linked section instead.' }))
         if (!options.coach) return queueMicrotask(() => done({ notes: [], dropped: 0, error: 'The writing coach is unavailable.' }))
-        options.coach({ language: state.language, blocks }).then(
-          result => done({ notes: result.notes.filter(note => nodes.has(note.block)).map(note => ({ node: nodes.get(note.block)!, note })), dropped: result.dropped, provider: result.provider, model: result.model }),
+        options.coach({ language: state.language, blocks, ...(resolved.length ? { resolved } : {}) }).then(
+          result => done({ notes: result.notes.filter(note => nodes.has(note.block)).map(note => ({ ...nodes.get(note.block)!, note })), dropped: result.dropped, provider: result.provider, model: result.model }),
           error => done({ notes: [], dropped: 0, error: errorMessage(error) })
         )
+      }
+      // Coach notes are saved on this computer shortly after they change.
+      let saveTimer: ReturnType<typeof setTimeout> | undefined
+      const written = new Set<string>()
+      function save() {
+        clearTimeout(saveTimer); saveTimer = undefined
+        const id = options.storage?.documentId, state = writingKey.getState(view.state)
+        if (!id || !state) return
+        const doc = view.state.doc, size = doc.content.size
+        const stored = (item: CoachNoteAt) => ({ ...item, text: item.anchored && item.to <= size ? passageText(doc, item.from, item.to) : '' })
+        for (const [scope, check] of state.coach) {
+          if (!check.notes.length && !check.reviewed) continue
+          const value: StoredCheck = { notes: check.notes.map(stored), dropped: check.dropped, provider: check.provider, model: check.model, reviewed: check.reviewed, stale: check.stale }
+          saveCoachScope(id, scope, value); written.add(scope)
+        }
+        for (const scope of written) if (!state.coach.has(scope)) { saveCoachScope(id, scope, null); written.delete(scope) }
+        saveCoachResolved(id, state.coachResolved.map(item => ({ ...stored(item), outcome: item.outcome, scope: item.scope, at: item.at })))
       }
       schedule()
       return {
@@ -448,8 +573,12 @@ export function writingPlugin(options: { language: string; preferences: WritingP
           const before = writingKey.getState(previous), after = writingKey.getState(view.state)
           if (before !== after) { notify(); coach() }
           if (before?.revision !== after?.revision) { dismissMenu?.(); schedule() }
+          if (options.storage && before && after) {
+            if (before.language !== after.language) { clearCoach(options.storage.documentId); written.clear() }
+            else if (before.coach !== after.coach || before.coachResolved !== after.coachResolved) { clearTimeout(saveTimer); saveTimer = setTimeout(save, 400) }
+          }
         },
-        destroy() { destroyed = true; clearTimeout(timer); dismissMenu?.() }
+        destroy() { destroyed = true; clearTimeout(timer); dismissMenu?.(); if (saveTimer) save() }
       }
     }
   })

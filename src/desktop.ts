@@ -2,6 +2,7 @@ import type { AuthorSummary, AuthorshipPreview, ManuscriptFont, DocumentRecord, 
 import type { TranslationResult, TranslationSource } from './translation'
 import type { WritingRequest, WritingResponse } from './writing-types'
 import type { CoachRequest, CoachResult } from './writing-coach'
+import type { UsageTotal } from './ai-usage'
 
 import type { ExportFormat, InputFile } from './exchange'
 import type { Manuscript } from './model'
@@ -54,6 +55,9 @@ export interface Desktop {
   // The writing coach, with the AI service's key: notes only, never changes.
   coachWriting(request: CoachRequest): Promise<CoachResult>
   onCoachProgress(listener: (done: number, total: number) => void): () => void
+  // The estimated cost of Translate and the writing coach since the last reset.
+  aiUsage(): Promise<UsageTotal>
+  resetAiUsage(): Promise<UsageTotal>
   unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>
   pickFile(): Promise<InputFile | null>
   // font is the manuscript font choice; note says when the font could only be named.
