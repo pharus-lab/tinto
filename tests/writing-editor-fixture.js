@@ -18,7 +18,7 @@ window.proof = {
       plugins: [writingPlugin({ language: 'en', preferences, check: request => { requests.push(request); return window.checkWriting(request) }, changed: render })]
     })
     unobserve = observeWritingPreferences(preferences => configureWriting(editor.view, { preferences }))
-    tracker = trackWriting(editor.view, { path: '', projectId: '', documentId: '' }, (...args) => samples.push(args))
+    tracker = trackWriting(editor.view, { path: '', projectId: '', documentId: '' }, (...args) => { samples.push(args); return null })
     render()
   },
   render,

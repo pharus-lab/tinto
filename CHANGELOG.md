@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.3 — release candidate
+
+- The Linux window opens on Wayland desktops that use software rendering.
+- Debian installers for amd64 and arm64 verify the application version and architecture before packaging. The Linux window groups under Tinto’s launcher icon and keeps the menu bar hidden until you press Alt.
+- A failed save keeps pending typing evidence available for retry. Renaming the active project preserves subsequent authorship records. A failure to remember open tabs no longer prevents the final manuscript edit from being saved on close.
+- On Linux, Tinto checks that Electron used the system keyring before saving credentials. Local writing and saving remain available when the keyring is locked or unavailable.
+
 ## 1.1.2 — 2026-11-23
 
 - **Writing coach notes stay while you edit.** Each note follows its passage as you type around or inside it, marked **Edited** once you change it, and stays until **Check again**, **Dismiss** or the new **Mark as solved**. A passage you delete keeps its note in the sidebar, without an underline. Dismiss results clears the local results only.

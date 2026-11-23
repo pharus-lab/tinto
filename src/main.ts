@@ -133,8 +133,11 @@ function registerProjectActions(updateBackupPath: (path: string, destination?: s
     try {
       trusted(event)
       if (kind === 'typing' || kind === 'paste' || kind === 'import' || kind === 'translate') library.recordWriting(String(path), String(projectId), String(documentId), kind, sample ?? {})
-    } catch (error) { console.error('Tinto could not record writing evidence:', error) }
-    event.returnValue = null
+      event.returnValue = null
+    } catch (error) {
+      console.error('Tinto could not record writing evidence:', error)
+      event.returnValue = String(error)
+    }
   })
   ipcMain.handle('version:list', (e, id: string) => { trusted(e); return library.store.versions(id) })
   ipcMain.handle('version:name', (e, id: string, name: string) => { trusted(e); library.store.snapshot(id, name) })
@@ -146,7 +149,7 @@ async function openWindow() {
   window = new BrowserWindow({
     title: 'Tinto', width: 1240, height: 840, minWidth: 740, minHeight: 520, show: false,
     backgroundColor: '#FCFAF6', ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 20 } } : {}),
-    ...(process.platform === 'linux' ? { icon: join(__dirname, 'Tinto.png') } : {}),
+    ...(process.platform === 'linux' ? { icon: join(__dirname, 'Tinto.png'), autoHideMenuBar: true } : {}),
     webPreferences: { preload: join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false }
   })
   window.webContents.setWindowOpenHandler(({ url, frameName }) => {
@@ -162,7 +165,10 @@ async function openWindow() {
     dialog.showErrorBox('Tinto could not save this project', 'The editor is still open. Check the save message and try saving again.')
   })
   window.on('closed', () => { window = null })
-  window.once('ready-to-show', () => window?.show())
+  const show = window.show.bind(window)
+  // Software-rendered Wayland windows can wait until they're shown before painting.
+  if (process.platform === 'linux') window.webContents.once('did-finish-load', show)
+  else window.once('ready-to-show', show)
   await window.loadURL(entry)
 }
 

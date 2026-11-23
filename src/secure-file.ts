@@ -11,9 +11,17 @@ async function keyStore(purpose: string) {
   }
 }
 
+// Electron 45 can select GNOME or KWallet and still use Chromium's POSIX
+// fallback when the service is unavailable. On Linux that ciphertext is tagged
+// v10. The same tag has different meanings on other platforms.
+function linuxFallback(bytes: Buffer) {
+  return process.platform === 'linux' && bytes.toString('latin1', 0, 3) === 'v10'
+}
+
 export async function protect(path: string, value: string, purpose: string) {
   await keyStore(purpose)
   const bytes = await safeStorage.encryptStringAsync(value)
+  if (linuxFallback(bytes)) throw Error('Unlock your system keychain or Linux keyring to ' + purpose + '.')
   const temporary = path + '.' + randomUUID()
   await mkdir(dirname(path), { recursive: true })
   try {
@@ -24,5 +32,7 @@ export async function protect(path: string, value: string, purpose: string) {
 
 export async function reveal(path: string, purpose: string): Promise<string> {
   await keyStore(purpose)
-  return (await safeStorage.decryptStringAsync(await readFile(path))).result
+  const bytes = await readFile(path)
+  if (linuxFallback(bytes)) throw Error('This credential was saved without Linux keyring protection. Its original file has been kept for recovery.')
+  return (await safeStorage.decryptStringAsync(bytes)).result
 }

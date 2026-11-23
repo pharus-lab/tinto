@@ -1,10 +1,11 @@
 #!/bin/sh
 # Build from the portable Electron folder produced by npm run package.
 set -eu
+umask 022
 cd "$(dirname "$0")/.."
 case "${1:-}" in
-  arm64) electron_arch=arm64; deb_arch=arm64 ;;
-  x64|amd64) electron_arch=x64; deb_arch=amd64 ;;
+  arm64) electron_arch=arm64; deb_arch=arm64; elf_machine=AArch64 ;;
+  x64|amd64) electron_arch=x64; deb_arch=amd64; elf_machine='Advanced Micro Devices X86-64' ;;
   *) echo "Usage: sh scripts/linux-deb.sh arm64|amd64" >&2; exit 2 ;;
 esac
 
@@ -14,12 +15,23 @@ output=out
 case "$version" in *-*) output=out/development ;; esac
 portable="$output/Tinto-linux-$electron_arch"
 test -x "$portable/Tinto"
+built_version=$(node --input-type=module -e "import { extractFile } from '@electron/asar'; console.log(JSON.parse(extractFile(process.argv[1], 'package.json')).version)" "$portable/resources/app.asar")
+if [ "$built_version" != "$version" ]; then
+  echo "Portable app is $built_version, expected $version. Run npm run package -- linux $electron_arch first." >&2
+  exit 1
+fi
+built_machine=$(LC_ALL=C readelf -h "$portable/Tinto" | sed -n 's/^ *Machine: *//p')
+if [ "$built_machine" != "$elf_machine" ]; then
+  echo "Portable executable has ELF machine '$built_machine', expected '$elf_machine' for $deb_arch." >&2
+  exit 1
+fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 install -d "$stage/root/DEBIAN" "$stage/root/opt/tinto" "$stage/root/usr/bin" "$stage/root/usr/share/applications" "$stage/root/usr/share/icons/hicolor/scalable/apps" "$stage/root/usr/share/icons/hicolor/512x512/apps" "$stage/root/usr/share/doc/tinto"
 cp -a "$portable/." "$stage/root/opt/tinto/"
 # The portable folder created by packager is private to its build user.
 find "$stage/root/opt/tinto" -type d -exec chmod 0755 {} +
+find "$stage/root/opt/tinto" -type f -exec chmod go-w {} +
 chmod 4755 "$stage/root/opt/tinto/chrome-sandbox"
 ln -s /opt/tinto/Tinto "$stage/root/usr/bin/tinto"
 install -m 0644 assets/Tinto.svg "$stage/root/usr/share/icons/hicolor/scalable/apps/tinto.svg"
@@ -37,7 +49,7 @@ TryExec=tinto
 Icon=tinto
 Terminal=false
 Categories=Office;WordProcessor;
-StartupWMClass=Tinto
+StartupWMClass=tinto
 DESKTOP
 
 size=$(du -sk "$stage/root/opt/tinto" | cut -f1)

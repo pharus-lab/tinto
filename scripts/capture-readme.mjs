@@ -42,11 +42,12 @@ if (process.argv.includes('--verify-readme')) {
   } finally { await browser.close() }
   process.exit(0)
 }
-await import('./build.mjs')
+const executablePath = process.env.TINTO_PACKAGED_EXECUTABLE
+if (!executablePath) await import('./build.mjs')
 const audit = process.argv.includes('--audit')
 const impeccable = process.env.TINTO_IMPECCABLE_BIN ?? join(homedir(), '.agents/skills/impeccable/scripts/impeccable')
-const output = join(root, 'docs/screenshots')
-const qa = join(root, 'out/qa/public-repository')
+const qa = process.env.TINTO_CAPTURE_DIR ? resolve(process.env.TINTO_CAPTURE_DIR) : join(root, 'out/qa/public-repository')
+const output = process.env.TINTO_CAPTURE_DIR ? qa : join(root, 'docs/screenshots')
 const temporary = await mkdtemp(join(tmpdir(), 'tinto-readme-'))
 const folder = join(temporary, 'Manuscripts'), site = join(temporary, 'website')
 await Promise.all([mkdir(output, { recursive: true }), mkdir(qa, { recursive: true }), mkdir(folder), mkdir(site)])
@@ -60,7 +61,8 @@ const run = promisify(execFile)
 let app
 
 try {
-  app = await electron.launch({ args: [root, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=' + port], cwd: root,
+  app = await electron.launch({ executablePath, chromiumSandbox: process.platform === 'linux' && !!executablePath,
+    args: [...(executablePath ? [] : [root]), '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=' + port], cwd: root,
     env: { ...process.env, TZ: 'UTC', TINTO_USER_DATA: join(temporary, 'profile'), TINTO_RELEASES_URL: 'http://127.0.0.1:9/releases/latest', TINTO_EXPERIMENTAL: '0' } })
   const page = await app.firstWindow()
   page.setDefaultTimeout(15_000)
@@ -254,7 +256,7 @@ try {
   }
   assert.deepEqual(errors, [])
   await writeFile(join(qa, 'results.json'), JSON.stringify({ results, errors }, null, 2) + '\n')
-  console.log('Six README screenshots saved to docs/screenshots/. All content is fictional.')
+  console.log('Six screenshots saved to ' + output + '. All content is fictional.')
 } finally {
   if (app) await app.close()
   await rm(temporary, { recursive: true, force: true })

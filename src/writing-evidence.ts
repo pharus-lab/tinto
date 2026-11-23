@@ -8,7 +8,7 @@ import { INTERVAL_BANDS } from './model'
 // which keys were pressed. Text pasted or dropped from outside Tinto is counted
 // separately; moving text within Tinto is neither.
 export interface EvidenceTarget { path: string; projectId: string; documentId: string }
-type Send = (target: EvidenceTarget, kind: 'typing' | 'paste', sample: WritingSample) => void
+type Send = (target: EvidenceTarget, kind: 'typing' | 'paste', sample: WritingSample) => string | null
 
 const PAUSE = 60_000
 const FLUSH_AFTER = 60_000
@@ -22,17 +22,26 @@ export function trackWriting(view: EditorView, target: EvidenceTarget, send: Sen
   let typed = 0
   let deleted = 0
   let activeMs = 0
+  let unsavedPaste = 0
   let intervals: number[] = new Array(INTERVAL_BANDS.length + 1).fill(0)
   let last = 0
   let timer: ReturnType<typeof setTimeout> | undefined
 
-  function flush() {
+  function scheduleFlush() { timer ??= setTimeout(flush, FLUSH_AFTER) }
+  function flush(): string | null {
     clearTimeout(timer)
     timer = undefined
-    if (!typed && !deleted) return
-    send(target, 'typing', { typed, deleted, activeMs: Math.round(activeMs), intervals })
+    if (unsavedPaste) {
+      const problem = send(target, 'paste', { characters: unsavedPaste })
+      if (problem) { scheduleFlush(); return problem }
+      unsavedPaste = 0
+    }
+    if (!typed && !deleted) return null
+    const problem = send(target, 'typing', { typed, deleted, activeMs: Math.round(activeMs), intervals })
+    if (problem) { scheduleFlush(); return problem }
     typed = deleted = activeMs = 0
     intervals = intervals.map(() => 0)
+    return null
   }
   function keystroke(characters: number, removed: boolean, repeat: boolean) {
     const now = performance.now()
@@ -45,12 +54,15 @@ export function trackWriting(view: EditorView, target: EvidenceTarget, send: Sen
     last = now
     if (removed) deleted += characters
     else typed += characters
-    timer ??= setTimeout(flush, FLUSH_AFTER)
+    scheduleFlush()
   }
   function pasted(data: DataTransfer | null) {
     if (!data || data.types.includes(PASSAGE) || data.types.includes('application/x-tinto-markdown+json')) return
     const characters = [...data.getData('text/plain')].length
-    if (characters) send(target, 'paste', { characters })
+    if (characters && send(target, 'paste', { characters })) {
+      unsavedPaste += characters
+      scheduleFlush()
+    }
   }
 
   const keydown = (event: KeyboardEvent) => {
@@ -69,8 +81,10 @@ export function trackWriting(view: EditorView, target: EvidenceTarget, send: Sen
   dom.addEventListener('drop', drop, true)
   return {
     flush,
+    renameProject(path: string) { target.path = path },
     stop() {
       flush()
+      clearTimeout(timer)
       dom.removeEventListener('keydown', keydown)
       dom.removeEventListener('compositionend', composed)
       dom.removeEventListener('paste', paste)

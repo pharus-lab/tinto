@@ -27,7 +27,7 @@ export interface Desktop {
   exportAuthor(passphrase: string): Promise<string | null>
   importAuthor(passphrase: string): Promise<AuthorSummary | null>
   authorship(documentId: string, headingId: string | null): Promise<AuthorshipPreview>
-  recordWriting(path: string, projectId: string, documentId: string, kind: 'typing' | 'paste' | 'import' | 'translate', sample: WritingSample): void
+  recordWriting(path: string, projectId: string, documentId: string, kind: 'typing' | 'paste' | 'import' | 'translate', sample: WritingSample): string | null
   fonts(): Promise<ManuscriptFont[]>
   addFonts(characters: string): Promise<{ fonts: ManuscriptFont[]; added: string[] } | null>
   checkFont(id: string, characters: string): Promise<{ family: string; missing: string[] } | null>
