@@ -7,7 +7,11 @@ export interface DocumentRecord {
   manuscript: Manuscript
   spawnedHeadingIds?: string[]
   source?: { documentId: string; headingId: string | null }
+  // An automatic translation of another document. It stays marked as one if the original is deleted.
+  translation?: DocumentTranslation
 }
+// provider is the service's name (OpenAI, Anthropic, OpenRouter); older translations were OpenAI's.
+export interface DocumentTranslation { of: string; from: string; provider?: string; model: string; at: number }
 
 export interface DraftChange {
   id: string
@@ -95,7 +99,10 @@ export interface PublishRequest {
   cover: PostImageChoice | null
   images: PostImageChoice[]
   attachments: PostAttachmentChoice[]
+  // A whole document and its automatic translation go out together, at the same address.
+  pair?: PublishPair
 }
+export interface PublishPair { documentId: string; fields: PostFields; cover: PostImageChoice | null; images: PostImageChoice[]; attachments: PostAttachmentChoice[] }
 export type FilePick = 'cover' | 'gallery' | 'attachments'
 export interface PickedFile { token: string; name: string; size: number }
 export interface SiteCategory { id: string; label: string }
@@ -108,4 +115,6 @@ export interface AuthorshipPreview { author: AuthorSummary | null; characters: C
 export interface FontFaceFile { file: string; weight: string; style: 'normal' | 'italic'; name: string }
 export interface ManuscriptFont { id: string; family: string; faces: FontFaceFile[] }
 // A website added in Settings. Its API key stays in the main process.
+// The translator the writer set up; its key stays in the main process.
+export interface TranslatorSummary { provider: string; name: string; model: string }
 export interface SiteSummary { id: string; name: string; endpoint: string; categories: SiteCategory[] }

@@ -90,6 +90,17 @@ async function inParallel<T>(items: T[], limit: number, task: (item: T) => Promi
 
 export const NO_AUTHOR = 'Add your name as the author first. Tinto signs every post, so the website can show who wrote it.'
 
+// A translation points to its original: the original's post on this website
+// when there is one, else the original document's title and language.
+function translationOf(store: ProjectStore, doc: DocumentRecord, siteId: string) {
+  if (!doc.translation) return undefined
+  const translator = (doc.translation.provider ?? 'OpenAI') + ' ' + doc.translation.model
+  let original: DocumentRecord | null = null
+  try { original = store.readDocument(doc.translation.of) } catch { /* The original was deleted; the translation keeps its own record. */ }
+  const post = original ? store.post(siteId, original.id, null) : null
+  return { language: doc.translation.from, title: post?.title ?? original?.title ?? '', url: post?.url ?? null, translator }
+}
+
 export class Publisher {
   private sites: (id: string) => Promise<SiteTransport>
   private author: () => Promise<AuthorSigner | null>
@@ -110,7 +121,7 @@ export class Publisher {
 
   idle(): Promise<unknown> { return this.queue }
 
-  // Checks the post, reads its new files and uploads them, three at a time.
+    // Checks the post, reads its new files and uploads them, three at a time.
   // Publishing and previewing share this, so a preview shows exactly what would go out.
   private async prepare(store: ProjectStore, input: PublishInput, progress: Progress) {
     const doc = store.readDocument(input.documentId)
@@ -173,7 +184,8 @@ export class Publisher {
     const signed = await authorshipCredential(author, {
       postId: id, title: fields.title, language: doc.language, blocks, html, time,
       files: [...(cover ? [cover] : []), ...images, ...attachments].map(({ file, type }) => ({ file, type })),
-      evidence: store.writingEvidence(input.documentId), previous: previous?.credential ?? null
+      evidence: store.writingEvidence(input.documentId), previous: previous?.credential ?? null,
+      translation: translationOf(store, doc, input.siteId)
     })
     const sent: SitePost = {
       slug: fields.slug, language: doc.language, category: fields.category, status: input.status, title: fields.title,

@@ -11,7 +11,7 @@ import { Publisher, bodyBlocks, changedSinceRelease, type AttachmentInput, type 
 import { protect, reveal } from './secure-file'
 import { SiteClient, siteId, validateConnection, type SiteConnection } from './site-api'
 import { ProjectStore } from './storage'
-import type { AuthorshipPreview, FilePick, PickedFile, PostAttachmentChoice, PostImageChoice, PostOverview, PublishRequest, SiteCategory, SiteSummary } from './project-types'
+import type { AuthorshipPreview, FilePick, PickedFile, PostAttachmentChoice, PostImageChoice, PostOverview, PostState, PublishRequest, SiteCategory, SiteSummary } from './project-types'
 
 interface PublishContext {
   window(): BrowserWindow
@@ -225,11 +225,30 @@ export function registerPublishing(context: PublishContext) {
   }
   ipcMain.handle('post:publish', async (event, request: PublishRequest) => {
     context.trusted(event)
-    const choices = [...(request.cover ? [request.cover] : []), ...request.images, ...request.attachments]
-    const { input } = await publishInput(request)
-    const post = await withProject(store => publisher.publish(store, input, progressTo(event)))
-    for (const choice of choices) if ('token' in choice) picked.delete(choice.token)
-    return { ...post, changed: false }
+    const pair = request.pair && request.headingId === null ? request.pair : null
+    const requests: PublishRequest[] = [request, ...(pair ? [{ ...request, ...pair, headingId: null, pair: undefined }] : [])]
+    // The original goes first, so its translation's credential can name the original's post.
+    if (pair && await withProject(async store => !!store.readDocument(request.documentId).translation && !store.readDocument(pair.documentId).translation)) requests.reverse()
+    const choices = requests.flatMap(item => [...(item.cover ? [item.cover] : []), ...item.images, ...item.attachments])
+    try {
+      const published: PostState[] = []
+      for (const item of requests) {
+        try {
+          const { input } = await publishInput(item)
+          published.push({ ...await withProject(store => publisher.publish(store, input, progressTo(event))), changed: false })
+        } catch (error) {
+          if (!published.length) throw error
+          // The first post went out; the second can be published again from its own document.
+          const reason = error instanceof Error ? error.message : String(error)
+          throw Error('Published “' + published[0].title + '”, but not “' + item.fields.title + '”: ' + reason + ' Publish it again from its own document.')
+        }
+      }
+      const own = published.find(post => post.documentId === request.documentId)!
+      const other = published.find(post => post.documentId !== request.documentId)
+      return { ...own, ...(other ? { pair: other } : {}) }
+    } finally {
+      for (const choice of choices) if ('token' in choice) picked.delete(choice.token)
+    }
   })
   // The preview opens in the writer's browser, only on the website's own origin.
   ipcMain.handle('post:preview', async (event, request: PublishRequest) => {

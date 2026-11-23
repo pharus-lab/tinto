@@ -213,6 +213,7 @@ export function readAuthorship(site, id, value) {
   if (typeof value === 'string') { try { value = JSON.parse(value) } catch { return null } }
   if (!value || value.verified !== true || typeof value.author?.id !== 'string' || !value.author.id.startsWith('did:key:')) return null
   const type = (/** @type {unknown} */ iri) => typeof iri === 'string' && IRI.test(iri) ? iri : null
+  const count = (/** @type {unknown} */ number) => Number.isSafeInteger(number) && Number(number) >= 0 ? Number(number) : 0
   const origins = ['written', 'pasted', 'imported', 'ai', 'mixed']
   return {
     verified: true,
@@ -222,6 +223,17 @@ export function readAuthorship(site, id, value) {
       position: index + 1, origin: origins.includes(part?.origin) ? part.origin : 'mixed', digitalSourceType: type(part?.digitalSourceType)
     })),
     signed: typeof value.signed === 'string' ? value.signed.slice(0, 40) : '',
+    ...(value.characters && typeof value.characters === 'object' ? { characters: {
+      written: count(value.characters.written), pasted: count(value.characters.pasted), imported: count(value.characters.imported), ai: count(value.characters.ai)
+    } } : {}),
+    process: value.process && typeof value.process === 'object' ? {
+      typed: count(value.process.typed), deleted: count(value.process.deleted), pasted: count(value.process.pasted), imported: count(value.process.imported),
+      generated: count(value.process.generated), activeMinutes: count(value.process.activeMinutes), sessions: count(value.process.sessions)
+    } : null,
+    sha256: typeof value.sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.sha256) ? value.sha256 : '',
+    translation: value.translation && typeof value.translation === 'object'
+      ? { from: String(value.translation.from ?? '').slice(0, 20), by: String(value.translation.by ?? '').slice(0, 80), edited: value.translation.edited === true, url: type(value.translation.url) ?? '' }
+      : null,
     credential: site.basePath + '/credentials/' + id
   }
 }

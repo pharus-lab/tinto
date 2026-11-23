@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { listPacks, readPack, installPack } from './dictionary-packs'
 import { registerBackups } from './backup-window'
 import { registerPublishing } from './publish-window'
+import { registerTranslation } from './translator'
+import { registerUpdates } from './updates'
 import { registerFonts } from './font-window'
 import { FONT_TYPES, FontLibrary } from './fonts'
 import { pickInputFile, exportFile } from './file-dialogs'
@@ -23,6 +25,8 @@ const entry = 'tinto://app/index.html'
 let library: ProjectLibrary
 let window: BrowserWindow | null = null
 let fonts: FontLibrary
+// Functions not yet ready for everyone appear only with TINTO_EXPERIMENTAL=1.
+const experimental = process.env.TINTO_EXPERIMENTAL === '1'
 
 function trusted(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) {
   if (event.senderFrame?.url !== entry || event.sender !== window?.webContents) throw Error('Unknown editor window.')
@@ -117,6 +121,7 @@ function registerProjectActions(updateBackupPath: (path: string, destination?: s
     const title = basename(path, extname(path))
     return library.activate(path, ProjectStore.create(path, title))
   })
+  ipcMain.on('app:experimental', event => { event.returnValue = experimental })
   ipcMain.on('document:save', (event, path: string, id: string, document: DocumentRecord) => {
     try {
       trusted(event)
@@ -128,7 +133,7 @@ function registerProjectActions(updateBackupPath: (path: string, destination?: s
   ipcMain.on('authorship:record', (event, path: string, projectId: string, documentId: string, kind: string, sample: object) => {
     try {
       trusted(event)
-      if (kind === 'typing' || kind === 'paste' || kind === 'import') library.recordWriting(String(path), String(projectId), String(documentId), kind, sample ?? {})
+      if (kind === 'typing' || kind === 'paste' || kind === 'import' || kind === 'translate') library.recordWriting(String(path), String(projectId), String(documentId), kind, sample ?? {})
     } catch (error) { console.error('Tinto could not record writing evidence:', error) }
     event.returnValue = null
   })
@@ -189,6 +194,8 @@ if (primaryWindow) app.whenReady().then(async () => {
   library = new ProjectLibrary(join(app.getPath('userData'), 'projects.json'))
   const updateBackupPath = registerBackups({ window: () => window!, project: () => library.activeProject, open: path => library.open(path), trusted })
   const publishing = registerPublishing({ window: () => window!, project: () => library.activeProject, trusted })
+  registerTranslation({ trusted })
+  registerUpdates({ trusted })
   registerProjectActions(updateBackupPath, publishing.idle)
   registerFonts({ window: () => window!, trusted }, fonts)
   Menu.setApplicationMenu(Menu.buildFromTemplate([

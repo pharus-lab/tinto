@@ -10,6 +10,8 @@ export interface Preferences {
   leading: number
   lineNumbers: boolean
   markdownImports: boolean
+  // Ask GitHub for a newer release when Tinto opens.
+  checkUpdates: boolean
   textWidth: 'fixed-width' | 'fixed-margin'
   columnWidth: number
   sideMargin: number
@@ -19,7 +21,7 @@ export function preferences(): Preferences {
   const saved = JSON.parse(localStorage.getItem('reading') ?? '{}')
   return {
     appearance: 'system', theme: 'tinto', font: 'book', size: 21, leading: 1.72, defaultLanguage: 'en',
-    columnWidth: 680, sideMargin: 48, lineNumbers: false, markdownImports: false, ...saved,
+    columnWidth: 680, sideMargin: 48, lineNumbers: false, markdownImports: false, checkUpdates: true, ...saved,
     // A centered column of about 66 characters, unless the writer chose margins.
     textWidth: saved?.textWidth === 'fixed-margin' ? 'fixed-margin' : 'fixed-width'
   }
@@ -59,9 +61,9 @@ export function updateSettingsPacks(content: HTMLElement, packs: DictionaryPack[
 }
 
 // Settings is one window with a section per subject, chosen from the list on the left.
-export type SettingsSection = 'appearance' | 'writing' | 'project' | 'author' | 'websites'
+export type SettingsSection = 'appearance' | 'writing' | 'project' | 'author' | 'websites' | 'about'
 const SECTIONS: [SettingsSection, string][] = [
-  ['appearance', 'Appearance'], ['writing', 'Writing'], ['project', 'Project'], ['author', 'Author'], ['websites', 'Websites']
+  ['appearance', 'Appearance'], ['writing', 'Writing'], ['project', 'Project'], ['author', 'Author'], ['websites', 'Websites'], ['about', 'About']
 ]
 // The section shown last opens again, until Tinto quits.
 let lastSection: SettingsSection = 'appearance'
@@ -129,7 +131,7 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
     parent.append(row)
     return select
   }
-  function checkbox(parent: HTMLElement, label: string, key: 'lineNumbers' | 'markdownImports') {
+  function checkbox(parent: HTMLElement, label: string, key: 'lineNumbers' | 'markdownImports' | 'checkUpdates') {
     const row = element('label', 'field', label)
     const toggle = element('input')
     toggle.type = 'checkbox'
@@ -205,6 +207,12 @@ export function showSettings(dialog: HTMLDialogElement, prefs: Preferences, proj
     group(panels.project, 'Project file').append(element('p', 'path', projectPath))
     group(panels.project, 'Version history').append(element('p', '', 'Tinto snapshots changed work every five minutes. Automatic versions are kept for 30 days. Named versions stay until you delete them.'))
   } else panels.project.append(element('p', 'settings-note', 'Open a project to see its file, version history and backup.'))
+
+  // About: the version, and whether Tinto looks for a newer one when it opens.
+  const about = group(panels.about, 'Tinto ' + window.tinto.version)
+  checkbox(about, 'Check for a new version when Tinto opens', 'checkUpdates')
+  about.append(element('p', 'settings-note', 'When Tinto opens, it asks GitHub once for the latest release and tells you when there is a newer one. Nothing from your projects is sent. You install a new version from its download; Tinto does not replace itself.'))
+  group(panels.about, 'License').append(element('p', '', 'Tinto is released under the MIT license. It includes pandoc (GNU GPL 2 or later) and other open-source software; see NOTICE.md in the app and on GitHub.'))
 
   dialog.replaceChildren(dialogHeader(dialog, 'Settings'), content)
   show(section ?? lastSection)

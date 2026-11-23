@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DocumentRecord, LibraryState, RecentProject, Workspace } from './project-types'
-import { ProjectStore, type MoveOrigin } from './storage'
+import { ProjectStore, type MoveOrigin, type WritingKind } from './storage'
 
 interface LibraryPreferences {
   folder: string | null
@@ -205,7 +205,7 @@ export class ProjectLibrary {
   }
 
   // Evidence of writing goes only to the project it was measured in, while it is open.
-  recordWriting(path: string, id: string, documentId: string, kind: 'typing' | 'paste' | 'import', sample: Parameters<ProjectStore['recordWriting']>[2]) {
+  recordWriting(path: string, id: string, documentId: string, kind: WritingKind, sample: Parameters<ProjectStore['recordWriting']>[2]) {
     if (this.current?.path === path && this.current.id === id) this.current.store.recordWriting(documentId, kind, sample)
   }
 

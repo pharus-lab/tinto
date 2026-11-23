@@ -175,6 +175,7 @@ export function renderHome(host: HTMLElement, library: LibraryState, expanded: S
   for (const doc of workspace.project.documents) {
     const row = button(doc.title, () => actions.openDocument(doc.id), 'doc-row', doc.source ? 'draft' : 'book')
     if (doc.source) row.append(element('small', 'draft-label', 'Independent draft'))
+    if (doc.translation) row.append(element('small', 'draft-label', 'Automatic translation'))
     itemMenu(row, { kind: 'document', id: doc.id, title: doc.title })
     row.draggable = library.projects.length > 1
     if (row.draggable) row.title = 'Drag to another project to move this document'

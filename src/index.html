@@ -26,6 +26,7 @@
     <div class="tools" id="document-tools">
       <button id="export" title="Export this document or section">Export</button>
       <button id="publish" title="Publish this document or section to a website">Publish</button>
+      <button id="translate" title="Translate this document into another language"><i data-icon="globe"></i><span>Translate</span></button>
       <button id="draft-action"></button>
       <button id="history" aria-label="History" title="Version history"><i data-icon="clock"></i><span>History</span></button>
       <button id="toggle-alternatives" aria-controls="panel"><i data-icon="panel"></i>Alternatives</button>
@@ -50,7 +51,7 @@
         <button id="undo" class="icon-button" aria-label="Undo" title="Undo" data-icon="undo"></button>
         <button id="redo" class="icon-button" aria-label="Redo" title="Redo" data-icon="redo"></button>
       </div>
-      <div id="scroll"><div id="editors"></div></div>
+      <div id="scroll"><div id="translation-note" class="translation-note" role="note" hidden></div><div id="editors"></div></div>
     </section>
     <aside id="panel" aria-label="Alternatives">
       <header class="panel-title"><h2>Alternatives</h2><button id="close-panel" class="icon-button" title="Close alternatives" aria-label="Close alternatives" data-icon="close"></button></header>

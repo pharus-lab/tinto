@@ -117,7 +117,7 @@ A module that checks authorship should:
 
 Tinto tells the writer when a site does not answer `verified`. A post from another key, or without a credential once the site has an author, gets `403` with a message for the writer; a credential that does not verify or does not match gets `422`.
 
-Show the result quietly, for example *Original · written by Ana* when every character was written in Tinto. Always say when a post includes AI-generated text.
+Show the result quietly, for example *Original · written by Ana* when every character was written in Tinto. Always say when a post includes AI-generated text. A credential with `translationOfWork` is an automatic translation: name it as one, from its language, for example *Automatic translation from Spanish · reviewed by Ana*.
 
 ## Errors
 

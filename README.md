@@ -2,10 +2,20 @@
 
 A local manuscript editor for macOS and Linux. Each project is a portable SQLite file with the extension `.tinto`. It contains the manuscripts, hidden wordings, draft comparison baselines, document languages, and version history.
 
-## Open the editor
+## Download
 
-- **macOS on Apple silicon** — Open `out/Tinto-darwin-arm64/Tinto.app`. This local build uses an ad-hoc signature.
-- **Ubuntu or Debian** — Open the matching `.deb` from `out` in the software installer, then launch **Tinto** from the applications menu. Choose `amd64` for Intel or AMD processors and `arm64` for ARM processors. From a terminal, install with `sudo apt install ./tinto_0.1.0_amd64.deb` or the corresponding ARM64 filename.
+Tinto 1.0 is available for **macOS on Apple silicon** on the [Releases](../../releases) page, as `Tinto-1.0.0-mac-arm64.dmg`.
+
+1. Open the DMG and drag **Tinto** to **Applications**.
+2. Open Tinto. This release is not yet notarized by Apple, so the first time macOS says it cannot verify the app. Open **System Settings → Privacy & Security** and choose **Open Anyway** next to Tinto. macOS asks only once.
+3. To check the download, compare the output of `shasum -a 256 Tinto-1.0.0-mac-arm64.dmg` with `SHA256SUMS.txt` from the same release.
+
+**New versions.** When Tinto opens, it asks GitHub once for the latest release and, when there is a newer one, says so with a **Download** button that opens its release page. It sends nothing from your projects, never checks in the background, and does not replace itself: install the new version from its DMG as above. Turn the check off in **Settings → About**.
+
+## Build it yourself
+
+- **macOS on Apple silicon** — `npm run package`, then open `out/Tinto-darwin-arm64/Tinto.app`. This local build uses an ad-hoc signature.
+- **Ubuntu or Debian** — Build the `.deb` as described in *Build and check*, open it in the software installer, then launch **Tinto** from the applications menu. Choose `amd64` for Intel or AMD processors and `arm64` for ARM processors. From a terminal, install with `sudo apt install ./tinto_1.0.0_amd64.deb` or the corresponding ARM64 filename.
 - **From source** — With Node.js 24.13 or later and npm, run `npm ci` and `npm start`. The first run downloads Electron. Subsequent writing sessions work offline.
 
 ## Try a wording
@@ -19,7 +29,7 @@ Erase an option’s wording to leave an empty highlighted box. Keep it empty to 
 ## Writing and projects
 
 - A rose tint marks text with alternatives. The tint deepens where alternatives are nested. To underline your own text, click **Underline** or press **⌘U** on macOS or **Ctrl+U** on Linux. Existing highlights appear as underlines.
-- **Settings** in the title bar has five sections, chosen from the list on the left: **Appearance** (theme, light or dark, manuscript font, font size, line spacing), **Writing** (text width, line numbers, Markdown imports, spelling), **Project** (its file, version history and Google Drive backup), **Author** and **Websites**. Settings reopens at the section you used last. A **theme** is a paper and its ink, in light and dark: Tinto, Sepia, Newsprint, Fountain pen, or High contrast. **Appearance** chooses System, Light or Dark. For the **manuscript font**, choose a font on this computer, or **Add font…** to add TTF, OTF, WOFF or WOFF2 files of one family. Tinto checks every character in the project before adding a font, names any it cannot draw, and checks again when a project opens. Characters a font cannot draw appear in a fallback font. **Text width** starts as a centered column of 680px, about 66 characters; in a narrower window the column narrows to fit. **Fixed Margin** keeps a set margin on each side instead. The footer language selector belongs to the current document.
+- **Settings** in the title bar has five sections, chosen from the list on the left: **Appearance** (theme, light or dark, manuscript font, font size, line spacing), **Writing** (text width, line numbers, Markdown imports, spelling, automatic translation), **Project** (its file, version history and Google Drive backup), **Author**, **Websites** and **About** (the version, and whether Tinto checks for a new one when it opens). Settings reopens at the section you used last. A **theme** is a paper and its ink, in light and dark: Tinto, Sepia, Newsprint, Fountain pen, or High contrast. **Appearance** chooses System, Light or Dark. For the **manuscript font**, choose a font on this computer, or **Add font…** to add TTF, OTF, WOFF or WOFF2 files of one family. Tinto checks every character in the project before adding a font, names any it cannot draw, and checks again when a project opens. Characters a font cannot draw appear in a fallback font. **Text width** starts as a centered column of 680px, about 66 characters; in a narrower window the column narrows to fit. **Fixed Margin** keeps a set margin on each side instead. The footer language selector belongs to the current document.
 - Under **Text width**, **Fixed Margin** starts with 48 px on each side and lets the column resize with the window. **Fixed Width** centers a column of your chosen width (initially 680 px). Tinto remembers both measurements when you switch modes.
 - **Home** creates and opens projects, adds documents, and imports files. Home lists the projects in your selected folder. Use **Choose folder** to browse, **New folder** to create another folder, or the **Tinto folder** menu to return to a previous one. New projects default to the selected folder. Settings shows the current project file path.
 - **Headings** lets you jump to a heading in the open document or section. Click the **+** beside a heading in this dropdown, or hover over the heading in the manuscript and click **+**, to open it as a linked section (a spawn). Edits in either tab update the same text. On Home, expand a document to see its spawns. Each spawn appears under its closest spawned ancestor.
@@ -30,7 +40,19 @@ Erase an option’s wording to leave an empty highlighted box. Keep it empty to 
 - **Import file** and **Export** support Word (.docx), PDF, plain text (.txt), Markdown (.md), HTML, rich text (.rtf), OpenDocument text (.odt), and EPUB. Conversion runs locally. Import reads selectable PDF text and text-based, DRM-free ebooks. Imported text is marked as imported (see *Authorship* below). Export writes the chosen wording of the open document, section, or draft, in the manuscript font. A font you added travels inside PDF, Word, EPUB and HTML files when its license allows it; ODT and RTF files, and fonts whose license forbids it, only name the font, and Tinto says so. Plain text drops formatting. Markdown uses inline HTML for underlines.
 - English and Spanish dictionaries ship with the app. In **Settings → Writing**, download French or UK English and then select it as the document language. Right-click a word with a wavy underline or press **Shift+F10** to choose a correction.
 
-## Optional Google Drive backup
+## Translate
+
+**Translate** in the document bar turns a document into a new document in another language, with your own API key from **OpenAI**, **Anthropic (Claude)** or **OpenRouter**. Choose the service, the key and the model once in **Settings → Writing → Automatic translation**; Tinto checks the key with the service and keeps it encrypted on this computer. Each service offers a few models (OpenAI: GPT-6.2 Astra, Sol, GPT-6.1 Terra and GPT-6 Luna; Claude: Opus 5.5 and Sonnet 5.5; OpenRouter: all six), or **Other…** for any model id. Translation is tested with OpenAI `gpt-6.2-astra`, the default; other services and models may work, so review each translation before you publish it.
+
+- Tinto sends only the chosen wording of the document you translate, paragraph by paragraph with its bold, italic and underline, and asks for a strict JSON schema so no paragraph is lost or merged. OpenAI and OpenRouter are asked not to store it; OpenRouter routes only to providers that keep the schema. Long documents go in parts of about 3,000 words.
+- The translation opens as its own document, titled in its language. A note above its text says it is an automatic translation, from which language and with which model, with **Open original** and **Translate again**. Its words keep a quiet tint until you change them; words you type become yours.
+- **Translate again** replaces the translation's text and keeps the previous one in History.
+- **Publish** offers to publish a document and its translation together, at the same address, so the website links them as translations of each other. The second language's title and summary can be edited (**Translate summary** fills it in), and its tags, image descriptions and attachment titles are translated when you publish.
+- The translation's signed credential names the original (`translationOfWork`), the model (`translator`) and how many characters were generated. Websites label it, for example *Traducción automática del inglés · revisada por Ana* once you have changed any of its words.
+
+## Experimental: Google Drive backup
+
+Google Drive backup is hidden in Tinto 1.0, because it has not yet been tried with a real Google account. To try it, start Tinto with `TINTO_EXPERIMENTAL=1`: `TINTO_EXPERIMENTAL=1 /Applications/Tinto.app/Contents/MacOS/Tinto` for the installed app, or `TINTO_EXPERIMENTAL=1 npm start` from the source.
 
 Enable the Google Drive API for a Google Cloud project and create a desktop OAuth client. In **Settings → Project**, choose **Connect Google Drive**, select the downloaded client JSON, and authorize Tinto in your system browser. Tinto requests the `drive.file` scope. Store the client file outside manuscript projects. [Google desktop OAuth setup](https://developers.google.com/identity/protocols/oauth2/native-app)
 
@@ -83,7 +105,7 @@ Tinto records who wrote each post and how, and signs it.
 
 ## License
 
-Original Tinto code is released under the MIT license. Packaged applications include dependency licenses and the notices supplied with each dictionary.
+Original Tinto code is released under the MIT license. Tinto includes pandoc 3.10 for converting Markdown, RTF, ODT and EPUB files; pandoc is released under the GNU GPL, version 2 or later. See [NOTICE.md](NOTICE.md) for third-party software and where to find pandoc's source. Packaged applications include dependency licenses and the notices supplied with each dictionary.
 
 ## Verification record
 

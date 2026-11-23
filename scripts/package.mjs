@@ -13,16 +13,29 @@ const [platform = process.platform, arch = process.arch] = process.argv.slice(2)
 try {
   await cp('dist', join(staging, 'dist'), { recursive: true })
   await cp('LICENSE', join(staging, 'LICENSE'))
+  await cp('NOTICE.md', join(staging, 'NOTICE.md'))
   const licenses = join(staging, 'licenses')
   await mkdir(licenses)
+  // Pandoc is GPL-2.0-or-later; its full license travels with the app (see NOTICE.md).
+  await cp('licenses/GPL-2.0.txt', join(licenses, 'pandoc-GPL-2.0.txt'))
   const lock = JSON.parse(await readFile('package-lock.json', 'utf8'))
+  // MIT asks for the copyright and permission notice; a package that ships no
+  // license file gets one written from its package.json and the MIT text.
+  const mit = (await readFile('LICENSE', 'utf8')).split('\n').slice(3).join('\n')
   for (const [path, dependency] of Object.entries(lock.packages)) {
     if (!path || dependency.dev || !existsSync(path)) continue
-    const files = await readdir(path)
-    for (const file of files.filter(file => /^(licen[cs]e|copying|notice)(\.|$)/i.test(file))) {
-      await cp(join(path, file), join(licenses, path.replace(/node_modules\//g, '').replaceAll('/', '-') + '-' + file))
+    const name = path.replace(/node_modules\//g, '').replaceAll('/', '-')
+    const files = (await readdir(path)).filter(file => /^(licen[cs]e|copying|notice)(\.|$)/i.test(file))
+    for (const file of files) await cp(join(path, file), join(licenses, name + '-' + file))
+    const info = JSON.parse(await readFile(join(path, 'package.json'), 'utf8'))
+    if (!files.length && /\bMIT\b/.test(info.license ?? '')) {
+      const holder = typeof info.author === 'string' ? info.author.replace(/\s*<[^>]*>/, '') : info.author?.name ?? info.name + ' contributors'
+      await writeFile(join(licenses, name + '-LICENSE'), info.name + ' ' + info.version + ' (license: ' + info.license + '). The package ships no license file; this notice is written from its package.json.\n\nMIT License\n\nCopyright (c) ' + holder + '\n' + mit)
     }
   }
+  // Electron and Chromium licenses ride inside the app, not beside it.
+  await cp('node_modules/electron/dist/LICENSE', join(licenses, 'electron-LICENSE'))
+  await cp('node_modules/electron/dist/LICENSES.chromium.html', join(licenses, 'chromium-LICENSES.html'))
   await writeFile(join(staging, 'package.json'), JSON.stringify({ name: project.name, productName: 'Tinto', version: project.version, main: project.main, license: 'MIT' }))
   const osxSign = platform === 'darwin' ? {
     identity: '-', identityValidation: false, preAutoEntitlements: false, gatekeeperAssess: false, continueOnError: false,

@@ -20,6 +20,8 @@ export interface CredentialInput {
   evidence: WritingEvidence
   previous: { id: string; sha256: string } | null
   time: number
+  // An automatic translation names the work it translates and the model that translated it.
+  translation?: { language: string; title: string; url: string | null; translator: string }
 }
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -63,11 +65,16 @@ export async function authorshipCredential(author: AuthorSigner, input: Credenti
         deletedCharacters: evidence.deleted,
         pastedCharacters: evidence.pasted,
         importedCharacters: evidence.imported,
+        ...(evidence.generated ? { generatedCharacters: evidence.generated } : {}),
         activeMinutes: Math.round(evidence.activeMs / 60_000),
         sessions: evidence.sessions,
         keyIntervals: { bandsMs: INTERVAL_BANDS, counts: evidence.intervals },
         log: { entries: evidence.entries, heads: evidence.heads, intact: evidence.intact }
       },
+      ...(input.translation ? {
+        translationOfWork: { type: 'CreativeWork', inLanguage: input.translation.language, ...(input.translation.title ? { name: input.translation.title } : {}), ...(input.translation.url ? { url: input.translation.url } : {}) },
+        translator: { type: 'SoftwareApplication', name: input.translation.translator }
+      } : {}),
       ...(input.previous ? { previousCredential: input.previous } : {})
     }
   }

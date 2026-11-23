@@ -22,14 +22,14 @@ Tinto is a local manuscript editor that keeps a writer's undecided wordings, dra
 ## Positioning
 
 - **One editor, many sites.** Tinto is a central writing tool that publishes to several of the writer's own websites. Each site keeps its own design, sections and media; Tinto supplies the content.
-- **Local and portable.** A project is one file on the writer's computer. There is no account, it works offline, and nothing leaves the machine unless the writer sends it: a Drive backup, or a post to a site they connected.
+- **Local and portable.** A project is one file on the writer's computer. There is no account, it works offline, and nothing leaves the machine unless the writer sends it: a post to a site they connected, a document they choose to translate, or a Drive backup. The one automatic request is a check for a newer release on GitHub when Tinto opens; it carries nothing from the writer's projects and can be turned off in Settings → About.
 
 ## Operating Context
 
 - **App.** Currently a desktop app built with Electron, for macOS and Linux. Its interface is written with web technologies.
 - **Projects.** Each project is a `.tinto` file, a SQLite database. Projects live in folders the writer chooses.
 - **Websites.** A site joins through the Tinto blog module, an HTTPS API (protocol 2) that the site hosts. A ready-made module for Cloudflare Workers lives in `modules/cloudflare`. The in-app guide (Settings → Websites → ?) installs it with the help of the writer's coding agent.
-- **Backups.** Optional backups go to the writer's own Google Drive.
+- **Backups.** Optional backups go to the writer's own Google Drive. They are experimental in 1.0 (shown only with `TINTO_EXPERIMENTAL=1`) until they are tried with a real Google account.
 
 ## Capabilities and Constraints
 
@@ -39,6 +39,7 @@ Tinto is a local manuscript editor that keeps a writer's undecided wordings, dra
 - **Revision.** Drafts reviewed paragraph by paragraph against their source. Version history keeps automatic versions every five minutes of changes, retained for 30 days, and named versions, retained until deleted.
 - **Formatting.** Bold, italic and the author's underline.
 - **Typography.** Five themes (Tinto, Sepia, Newsprint, Fountain pen and High contrast), each in light and dark. The manuscript font can be a font on the computer or a font the writer adds. An added font is checked against every character in the project, and Tinto names any it cannot draw.
+- **Translation.** A document can become an automatic translation in another language, with the writer's own API key from OpenAI or OpenRouter (Responses API, `store: false`) or Anthropic (Messages API through Anthropic's SDK), always with a strict JSON schema. Tested with OpenAI `gpt-6.2-astra`, the default; the writer can choose other models. The translation is its own document, marked as automatic in the editor, in Publish and on the website. Every generated character carries the `ai` origin until the writer changes it, and a document and its translation publish together at one address.
 - **Exchange.** Import and export TXT, DOCX, PDF, Markdown, HTML, RTF, ODT and EPUB locally. Import reads text-based PDFs and DRM-free ebooks. Exports use the chosen wording and the manuscript font. A font the writer added travels inside PDF, Word, EPUB and HTML files when its license allows it.
 - **Spelling.** English and Spanish built in, with more dictionaries downloadable.
 
@@ -59,7 +60,7 @@ Tinto is a local manuscript editor that keeps a writer's undecided wordings, dra
 - The interface is in English. Writing and spell checking support English and Spanish.
 - Tinto does not use Git. Versions, drafts and releases live inside the project file.
 
-**Open decisions:** the AI translation feature and its visible watermark; C2PA Content Credentials for published media; label design on each website.
+**Open decisions:** C2PA Content Credentials for published media; label design on each website; testing translation with more services and models.
 
 ## Brand Commitments
 
@@ -71,7 +72,7 @@ Authorship is paramount. This is a binding commitment, and its first version is 
 
 - **Installations are bound to an author.** Each installation signs with one author key, and each website accepts one author. A post cannot be changed after signing without breaking its signature.
 - **Human writing is recorded.** Tinto records which text the writer typed, and evidence of how, in the spirit of photography's original-capture initiatives.
-- **AI output is labeled.** AI-produced content, such as a future AI translation, is allowed only when it is marked as AI. The credential then names it with the IPTC `trainedAlgorithmicMedia` source type, and sites always show it.
+- **AI output is labeled.** AI-produced content, such as an automatic translation, is allowed only when it is marked as AI. The credential then names it with the IPTC `trainedAlgorithmicMedia` source type, and sites always show it.
 - **Original work is labeled quietly.** The label is subtle and never distracts from the content.
 - **Established standards over our own.** W3C Verifiable Credentials 2.0 with Data Integrity `eddsa-jcs-2022`, `did:key`, schema.org `CreativeWork` and IPTC digital source types. Content hashes are SHA-256.
 

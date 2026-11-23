@@ -1,9 +1,15 @@
 import { postFilesEditor } from './post-files-ui'
-import type { AuthorshipPreview, CharacterCounts, PostState, PostStatus, SiteSummary } from './project-types'
+import type { AuthorshipPreview, CharacterCounts, PostState, PostStatus, PublishPair, PublishRequest, SiteSummary } from './project-types'
 import { dialogHeader } from './settings'
 import { button, element, errorMessage as errorText } from './ui'
 
-export interface PublishTarget { documentId: string; headingId: string | null; title: string; languageName: string }
+export interface PublishTarget {
+  documentId: string; headingId: string | null; title: string; language: string; languageName: string
+  // A document that is an automatic translation says from which language.
+  translationFrom?: string
+  // The original or the translation that can be published with this document.
+  partner?: { documentId: string; title: string; language: string; languageName: string; kind: 'translation' | 'original' }
+}
 // The website chosen last is offered first during this session.
 let lastSite: string | null = null
 
@@ -39,7 +45,10 @@ const unverified = ' The website’s module does not record authorship yet. Upda
 
 export async function showPublish(dialog: HTMLDialogElement, target: PublishTarget, openSettings: () => void, notice: (text: string) => void, showAll: () => void) {
   const api = window.tinto
-  const [sites, posts, authorship] = await Promise.all([api.sites(), api.posts(target.documentId, target.headingId), api.authorship(target.documentId, target.headingId)])
+  const [sites, posts, authorship, partnerPosts] = await Promise.all([
+    api.sites(), api.posts(target.documentId, target.headingId), api.authorship(target.documentId, target.headingId),
+    target.partner && !target.headingId ? api.posts(target.partner.documentId, null) : Promise.resolve([])
+  ])
   const kind = target.headingId ? 'section' : 'document'
   if (!sites.length) {
     const actions = element('div', 'dialog-actions')
@@ -80,11 +89,15 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
     const title = field('Title', known?.title ?? target.title)
     title.required = true
     title.maxLength = 200
-    const slug = field('Address', known?.slug ?? slugify(target.title))
+    // A translation and its original share one address: the one already
+    // published, else one made from the original's title.
+    const partnerKnown = target.partner && !target.headingId ? partnerPosts.find(item => item.siteId === site.id) ?? partnerPosts[0] ?? null : null
+    const slugFrom = target.partner?.kind === 'original' && !target.headingId ? target.partner.title : null
+    const slug = field('Address', known?.slug ?? partnerKnown?.slug ?? slugify(slugFrom ?? target.title))
     slug.required = true
     slug.maxLength = 100
     slug.spellcheck = false
-    let slugEdited = !!known
+    let slugEdited = !!known || !!partnerKnown || !!slugFrom
     slug.oninput = () => { slugEdited = true }
     title.oninput = () => { if (!slugEdited) slug.value = slugify(title.value) }
     // Categories come from the website, so each site offers its own sections or pages.
@@ -104,6 +117,47 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
     const tags = field('Tags', (known?.tags ?? []).join(', '))
     tags.placeholder = 'Separated by commas'
     form.append(element('p', '', 'Language · ' + target.languageName))
+    // A whole document and its automatic translation go out together at the same
+    // address, so the website links them as translations of each other.
+    let pair: { include: HTMLInputElement; title: HTMLInputElement; summary: HTMLTextAreaElement } | null = null
+    const partner = target.headingId ? null : target.partner
+    if (partner) {
+      const known = partnerKnown
+      const includeRow = element('label', 'field publish-pair', 'Also publish the ' + partner.languageName + ' ' + partner.kind)
+      const include = element('input')
+      include.type = 'checkbox'
+      include.checked = true
+      includeRow.append(include)
+      const fields = element('div', 'publish-pair-fields')
+      const titleRow = element('label', 'field', 'Title (' + partner.languageName + ')')
+      const pairTitle = element('input')
+      pairTitle.required = true
+      pairTitle.maxLength = 200
+      pairTitle.value = known?.title ?? partner.title
+      titleRow.append(pairTitle)
+      const summaryRow = element('label', 'field stacked', 'Summary (' + partner.languageName + ')')
+      const pairSummary = element('textarea')
+      pairSummary.rows = 3
+      pairSummary.maxLength = 500
+      pairSummary.value = known?.summary ?? ''
+      summaryRow.append(pairSummary)
+      const translateRow = element('div', 'field-actions')
+      const translateSummary = button('Translate summary', async () => {
+        if (!summary.value.trim()) { status.textContent = 'Write the summary first, then translate it.'; return }
+        translateSummary.disabled = true
+        status.textContent = 'Translating the summary…'
+        try {
+          pairSummary.value = (await api.translateTexts([summary.value], target.language, partner.language))[0]
+          status.textContent = 'Translated the summary. Review it before you publish.'
+        } catch (error) { status.textContent = errorText(error) }
+        finally { translateSummary.disabled = false }
+      }, 'outline')
+      translateRow.append(translateSummary)
+      fields.append(titleRow, summaryRow, translateRow)
+      include.onchange = () => { fields.hidden = !include.checked; pairTitle.required = include.checked }
+      form.append(includeRow, fields)
+      pair = { include, title: pairTitle, summary: pairSummary }
+    }
     // Every post is signed. The first time, Tinto asks whose name to sign with.
     const signer = authorship.author ? null : field('Sign as', '')
     if (signer) {
@@ -112,7 +166,7 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
       signer.autocomplete = 'name'
       signer.placeholder = 'Your name as the author'
     }
-    const origins = element('p', 'publish-authorship', authorshipLine(authorship))
+    const origins = element('p', 'publish-authorship', (target.translationFrom ? 'Automatic translation from ' + target.translationFrom + ' · ' : '') + authorshipLine(authorship))
     form.append(origins)
     async function ensureAuthor() {
       if (!signer || authorship.author) return
@@ -168,10 +222,45 @@ export async function showPublish(dialog: HTMLDialogElement, target: PublishTarg
         controls().forEach(el => el.disabled = false)
       }
     }
+    // The partner shares the address, date, category and files. Its tags, image
+    // descriptions and attachment titles are translated, and its summary too
+    // when the writer left it empty.
+    async function pairRequest(main: PublishRequest): Promise<PublishPair> {
+      const texts = [...main.fields.tags, main.cover?.alt ?? '', ...main.images.map(image => image.alt), ...main.attachments.map(item => item.title)]
+      const summaryEmpty = !pair!.summary.value.trim() && !!main.fields.summary.trim()
+      if (summaryEmpty) texts.push(main.fields.summary)
+      let translated = texts
+      if (texts.some(text => text.trim()) && await api.translatorStatus()) {
+        status.textContent = 'Translating tags and image descriptions…'
+        translated = await api.translateTexts(texts, target.language, partner!.language)
+      }
+      const take = (() => { let at = 0; return (count: number) => translated.slice(at, at += count) })()
+      const tags = take(main.fields.tags.length).map(tag => tag.trim()).filter(Boolean)
+      const [coverAlt] = take(1)
+      const alts = take(main.images.length)
+      const titles = take(main.attachments.length)
+      const [pairSummary] = summaryEmpty ? take(1) : [pair!.summary.value]
+      if (summaryEmpty) pair!.summary.value = pairSummary
+      return {
+        documentId: partner!.documentId,
+        fields: { ...main.fields, title: pair!.title.value, summary: pairSummary, tags },
+        cover: main.cover ? { ...main.cover, alt: coverAlt } : null,
+        images: main.images.map((image, index) => ({ ...image, alt: alts[index] })),
+        attachments: main.attachments.map((item, index) => ({ ...item, title: titles[index] || item.title }))
+      }
+    }
     function send(state: PostStatus) {
-      return run(async () => { await ensureAuthor(); return api.publishPost(request(state)) }, 'Preparing the post…', sent => (state === 'draft'
+      return run(async () => {
+        await ensureAuthor()
+        const main = request(state) as PublishRequest
+        if (pair?.include.checked) main.pair = await pairRequest(main)
+        status.textContent = main.pair ? 'Publishing both posts…' : 'Preparing the post…'
+        return api.publishPost(main)
+      }, 'Preparing the post…', sent => (state === 'draft'
         ? 'Saved “' + title.value.trim() + '” as a draft on ' + site.name + '.'
-        : 'Published “' + title.value.trim() + '” on ' + site.name + '.') + (sent.verified ? '' : unverified))
+        : 'Published “' + title.value.trim() + '” on ' + site.name + '.')
+        + (sent.pair ? ' Also ' + (state === 'draft' ? 'saved' : 'published') + ' “' + sent.pair.title + '”.' : '')
+        + (sent.verified ? '' : unverified))
     }
     function drawActions() {
       actions.replaceChildren(button('All posts', () => { dialog.close(); showAll() }, 'outline publish-all'))

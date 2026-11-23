@@ -307,7 +307,7 @@ dialog:has(> .settings-body) > .dialog-head { flex: none; margin: 0; padding: 20
 .settings-panel .group-label { margin: 0 0 8px; }
 .settings-panel .field { min-height: 34px; margin: 0 0 12px; }
 .settings-panel .field :is(select, input:not([type=checkbox])) { flex: none; width: min(200px, 46%); height: 34px; }
-.settings-panel :is(.author-form, .site-form) .field input { width: min(300px, 62%); }
+.settings-panel :is(.author-form, .site-form, .translation-form) .field input { width: min(300px, 62%); }
 .settings-panel .field input[type=checkbox] { flex: none; width: 17px; height: 17px; margin: 0; accent-color: var(--wine); }
 .settings-panel :is(.field-actions, .home-actions) { flex-wrap: wrap; margin: 0 0 12px; }
 .field-actions { display: flex; gap: 8px; align-items: center; }
@@ -328,6 +328,9 @@ dialog:has(> .settings-body) > .dialog-head { flex: none; margin: 0; padding: 20
 textarea { font: inherit; color: inherit; resize: vertical; }
 :where(.publish-form) .field > :is(input, select) { width: min(320px, 64%); }
 .field.stacked { flex-direction: column; align-items: stretch; gap: 6px; }
+.publish-form .publish-pair { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--divider); }
+.publish-form .publish-pair > input[type=checkbox] { flex: none; width: 17px; height: 17px; margin: 0; accent-color: var(--wine); }
+.publish-pair-fields .field-actions { margin: -8px 0 12px; justify-content: flex-end; }
 .post-images { margin: 18px 0; }
 .post-image { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .post-image-name { flex: 0 1 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -442,6 +445,19 @@ dialog.guide { width: min(760px, 94vw); }
 /* Origins are quiet: a tint behind the words, shown only on request. */
 .show-origins .ProseMirror [data-origin] { background: var(--origin); border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .show-origins .ProseMirror [data-origin=ai] { background: var(--origin-ai); }
+/* An automatic translation says so above its text, set to the manuscript's measure,
+   and its generated words keep their tint until the writer changes them. */
+.translation-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 24px 0 0; padding: 0 0 12px; border-bottom: 1px solid var(--divider); color: var(--secondary); font-size: 13px; }
+[data-text-width="fixed-width"] .translation-note { width: min(var(--column-width), 100% - 48px); margin-inline: auto; }
+[data-text-width="fixed-margin"] .translation-note { margin-inline: var(--side-margin); }
+.translation-note > svg { flex: none; width: 16px; height: 16px; color: var(--wine); }
+.translation-note p { flex: 1 1 260px; margin: 0; }
+.translation-note-actions { display: flex; gap: 4px; }
+.translation-note button { color: var(--wine); min-height: 30px; }
+.translation-doc .ProseMirror [data-origin=ai] { background: var(--origin-ai); border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.translate-body p { margin: 0 0 12px; }
+.translate-body .field select { width: min(200px, 46%); height: 34px; }
+.translate-status:not(:empty) { margin: 0 0 4px; color: var(--secondary); }
 .publish-authorship { color: var(--secondary); }
 /* Theme: each sample is drawn in its own paper, ink and accent; the ring uses the current theme's. */
 .theme-picker { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }

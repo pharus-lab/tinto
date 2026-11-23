@@ -524,7 +524,7 @@ test('Settings shows one section at a time, moves between them with the arrow ke
   const list = modal.getByRole('tablist', { name: 'Settings sections' })
   const selected = () => list.getByRole('tab', { selected: true }).innerText()
   await page.getByRole('button', { name: 'Reading and project settings' }).click()
-  assert.deepEqual(await list.getByRole('tab').allInnerTexts(), ['Appearance', 'Writing', 'Project', 'Author', 'Websites'])
+  assert.deepEqual(await list.getByRole('tab').allInnerTexts(), ['Appearance', 'Writing', 'Project', 'Author', 'Websites', 'About'])
   assert.equal(await list.getAttribute('aria-orientation'), 'vertical')
   assert.equal(await selected(), 'Appearance')
   assert.equal(await modal.getByRole('tabpanel').count(), 1)
@@ -537,16 +537,16 @@ test('Settings shows one section at a time, moves between them with the arrow ke
   assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Writing')
   await modal.getByRole('tabpanel', { name: 'Writing' }).getByLabel('Text width').waitFor()
   await page.keyboard.press('End')
-  assert.equal(await selected(), 'Websites')
+  assert.equal(await selected(), 'About')
   await page.keyboard.press('ArrowDown')
   assert.equal(await selected(), 'Appearance')
   await page.keyboard.press('ArrowUp')
-  assert.equal(await selected(), 'Websites')
-  assert.deepEqual(await list.getByRole('tab').evaluateAll(tabs => tabs.map(tab => tab.tabIndex)), [-1, -1, -1, -1, 0])
+  assert.equal(await selected(), 'About')
+  assert.deepEqual(await list.getByRole('tab').evaluateAll(tabs => tabs.map(tab => tab.tabIndex)), [-1, -1, -1, -1, -1, 0])
 
   // Every section fits the window's width; the window keeps its size between sections.
   const sizes = []
-  for (const name of ['Appearance', 'Writing', 'Project', 'Author', 'Websites']) {
+  for (const name of ['Appearance', 'Writing', 'Project', 'Author', 'Websites', 'About']) {
     await list.getByRole('tab', { name }).click()
     const panel = modal.getByRole('tabpanel', { name })
     assert.equal(await panel.evaluate(el => el.scrollWidth <= el.clientWidth), true, name + ' fits')
@@ -560,4 +560,59 @@ test('Settings shows one section at a time, moves between them with the arrow ke
   await page.getByRole('button', { name: 'Reading and project settings' }).click()
   assert.equal(await selected(), 'Author')
   await modal.getByRole('tabpanel', { name: 'Author' }).getByLabel('Your name').waitFor()
+})
+
+test('Google Drive backup is experimental: Settings shows it only with TINTO_EXPERIMENTAL=1', async t => {
+  for (const flag of [undefined, '1']) {
+    if (flag) process.env.TINTO_EXPERIMENTAL = flag
+    else delete process.env.TINTO_EXPERIMENTAL
+    const fixture = await desktopFixture(t)
+    const page = await fixture.open()
+    const modal = page.getByRole('dialog')
+    await page.getByRole('button', { name: 'Reading and project settings' }).click()
+    await modal.getByRole('tab', { name: 'Project' }).click()
+    const project = modal.getByRole('tabpanel', { name: 'Project' })
+    await project.getByText('Version history').waitFor()
+    assert.equal(await project.getByText('Google Drive backup').count(), flag ? 1 : 0, 'experimental ' + flag)
+    assert.equal(await project.getByRole('button', { name: 'Connect Google Drive' }).count(), flag ? 1 : 0)
+    await fixture.close()
+  }
+  delete process.env.TINTO_EXPERIMENTAL
+})
+
+test('when Tinto opens, a newer release on GitHub is announced once, and the writer can turn the check off', async t => {
+  const { createServer } = await import('node:http')
+  let asked = 0
+  const server = createServer((request, response) => {
+    asked++
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({ tag_name: 'v9.9.9', html_url: 'https://github.com/pharus-lab/tinto/releases/tag/v9.9.9', draft: false, prerelease: false }))
+  })
+  await new Promise(done => server.listen(0, '127.0.0.1', done))
+  t.after(() => server.close())
+  process.env.TINTO_RELEASES_URL = 'http://127.0.0.1:' + server.address().port + '/releases/latest'
+  t.after(() => { delete process.env.TINTO_RELEASES_URL })
+  const fixture = await desktopFixture(t)
+  let page = await fixture.open()
+  await fixture.app.evaluate(({ shell }) => { globalThis.opened = []; shell.openExternal = async url => { globalThis.opened.push(url) } })
+  const notice = page.locator('#notice')
+  await notice.getByText('Tinto 9.9.9 is available. You have 1.0.0.').waitFor()
+  await notice.getByRole('button', { name: 'Download', exact: true }).click()
+  assert.deepEqual(await fixture.app.evaluate(() => globalThis.opened), ['https://github.com/pharus-lab/tinto/releases/tag/v9.9.9'])
+  assert.equal(asked, 1)
+
+  const modal = page.getByRole('dialog')
+  await page.getByRole('button', { name: 'Reading and project settings' }).click()
+  await modal.getByRole('tab', { name: 'About' }).click()
+  const about = modal.getByRole('tabpanel', { name: 'About' })
+  await about.getByText('Tinto 1.0.0').waitFor()
+  const check = about.getByRole('checkbox', { name: 'Check for a new version when Tinto opens' })
+  assert.equal(await check.isChecked(), true)
+  await check.uncheck()
+  await fixture.close()
+  page = await fixture.open()
+  await page.locator('#tabs').waitFor()
+  await page.waitForTimeout(1500)
+  assert.equal(asked, 1, 'with the check off, Tinto asks nobody')
+  assert.equal(await page.locator('#notice').getByText(/is available/).count(), 0)
 })

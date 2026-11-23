@@ -10,11 +10,11 @@ import { createTintoBlog } from '../modules/cloudflare/worker.mjs'
 import { tintoPosts } from '../modules/cloudflare/astro.mjs'
 import exampleConfig from '../modules/cloudflare/tinto.config.mjs'
 import { renderPreview, settings as moduleSettings } from '../modules/cloudflare/shared.mjs'
-import { SOURCE_TYPES, authorshipLabel, signCredential, verifyCredential } from '../modules/cloudflare/credential.mjs'
+import { SOURCE_TYPES, authorshipDetails, authorshipLabel, signCredential, verifyCredential } from '../modules/cloudflare/credential.mjs'
 import { newAuthor } from './author-fixture.mjs'
 
 const bundle = await build({ stdin: { contents: "export * from './src/site-api'; export * from './src/publishing'; export * from './src/storage'; export * from './src/model'", resolveDir: process.cwd() }, platform: 'node', format: 'esm', bundle: true, write: false })
-const { SiteClient, Publisher, ProjectStore, sampleManuscript } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
+const { SiteClient, Publisher, ProjectStore, sampleManuscript, manuscriptWithOrigin } = await import('data:text/javascript;base64,' + Buffer.from(bundle.outputFiles[0].contents).toString('base64'))
 
 // D1's binding API over node:sqlite, so the module runs real SQL in tests.
 class FakeD1 {
@@ -410,6 +410,51 @@ test('Tinto drafts, publishes, updates, translates and unpublishes through the m
   assert.deepEqual(posts.map(item => [item.locale, item.title]), [['castellano', 'El camino']])
   assert.equal([...env.TINTO_MEDIA.objects.keys()].filter(item => item.includes('/images/')).length, 1, 'the gallery image expired; the cover waits its hour')
   assert.equal(hooks.length, 3)
+})
+
+test('an automatic translation is signed with its original and model, and the site labels it as one', async t => {
+  const { blog, env, call } = site()
+  t.mock.method(globalThis, 'fetch', async (address, init) => (await blog.fetch(new Request(String(address), init), env)) ?? new Response('Site page', { status: 404 }))
+  const { store } = await tintoProject(t)
+  // Everything generated, except one sentence the writer typed over it.
+  const generated = manuscriptWithOrigin(sampleManuscript(), 'ai')
+  generated.content[1].content.push({ type: 'text', text: ' Era tarde.' })
+  store.save({ id: 'traduccion', title: 'El largo camino', language: 'es', manuscript: generated, translation: { of: 'story', from: 'en', model: 'gpt-6.2-astra', at: 1 } })
+  store.recordWriting('traduccion', 'translate', { characters: 900 })
+  const client = new SiteClient({ endpoint, key })
+  const author = await newAuthor('Mara')
+  const publisher = new Publisher(async () => client, async () => author, () => Date.parse('2026-11-22T12:00:00Z'))
+  const fields = { title: 'The long way home', slug: 'the-long-way-home', summary: '', date: '2026-11-22', tags: [], category: 'essays' }
+  const base = { siteId: 'field-notes', siteName: 'Field Notes', headingId: null, status: 'published', cover: null, images: [], attachments: [] }
+  const original = await publisher.publish(store, { ...base, documentId: 'story', fields })
+  await publisher.publish(store, { ...base, documentId: 'traduccion', fields: { ...fields, title: 'El largo camino' } })
+
+  const posts = (await (await call('GET', '/api/tinto/feed', { auth: null })).json()).posts
+  const spanish = posts.find(post => post.language === 'es')
+  assert.deepEqual(spanish.authorship.translation, { from: 'en', by: 'OpenAI gpt-6.2-astra', edited: true, url: original.url })
+  assert.equal(spanish.authorship.digitalSourceType, SOURCE_TYPES.compositeWithAI)
+  assert.equal(authorshipLabel(spanish.authorship, 'es-MX'), 'Traducción automática del inglés · revisada por Mara')
+  assert.equal(authorshipLabel(posts.find(post => post.language === 'en').authorship, 'en'), 'Original · written by Mara')
+  const credential = await (await call('GET', spanish.authorship.credential, { auth: null })).json()
+  assert.deepEqual(await verifyCredential(credential), { verified: true, did: author.did })
+  assert.deepEqual(credential.credentialSubject.translationOfWork, { type: 'CreativeWork', inLanguage: 'en', name: 'The long way home', url: original.url })
+  assert.deepEqual(credential.credentialSubject.translator, { type: 'SoftwareApplication', name: 'OpenAI gpt-6.2-astra' })
+  assert.equal(credential.credentialSubject.writingProcess.generatedCharacters, 900)
+  // A reader can open everything the signature says, in the post's language.
+  const details = authorshipDetails(spanish.authorship, 'es')
+  assert.equal(details.summary, 'Verificar la firma')
+  const row = label => details.rows.find(item => item.label === label)
+  assert.equal(row('Firma').value, 'Válida · este sitio la comprobó al recibir la publicación')
+  assert.equal(row('Llave del autor').value, author.did)
+  assert.equal(row('De dónde vienen las palabras').value, credential.credentialSubject.characters.written ? '1% escrito en Tinto · 99% generado con IA' : '100% generado con IA')
+  assert.deepEqual([row('Traducción').value, row('Traducción').href], ['Traducción automática del inglés con OpenAI gpt-6.2-astra · revisada y cambiada por el autor', original.url])
+  assert.equal(row('Escritura en Tinto').value, '900 caracteres generados con IA')
+  assert.equal(row('Huella del texto (SHA-256)').value, credential.credentialSubject.sha256)
+  assert.equal(details.download.href, spanish.authorship.credential)
+  assert.equal(authorshipDetails(posts.find(post => post.language === 'en').authorship, 'en').rows.find(item => item.label === 'Where the words came from').value, 'All written in Tinto')
+  assert.equal(authorshipDetails(null), null)
+  // Untouched, it is published rather than reviewed.
+  assert.equal(authorshipLabel({ ...spanish.authorship, translation: { from: 'en', edited: false } }, 'en'), 'Automatic translation from English · published by Mara')
 })
 
 test('the Astro loader stores the feed, waits for a first deployment and keeps live posts on failure', async t => {

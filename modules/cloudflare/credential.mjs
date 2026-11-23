@@ -21,8 +21,11 @@ export const ORIGINS = /** @type {const} */ (['written', 'pasted', 'imported', '
  * @typedef {{ position: number, origin: 'written' | 'pasted' | 'imported' | 'ai' | 'mixed', digitalSourceType: string | null }} PartOrigin
  * @typedef {{
  *   verified: true, author: { id: string, name: string }, original: boolean, ai: boolean,
- *   digitalSourceType: string | null, parts: PartOrigin[], signed: string
+ *   digitalSourceType: string | null, parts: PartOrigin[], signed: string,
+ *   characters?: Characters, process?: WritingSummary | null, sha256?: string,
+ *   translation: { from: string, by: string, edited: boolean, url?: string } | null
  * }} Authorship
+ * @typedef {{ typed: number, deleted: number, pasted: number, imported: number, generated: number, activeMinutes: number, sessions: number }} WritingSummary
  */
 
 /**
@@ -186,13 +189,38 @@ export async function describePost(credential, post, id, files) {
     ai: origins.some(part => part.origin === 'ai' || (part.origin === 'mixed' && part.digitalSourceType === SOURCE_TYPES.compositeWithAI)),
     digitalSourceType: sourceTypeOf(/** @type {Characters} */ (total)),
     parts: origins,
-    signed: String(credential.proof?.created ?? '')
+    signed: String(credential.proof?.created ?? ''),
+    // What a reader can check: the counts of each origin, the measured writing
+    // (counts and timing only) and the fingerprint of the text.
+    characters: total,
+    process: writingSummary(subject.writingProcess),
+    sha256: typeof subject.sha256 === 'string' ? subject.sha256 : '',
+    // An automatic translation says from which language, by which model, and
+    // whether its author changed any of the generated words.
+    translation: subject.translationOfWork && typeof subject.translationOfWork === 'object' ? {
+      from: String(subject.translationOfWork.inLanguage ?? '').slice(0, 20),
+      by: String(subject.translator?.name ?? '').slice(0, 80),
+      edited: Number(total.written) > 0,
+      url: typeof subject.translationOfWork.url === 'string' ? subject.translationOfWork.url.slice(0, 300) : ''
+    } : null
+  }
+}
+/** @param {any} process */
+function writingSummary(process) {
+  if (!process || typeof process !== 'object') return null
+  const count = (/** @type {unknown} */ value) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0
+  return {
+    typed: count(process.typedCharacters), deleted: count(process.deletedCharacters), pasted: count(process.pastedCharacters),
+    imported: count(process.importedCharacters), generated: count(process.generatedCharacters),
+    activeMinutes: count(process.activeMinutes), sessions: count(process.sessions)
   }
 }
 
 const LABELS = {
-  en: { author: 'its author', ai: 'AI-generated · published by ', withAI: ['Written by ', ' · includes AI-generated text'], original: 'Original · written by ', other: ['Written by ', ' · includes text from other sources'] },
-  es: { author: 'su autor', ai: 'Generado con IA · publicado por ', withAI: ['Escrito por ', ' · incluye texto generado con IA'], original: 'Original · escrito por ', other: ['Escrito por ', ' · incluye texto de otras fuentes'] }
+  en: { author: 'its author', ai: 'AI-generated · published by ', withAI: ['Written by ', ' · includes AI-generated text'], original: 'Original · written by ', other: ['Written by ', ' · includes text from other sources'],
+    translation: 'Automatic translation', from: ' from ', reviewed: ' · reviewed by ', published: ' · published by ', languages: { en: 'English', es: 'Spanish' } },
+  es: { author: 'su autor', ai: 'Generado con IA · publicado por ', withAI: ['Escrito por ', ' · incluye texto generado con IA'], original: 'Original · escrito por ', other: ['Escrito por ', ' · incluye texto de otras fuentes'],
+    translation: 'Traducción automática', from: ' del ', reviewed: ' · revisada por ', published: ' · publicada por ', languages: { en: 'inglés', es: 'español' } }
 }
 /**
  * A short, quiet line for a post page, in English or Spanish (by language
@@ -203,8 +231,94 @@ export function authorshipLabel(authorship, language = 'en') {
   if (!authorship?.verified) return ''
   const text = String(language).toLowerCase().startsWith('es') ? LABELS.es : LABELS.en
   const name = authorship.author.name || text.author
+  if (authorship.translation) {
+    const code = /** @type {keyof typeof text.languages} */ (String(authorship.translation.from).toLowerCase().slice(0, 2))
+    const from = text.languages[code] ? text.from + text.languages[code] : ''
+    return text.translation + from + (authorship.translation.edited ? text.reviewed : text.published) + name
+  }
   if (authorship.digitalSourceType === SOURCE_TYPES.ai) return text.ai + name
   if (authorship.ai) return text.withAI[0] + name + text.withAI[1]
   if (authorship.original) return text.original + name
   return text.other[0] + name + text.other[1]
+}
+
+const DETAILS = {
+  en: {
+    summary: 'Verify the signature',
+    intro: 'Tinto signed this post with its author’s key when it was published, and this site checked the signature before accepting it.',
+    signature: 'Signature', valid: 'Valid · checked by this site when the post arrived',
+    author: 'Author', key: 'Author key', signed: 'Signed', words: 'Where the words came from', translation: 'Translation',
+    process: 'Writing in Tinto', fingerprint: 'Text fingerprint (SHA-256)', standard: 'Standard',
+    standardValue: 'W3C Verifiable Credential 2.0 · Ed25519 signature (eddsa-jcs-2022)',
+    origins: { written: 'written in Tinto', pasted: 'pasted', imported: 'imported', ai: 'AI-generated' },
+    allWritten: 'All written in Tinto', otherSources: 'Includes text from other sources', withAI: 'Includes AI-generated text',
+    translated: (/** @type {string} */ from, /** @type {string} */ by, /** @type {boolean} */ edited) => 'Automatic translation from ' + from + (by ? ' by ' + by : '') + (edited ? ' · reviewed and changed by the author' : ' · published as generated'),
+    original: 'Read the original',
+    counts: (/** @type {WritingSummary} */ p) => [p.typed && p.typed + ' characters typed', p.generated && p.generated + ' characters generated by AI', p.pasted && p.pasted + ' pasted', p.imported && p.imported + ' imported',
+      p.activeMinutes && p.activeMinutes + (p.activeMinutes === 1 ? ' active minute' : ' active minutes'), p.sessions && p.sessions + (p.sessions === 1 ? ' session' : ' sessions')].filter(Boolean).join(' · '),
+    notes: [
+      'The signature shows that this text was published, exactly as it reads here, by whoever holds this author key. Changing a single character would break it.',
+      'The counts come from Tinto’s record of how the text was written. Tinto keeps only counts and timing, never the keys pressed.',
+      'It does not prove that the ideas are original, or who is behind the key beyond the name they chose.'
+    ],
+    download: 'Download the signed credential (JSON) to check it with any W3C Verifiable Credentials verifier'
+  },
+  es: {
+    summary: 'Verificar la firma',
+    intro: 'Tinto firmó esta publicación con la llave de su autor al publicarla, y este sitio comprobó la firma antes de aceptarla.',
+    signature: 'Firma', valid: 'Válida · este sitio la comprobó al recibir la publicación',
+    author: 'Autor', key: 'Llave del autor', signed: 'Firmada', words: 'De dónde vienen las palabras', translation: 'Traducción',
+    process: 'Escritura en Tinto', fingerprint: 'Huella del texto (SHA-256)', standard: 'Estándar',
+    standardValue: 'Credencial verificable W3C 2.0 · firma Ed25519 (eddsa-jcs-2022)',
+    origins: { written: 'escrito en Tinto', pasted: 'pegado', imported: 'importado', ai: 'generado con IA' },
+    allWritten: 'Todo escrito en Tinto', otherSources: 'Incluye texto de otras fuentes', withAI: 'Incluye texto generado con IA',
+    translated: (/** @type {string} */ from, /** @type {string} */ by, /** @type {boolean} */ edited) => 'Traducción automática del ' + from + (by ? ' con ' + by : '') + (edited ? ' · revisada y cambiada por el autor' : ' · publicada tal como se generó'),
+    original: 'Leer el original',
+    counts: (/** @type {WritingSummary} */ p) => [p.typed && p.typed + ' caracteres tecleados', p.generated && p.generated + ' caracteres generados con IA', p.pasted && p.pasted + ' pegados', p.imported && p.imported + ' importados',
+      p.activeMinutes && p.activeMinutes + (p.activeMinutes === 1 ? ' minuto activo' : ' minutos activos'), p.sessions && p.sessions + (p.sessions === 1 ? ' sesión' : ' sesiones')].filter(Boolean).join(' · '),
+    notes: [
+      'La firma muestra que este texto lo publicó, tal como se lee aquí, quien tiene esta llave de autor. Cambiar un solo carácter la rompería.',
+      'Los conteos vienen del registro que Tinto lleva de cómo se escribió el texto. Tinto guarda solo conteos y tiempos, nunca las teclas.',
+      'No prueba que las ideas sean originales, ni quién está detrás de la llave más allá del nombre que eligió.'
+    ],
+    download: 'Descargar la credencial firmada (JSON) para comprobarla con cualquier verificador de credenciales W3C'
+  }
+}
+const LANGUAGE_NAMES = { en: { en: 'English', es: 'Spanish' }, es: { en: 'inglés', es: 'español' } }
+
+/**
+ * Everything a reader can check about a post's signature, in the post's
+ * language, as plain data for the site to lay out (for example inside a
+ * <details> element, which needs no script).
+ * @param {(Authorship & { credential?: string }) | null | undefined} authorship @param {string} [language]
+ * @returns {{ summary: string, intro: string, rows: { label: string, value: string, code?: boolean, href?: string, link?: string }[], notes: string[], download: { label: string, href: string } | null } | null}
+ */
+export function authorshipDetails(authorship, language = 'en') {
+  if (!authorship?.verified) return null
+  const code = String(language).toLowerCase().startsWith('es') ? 'es' : 'en'
+  const text = DETAILS[code]
+  /** @type {{ label: string, value: string, code?: boolean, href?: string, link?: string }[]} */
+  const rows = [
+    { label: text.signature, value: text.valid },
+    { label: text.author, value: authorship.author.name || (code === 'es' ? LABELS.es.author : LABELS.en.author) },
+    { label: text.key, value: authorship.author.id, code: true }
+  ]
+  const signed = Date.parse(authorship.signed)
+  if (Number.isFinite(signed)) rows.push({ label: text.signed, value: new Intl.DateTimeFormat(code === 'es' ? 'es-MX' : 'en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(signed) + ' UTC' })
+  const counts = authorship.characters
+  const total = counts ? counts.written + counts.pasted + counts.imported + counts.ai : 0
+  if (counts && total) {
+    const share = (/** @type {keyof Characters} */ key) => counts[key] ? Math.max(1, Math.round(counts[key] / total * 100)) + '% ' + text.origins[key] : ''
+    rows.push({ label: text.words, value: counts.written === total ? text.allWritten : (['written', 'ai', 'pasted', 'imported']).map(key => share(/** @type {keyof Characters} */ (key))).filter(Boolean).join(' · ') })
+  } else rows.push({ label: text.words, value: authorship.original ? text.allWritten : authorship.ai ? text.withAI : text.otherSources })
+  if (authorship.translation) {
+    const from = String(authorship.translation.from).toLowerCase().slice(0, 2)
+    const name = /** @type {Record<string, string>} */ (LANGUAGE_NAMES[code])[from] ?? authorship.translation.from
+    rows.push({ label: text.translation, value: text.translated(name, authorship.translation.by, authorship.translation.edited), ...(authorship.translation.url ? { href: authorship.translation.url, link: text.original } : {}) })
+  }
+  const measured = authorship.process ? text.counts(authorship.process) : ''
+  if (measured) rows.push({ label: text.process, value: measured })
+  if (authorship.sha256) rows.push({ label: text.fingerprint, value: authorship.sha256, code: true })
+  rows.push({ label: text.standard, value: text.standardValue })
+  return { summary: text.summary, intro: text.intro, rows, notes: text.notes, download: authorship.credential ? { label: text.download, href: authorship.credential } : null }
 }

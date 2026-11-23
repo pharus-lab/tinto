@@ -3,6 +3,10 @@ import type { Desktop } from './desktop'
 
 const desktop: Desktop = {
   platform: process.platform,
+  experimental: ipcRenderer.sendSync('app:experimental') === true,
+  version: String(ipcRenderer.sendSync('app:version')),
+  checkForUpdate: () => ipcRenderer.invoke('updates:check'),
+  openRelease: () => ipcRenderer.invoke('updates:open'),
   backupStatus: () => ipcRenderer.invoke('backup:status'),
   connectDrive: () => ipcRenderer.invoke('backup:connect'),
   disconnectDrive: () => ipcRenderer.invoke('backup:disconnect'),
@@ -40,6 +44,17 @@ const desktop: Desktop = {
     const forward = (_event: Electron.IpcRendererEvent, done: number, total: number) => listener(done, total)
     ipcRenderer.on('post:progress', forward)
     return () => { ipcRenderer.removeListener('post:progress', forward) }
+  },
+  translatorStatus: () => ipcRenderer.invoke('translator:status'),
+  saveTranslator: (provider, key, model) => ipcRenderer.invoke('translator:save', provider, key, model),
+  testTranslator: () => ipcRenderer.invoke('translator:test'),
+  removeTranslator: () => ipcRenderer.invoke('translator:remove'),
+  translate: (source, from, to) => ipcRenderer.invoke('translator:translate', source, from, to),
+  translateTexts: (texts, from, to) => ipcRenderer.invoke('translator:texts', texts, from, to),
+  onTranslateProgress: listener => {
+    const forward = (_event: Electron.IpcRendererEvent, done: number, total: number) => listener(done, total)
+    ipcRenderer.on('translator:progress', forward)
+    return () => { ipcRenderer.removeListener('translator:progress', forward) }
   },
   unpublishPost: (siteId, documentId, headingId) => ipcRenderer.invoke('post:unpublish', siteId, documentId, headingId),
   pickFile: () => ipcRenderer.invoke('file:pick'),

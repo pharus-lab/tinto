@@ -15,6 +15,8 @@ import { showPosts } from './posts-ui'
 import { showPublish } from './publish-ui'
 import { siteSettings } from './site-settings'
 import { authorSettings } from './author-settings'
+import { translationSettings } from './translation-settings'
+import { drawTranslationNote, languageName, showTranslate } from './translate-ui'
 import { typographySettings } from './typography-settings'
 import { listCharacters, manuscriptCharacters, registerFontFaces } from './typography'
 import { trackWriting } from './writing-evidence'
@@ -49,7 +51,7 @@ let packs: DictionaryPack[] = []
 
 function record(id: string) { return library.workspace!.project.documents.find(doc => doc.id === id)! }
 function activeDocument() { return current ? record(current.documentId) : null }
-function notice(text: string, undo?: () => Promise<void>) {
+function notice(text: string, undo?: () => Promise<void>, actionLabel = 'Undo') {
   const banner = $('notice')
   banner.textContent = text
   banner.hidden = false
@@ -62,7 +64,7 @@ function notice(text: string, undo?: () => Promise<void>) {
   banner.onpointerenter = undo ? () => clearTimeout(noticeTimer) : null
   banner.onpointerleave = undo ? dismissLater : null
   if (undo) {
-    const action = button('Undo', () => void undo().catch(report), 'outline')
+    const action = button(actionLabel, () => void undo().catch(report), 'outline')
     action.onfocus = () => clearTimeout(noticeTimer)
     action.onblur = dismissLater
     banner.append(action)
@@ -279,6 +281,7 @@ async function switchTab(tab: Tab | null) {
   drawTabs()
   $('tabs').querySelector('.current')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   if (!tab) {
+    drawTranslationNote($('translation-note'), null, [], { open: openDocument, again: translateDialog })
     renderHome($('home'), library, expandedSpawns, {
       openDocument, createDocument, moveDocument, rename: renameHomeItem, remove: deleteHomeItem, importFile: () => void importDocument().catch(report),
       chooseFolder: path => void changeFolder('choose', path).catch(report),
@@ -337,6 +340,7 @@ async function switchTab(tab: Tab | null) {
     if (![...language.options].some(option => option.value === doc.language)) language.add(new Option(doc.language + ' (dictionary needed)', doc.language))
     language.value = doc.language
     $('draft-action').replaceChildren(icon('draft'), document.createTextNode(doc.source ? 'Review draft' : 'Create draft'))
+    drawTranslationNote($('translation-note'), doc, library.workspace!.project.documents, { open: id => openDocument(id), again: translateDialog })
     scroll.scrollTop = tab.scroll
     updateToolbar()
   }
@@ -395,6 +399,7 @@ async function loadLibrary(next: LibraryState, showHome = false) {
   await switchTab(showHome ? null : selected)
   status('Saved locally', true)
   void checkManuscriptFont().catch(report)
+  void checkForUpdate()
 }
 async function changeFolder(action: 'choose'|'new', path?: string) {
   if (!flush()) return
@@ -514,6 +519,14 @@ async function updateLanguages() {
 function projectCharacters(): string | null {
   return library.workspace ? manuscriptCharacters(library.workspace.project.documents.map(doc => doc.manuscript)) : null
 }
+// A newer release is looked for once, when Tinto opens, unless the writer turned it off.
+let updateChecked = false
+async function checkForUpdate() {
+  if (updateChecked || !prefs.checkUpdates) return
+  updateChecked = true
+  const release = await api.checkForUpdate().catch(() => null)
+  if (release) notice('Tinto ' + release.version + ' is available. You have ' + api.version + '.', () => api.openRelease(), 'Download')
+}
 // A font the writer added is checked once per project and session when the project opens.
 const fontChecks = new Set<string>()
 async function checkManuscriptFont() {
@@ -540,11 +553,13 @@ function settings(section?: SettingsSection) {
     }
   }, section)
   typographySettings(panels, prefs, projectCharacters)
-  if (library.workspace) backupSettings(panels.project, flush, () => {
+  // Drive backup has not been tried with a real Google account yet, so it is experimental.
+  if (library.workspace && api.experimental) backupSettings(panels.project, flush, () => {
     modal.close()
     saveSession()
     void api.library().then(next => loadLibrary(next)).catch(report)
   })
+  translationSettings(panels.writing)
   authorSettings(panels.author)
   siteSettings(panels.websites)
 }
@@ -600,9 +615,44 @@ function publishDialog() {
   if (!doc || !current || !flush()) return
   // The credential includes the writing measured up to now.
   for (const tracker of evidence.values()) tracker.flush()
-  const languageName = [...language.options].find(option => option.value === doc.language)?.text ?? doc.language
+  const nameOf = (code: string) => languageOptions(packs).find(([value]) => value === code)?.[1] ?? languageName(code)
   const title = current.headingId ? label(current) : doc.title
-  void showPublish(modal, { documentId: doc.id, headingId: current.headingId, title, languageName }, () => settings('websites'), notice, postsDialog).catch(report)
+  // A translation goes out with its original, and an original with its first translation.
+  const documents = library.workspace!.project.documents
+  const partnerDoc = doc.translation ? documents.find(item => item.id === doc.translation!.of) : documents.find(item => item.translation?.of === doc.id)
+  const partner = partnerDoc && {
+    documentId: partnerDoc.id, title: partnerDoc.title, language: partnerDoc.language, languageName: nameOf(partnerDoc.language),
+    kind: doc.translation ? 'original' as const : 'translation' as const
+  }
+  void showPublish(modal, {
+    documentId: doc.id, headingId: current.headingId, title, language: doc.language, languageName: nameOf(doc.language),
+    ...(doc.translation ? { translationFrom: nameOf(doc.translation.from) } : {}), ...(partner ? { partner } : {})
+  }, () => settings('websites'), notice, postsDialog).catch(report)
+}
+// A document becomes a marked translation in another document; see translate-ui.ts.
+function translateDialog() {
+  const doc = activeDocument()
+  const workspace = library.workspace
+  if (!doc || !workspace) return
+  const where = { path: workspace.path, projectId: workspace.project.id }
+  void showTranslate(modal, {
+    doc, documents: workspace.project.documents, languages: languageOptions(packs), flush, notice,
+    create(next) {
+      const problem = api.save(where.path, where.projectId, next)
+      if (problem) return problem
+      workspace.project.documents.push(next)
+      return null
+    },
+    replace(next) {
+      const problem = api.save(where.path, where.projectId, next)
+      if (problem) return problem
+      reloadRecord(next)
+      return null
+    },
+    record: (id, characters) => api.recordWriting(where.path, where.projectId, id, 'translate', { characters }),
+    open: id => openDocument(id),
+    openSettings: () => settings('writing')
+  }).catch(report)
 }
 function postsDialog() {
   void showPosts(modal, (id, headingId) => openDocument(id, headingId ?? undefined)).catch(report)
@@ -681,6 +731,7 @@ function wire() {
   origins.onclick = () => showOrigins(!document.body.classList.contains('show-origins'))
   $('export').onclick = exportDialog
   $('publish').onclick = publishDialog
+  $('translate').onclick = translateDialog
   $('draft-action').onclick = () => void drafts().catch(report)
   language.onchange = async () => {
     const doc = activeDocument()

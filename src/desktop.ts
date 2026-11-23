@@ -1,4 +1,5 @@
-import type { AuthorSummary, AuthorshipPreview, ManuscriptFont, DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, FilePick, PickedFile, PostOverview, PostState, PublishRequest, SiteSummary } from './project-types'
+import type { AuthorSummary, AuthorshipPreview, ManuscriptFont, DocumentRecord, Version, Workspace, LibraryState, DraftChange, DraftResolution, FilePick, PickedFile, PostOverview, PostState, PublishRequest, SiteSummary, TranslatorSummary } from './project-types'
+import type { TranslationResult, TranslationSource } from './translation'
 
 import type { DictionaryPack } from './dictionary-packs'
 import type { DictionaryData } from './spelling'
@@ -25,7 +26,7 @@ export interface Desktop {
   exportAuthor(passphrase: string): Promise<string | null>
   importAuthor(passphrase: string): Promise<AuthorSummary | null>
   authorship(documentId: string, headingId: string | null): Promise<AuthorshipPreview>
-  recordWriting(path: string, projectId: string, documentId: string, kind: 'typing' | 'paste' | 'import', sample: WritingSample): void
+  recordWriting(path: string, projectId: string, documentId: string, kind: 'typing' | 'paste' | 'import' | 'translate', sample: WritingSample): void
   fonts(): Promise<ManuscriptFont[]>
   addFonts(characters: string): Promise<{ fonts: ManuscriptFont[]; added: string[] } | null>
   checkFont(id: string, characters: string): Promise<{ family: string; missing: string[] } | null>
@@ -40,9 +41,16 @@ export interface Desktop {
   copyText(text: string): Promise<void>
   openCloudflare(): Promise<void>
   pickFiles(kind: FilePick): Promise<PickedFile[]>
-  publishPost(request: PublishRequest): Promise<PostState>
+  publishPost(request: PublishRequest): Promise<PostState & { pair?: PostState }>
   previewPost(request: PublishRequest): Promise<string>
   onPublishProgress(listener: (done: number, total: number) => void): () => void
+  translatorStatus(): Promise<TranslatorSummary | null>
+  saveTranslator(provider: string, key: string, model: string): Promise<TranslatorSummary>
+  testTranslator(): Promise<TranslatorSummary>
+  removeTranslator(): Promise<void>
+  translate(source: TranslationSource, from: string, to: string): Promise<TranslationResult>
+  translateTexts(texts: string[], from: string, to: string): Promise<string[]>
+  onTranslateProgress(listener: (done: number, total: number) => void): () => void
   unpublishPost(siteId: string, documentId: string, headingId: string | null): Promise<void>
   pickFile(): Promise<InputFile | null>
   // font is the manuscript font choice; note says when the font could only be named.
@@ -54,6 +62,12 @@ export interface Desktop {
   reviewDraft(id: string): Promise<DraftChange[]>
   applyDraft(id: string, resolutions: DraftResolution[]): Promise<{ source: DocumentRecord; draft: DocumentRecord }>
   platform: string
+  // Google Drive backup is shown only when TINTO_EXPERIMENTAL=1.
+  experimental: boolean
+  version: string
+  // A newer release on GitHub, checked once when Tinto opens.
+  checkForUpdate(): Promise<{ version: string; url: string } | null>
+  openRelease(): Promise<void>
   library(): Promise<LibraryState>
   chooseFolder(folder?: string): Promise<LibraryState | null>
   newFolder(): Promise<LibraryState | null>

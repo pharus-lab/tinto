@@ -275,6 +275,9 @@ Paper sheets with a 9px radius, the Sheet shadow and the Scrim. The title uses t
 ### Settings
 One dialog with a list of sections on the left (Appearance, Writing, Project, Author, Websites) and one section at a time on the right, below a hairline under the title. The list is a vertical tab list: the arrows, Home and End move between sections, and the chosen one takes Wash with wine text, like the current project on Home. Each section is a column of groups 28px apart, each named by a Label. Settings reopens at the section shown last; Publish opens it at Websites.
 
+### Translation note
+Above a translation's text, at the manuscript's measure: a wine globe, one line of Pencil Grey that names the source language and the model, and two quiet wine buttons (*Open original*, *Translate again*), closed by a hairline. The generated words keep the Origin Slate tint (`--origin-ai`) in a translation even when *Show pasted and imported text* is off; a word the writer types loses it.
+
 ### Authorship line and origin marks
 In Publish, one line of Pencil Grey such as *Original · written in Tinto · signed as Ana*. In the manuscript, Origin Sand and Origin Slate tints, shown only on request.
 
