@@ -4,7 +4,7 @@ A local manuscript editor. Each project is a portable SQLite file with the exten
 
 These screenshots show Tinto 1.1 with fictional manuscripts, an example author, and a simulated website.
 
-Tinto 1.1.2 is the latest release, for macOS on Apple silicon. Version 1.1.3 is a local release candidate that adds Linux on amd64 and arm64.
+Tinto 1.1.3 runs on macOS (Apple silicon) and on Ubuntu or Debian Linux (amd64 and arm64).
 
 ![Tinto’s writing workspace with two sentence alternatives and nested wording choices beside the manuscript](docs/screenshots/writing-alternatives.png)
 
@@ -12,11 +12,20 @@ Try another wording without losing the first. Alternatives can contain their own
 
 ## Download
 
-Tinto 1.1.2 is available for **macOS on Apple silicon** on the [Releases](../../releases/latest) page, as `Tinto-1.1.2-mac-arm64.dmg`.
+Tinto 1.1.3 is on the [Releases](../../releases/latest) page for **macOS on Apple silicon** (`Tinto-1.1.3-mac-arm64.dmg`) and for **Ubuntu or Debian** on Intel or AMD (`tinto_1.1.3_amd64.deb`) and ARM (`tinto_1.1.3_arm64.deb`).
+
+**macOS**
 
 1. Open the DMG and drag **Tinto** to **Applications**. If you already have Tinto, quit it first and choose **Replace**: your manuscripts, settings and keys are kept, because they are stored apart from the app.
 2. Open Tinto. This release is not yet notarized by Apple, so the first time macOS says it cannot verify the app. Open **System Settings → Privacy & Security** and choose **Open Anyway** next to Tinto. macOS asks only once.
-3. To check the download, compare the output of `shasum -a 256 Tinto-1.1.2-mac-arm64.dmg` with `SHA256SUMS.txt` from the same release.
+3. To check the download, compare the output of `shasum -a 256 Tinto-1.1.3-mac-arm64.dmg` with `SHA256SUMS.txt` from the same release.
+
+**Ubuntu or Debian**
+
+1. Run `dpkg --print-architecture` to choose the installer: `amd64` or `arm64`.
+2. Quit Tinto if it is open, then run `sudo apt install ./tinto_1.1.3_amd64.deb` (or `./tinto_1.1.3_arm64.deb`). The same command upgrades an earlier version; your manuscripts, settings and keys are kept.
+3. Open **Tinto** from the applications menu or run `tinto`. Press Alt to show the menu bar. Saved keys use the desktop keyring; writing and saving work even when it is locked.
+4. To check the download, compare the output of `sha256sum tinto_1.1.3_amd64.deb` with `SHA256SUMS.txt` from the same release.
 
 **New versions.** When Tinto opens, and then once a day while it stays open, it asks GitHub for the latest release and, when there is a newer one, says so with a **Download** button that opens its release page. Each new version is announced once. Install the update from its release page using the installer for your platform. Projects stay on your computer. Turn the check off in **Settings → About**.
 
@@ -149,7 +158,7 @@ Tinto records who wrote each post and how, and signs it.
 ## Build it yourself
 
 - **macOS on Apple silicon** — `npm run package -- darwin arm64`, then open `out/Tinto-darwin-arm64/Tinto.app`. Run `npm run dmg` to create the DMG, checksums and corresponding Pandoc source archive under `out/release/<version>/`. This local build uses an ad-hoc signature and is not notarized.
-- **Ubuntu or Debian** — Build the local candidate as described below. Use `dpkg --print-architecture` to choose the installer. Quit Tinto, then run `sudo apt install ./out/tinto_1.1.3_amd64.deb` on Intel or AMD, or use `./out/tinto_1.1.3_arm64.deb` on ARM64. The same command upgrades an earlier version. Launch **Tinto** from the applications menu or run `tinto` in a terminal. Press Alt to show the Linux menu bar. From a directory containing the release files, run `sha256sum -c SHA256SUMS.txt` to verify them.
+- **Ubuntu or Debian** — Build the installer as described below, on Linux. Use `dpkg --print-architecture` to choose it. Quit Tinto, then run `sudo apt install ./out/tinto_<version>_amd64.deb` on Intel or AMD, or use `./out/tinto_<version>_arm64.deb` on ARM64. The same command upgrades an earlier version. Launch **Tinto** from the applications menu or run `tinto` in a terminal. Press Alt to show the Linux menu bar. From a directory containing the release files, run `sha256sum -c SHA256SUMS.txt` to verify them.
 - **From source** — With Node.js 24.13 or later and npm, run `npm ci` and `npm start`. The first run downloads Electron. Subsequent writing sessions work offline.
 
 ## Build and check
@@ -170,6 +179,7 @@ Original Tinto code is released under the MIT license. Tinto includes Harper.js 
 
 ## Verification record
 
+- **1.1.3 installers, macOS and Linux.** On the mounted macOS installer, 41 desktop checks passed (4 Linux-only skipped) and the upgrade regression passed from v1.0.0, v1.1.0, v1.1.1 and v1.1.2. Both Linux installers installed with `apt` on Ubuntu 24.04 with the expected package, permissions, launcher and unpacked assets; the arm64 app launched on a virtual display. Linux desktop behavior was tested on Linux computers with the release candidate. See [the v1.1.3 record](docs/v1.1.3-release.md).
 - **1.1.2 installer, macOS Apple silicon.** All 40 checks across the desktop suites passed against the mounted installer, and the upgrade regression passed from the v1.0.0, v1.1.0 and v1.1.1 installers. The source suite passed 120 of 120. See [the v1.1.2 record](docs/v1.1.2-release.md).
 - **1.1.1 installer, macOS Apple silicon.** All 38 checks across the desktop suites passed against the mounted installer, and the upgrade regression passed from both the v1.0.0 and the v1.1.0 installers. The source suite passed 115 of 115. The writing coach was checked against OpenAI `gpt-6.2-astra` in English, English (UK) and Spanish (Mexico): every note quoted its passage exactly. See [the v1.1.1 record](docs/v1.1.1-release.md).
 - **1.1.0 installer, macOS Apple silicon.** All 37 checks across the desktop suites and the v1.0.0 upgrade regression passed against the mounted installer, with no failures or skips. Projects, alternatives, drafts, history, authorship records, and preferences survived the upgrade. Harper checked approximately 80,000 words offline in 4.34 seconds with a maximum renderer scheduling gap of 30 ms. The disk image, signature, bundled assets, and checksums passed verification. It was published on 2026-11-23 as the v1.1.0 release.

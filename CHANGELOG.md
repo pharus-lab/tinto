@@ -1,7 +1,8 @@
 # Changelog
 
-## 1.1.3 — release candidate
+## 1.1.3 — 2026-11-23
 
+- Tinto for **Ubuntu and Debian** on amd64 and arm64, as `.deb` installers built and checked on Linux, alongside the macOS installer.
 - The Linux window opens on Wayland desktops that use software rendering.
 - Debian installers for amd64 and arm64 verify the application version and architecture before packaging. The Linux window groups under Tinto’s launcher icon and keeps the menu bar hidden until you press Alt.
 - A failed save keeps pending typing evidence available for retry. Renaming the active project preserves subsequent authorship records. A failure to remember open tabs no longer prevents the final manuscript edit from being saved on close.
